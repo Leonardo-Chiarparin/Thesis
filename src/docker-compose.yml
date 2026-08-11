@@ -1,6 +1,0 @@
-services:
-  coder:
-    build:
-      context: ./build/coder
-      dockerfile: Dockerfile
-    image: coder
