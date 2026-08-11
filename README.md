@@ -1351,8 +1351,7 @@ The DPDK media packet counter is attributed to the corresponding encoded frame t
 **Conversion**
 
 ```text
-conversion_ms = accumulated time used to copy received point fields
-                from packet AoS layout into host SoA frame vectors
+conversion_ms = accumulated time used to copy received point fields from packet AoS layout into host SoA frame vectors
 ```
 
 It does not represent the entire DPDK receive interval.
@@ -1910,8 +1909,7 @@ asynchronous first-PES encode latency
 For example:
 
 ```text
-Encoder total_processing_ms
-    = conversion_ms + projection_ms + tx_duration_ms
+Encoder total_processing_ms = conversion_ms + projection_ms + tx_duration_ms
 ```
 
 but:
