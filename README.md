@@ -2694,8 +2694,6 @@ The next work should be divided into **functional completion**, **performance va
 9. final user-facing QoE evaluation
 ```
 
-The previously removed cross-node Python analysis layer can be reintroduced after the current native telemetry interfaces are considered stable.
-
 ---
 
 ## 📚 23. References
