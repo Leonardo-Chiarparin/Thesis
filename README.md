@@ -2303,7 +2303,7 @@ It is therefore a **partial Camera-to-Encoder measurement**. Final Camera-to-Use
 
 ### 19.7 NSH Interoperability Is Not Claimed
 
-SPI / SI service semantics are inspired by NSH and the SFC architecture, but the custom fixed INT representation is not RFC 8300 MD-Type-2 TLV encoding. This distinction should remain explicit in the thesis and README.
+SPI / SI service semantics are inspired by NSH and the SFC architecture, but the custom fixed INT representation is not RFC 8300 MD-Type-2 TLV encoding. This distinction should remain explicit.
 
 ### 19.8 AQM Is Experimental
 
