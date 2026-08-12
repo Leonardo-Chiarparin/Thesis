@@ -2163,7 +2163,7 @@ host_overhead_ms ~= 2.449 ms
 
 Their sum is consistent with the broader `projection_ms` interval once the defined host residual is included.
 
-The baseline-corrected Camera-to-Encoder arrival indicator has a mean close to zero (`~0.016 ms`) because the first observed Camera-to-Encoder interval is deliberately absorbed into `global_clock_offset`. This metric therefore describes **relative variation**, not absolute one-way network delay.
+The baseline-corrected Camera-to-Encoder arrival indicator has a mean close to zero ( `~0.016 ms` ) because the first observed Camera-to-Encoder interval is deliberately absorbed into `global_clock_offset`. This metric therefore describes **relative variation**, not absolute one-way network delay.
 
 The current `encode_h265_ms` mean is approximately:
 
