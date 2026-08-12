@@ -66,6 +66,8 @@ def process_data( input_directory: str, output_directory: str, telemetry_file: s
 
             t_read_end = time.perf_counter()
 
+            record[ "read_ascii_ms" ] = ( t_read_end - t_read_start ) * 1000.0
+
             vertex_data = ply_data[ "vertex" ]
             num_points = vertex_data.count
             
