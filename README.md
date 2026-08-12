@@ -2304,7 +2304,7 @@ CUDA / host projection probes are:
 
 The dominant component of the current projection interval is therefore host-to-device transfer, not the core projection kernel itself. This identifies memory movement as a relevant optimisation target.
 
-The baseline-corrected `camera_to_node_latency_ms` has a mean of approximately `0.016 ms` by construction and must not be read as an absolute one-way network delay.
+The baseline-corrected Camera-to-Encoder arrival indicator has a mean close to zero (`~0.016 ms`) because the first observed Camera-to-Encoder interval is deliberately absorbed into `global_clock_offset`. This metric therefore describes **relative variation**, not absolute one-way network delay.
 
 The asynchronous codec-output indicator is:
 
@@ -2526,48 +2526,7 @@ user-perceived QoE
 
 ### 19.8 NSH Interoperability Is Not Claimed
 
-SPI / SI service semantics are inspired by RFC 8300 and the SFC architecture, but the custom `nsh_hdr` + `int_hdr` representation is not an RFC 8300 MD-Type-2 TLV encoding.
-
-In particular, the project-specific metadata follows the 8-byte steering structure directly and the current base-header fields are interpreted only by the closed implementation.
-
-The correct academic wording is therefore:
-
-```text
-NSH-inspired / NSH-style service-path header
-```
-
-not:
-
-```text
-fully RFC 8300-compliant NSH implementation
-```
-
-### 19.9 The `int_hdr` Block Is Not Standard INT
-
-The identifier `int_hdr` is used in the code for cumulative geometric metadata, but the block is not presented as an implementation of a standard In-band Network Telemetry wire format.
-
-It is a project-specific metadata carrier for:
-
-```text
-coordinate sums
-bounding extrema
-active point count
-original point count
-```
-
-### 19.10 The Encoder Is Not MPEG V-PCC / G-PCC
-
-The Encoder performs a custom six-view projection, packs geometry / texture / occupancy raster layers, produces one I420 frame, and compresses that frame with HEVC / NVENC.
-
-This is **video-based coding of a custom representation**, not standards-conformant MPEG V-PCC. No V-PCC patch generation, occupancy-map syntax, geometry video syntax, atlas metadata syntax, or V3C bitstream conformance is claimed.
-
-Likewise, the pipeline is not G-PCC.
-
-### 19.11 Current Data-Volume Reduction Is Not a Rate-Distortion Result
-
-The approximately `370.95:1` raw-point-payload-to-MPEG-TS byte ratio is a system-level volume comparison.
-
-It cannot be interpreted as a compression-quality result until the Decoder exists and reconstructed geometry / texture are evaluated using suitable objective metrics such as point-to-point / point-to-plane distortion, attribute quality, or application-specific perceptual measures.
+SPI / SI service semantics are inspired by NSH and the SFC architecture, but the custom fixed INT representation is not RFC 8300 MD-Type-2 TLV encoding. This distinction should remain explicit in the thesis and README.
 
 ### 19.12 AQM Is Experimental
 
@@ -2735,7 +2694,7 @@ The next work should be divided into **functional completion**, **performance va
 9. final user-facing QoE evaluation
 ```
 
-The previously removed cross-node Python analysis layer can be reintroduced after the native telemetry interfaces are stable. At that stage, the analysis tooling should preserve metric semantics rather than indiscriminately summing quantities measured at different asynchronous boundaries.
+The previously removed cross-node Python analysis layer can be reintroduced after the current native telemetry interfaces are considered stable.
 
 ---
 
