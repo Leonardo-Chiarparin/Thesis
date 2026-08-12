@@ -2423,8 +2423,6 @@ The principal remaining implementation stages are:
 10. final full-chain core-allocation re-evaluation
 ```
 
-The previously removed cross-node Python analysis layer can be reintroduced after the current native telemetry interfaces are considered stable.
-
 ---
 
 ## 📚 23. References
