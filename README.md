@@ -48,7 +48,7 @@ User -> SFF3 -> SFF2 -> Encoder -> SFF2 -> SFF1 -> Camera
 
 However, in the current code, the implemented feedback path effectively terminates at `SFF1`: the Encoder consumes pose / zoom / temporal-control values and forwards the control packet to `SFF1`, while `SFF1` consumes the temporal skip. The current Camera implementation does **not** parse or apply feedback packets.
 
-> **Repository snapshot note:** the previously discussed cross-node `pipeline/` analysis directory and its associated Python analysis script have been **temporarily removed**. This README therefore documents the native node telemetry exported by `Camera`, `SFF1`, `SFF2`, and `Encoder`, but it does not advertise a cross-node plotting script that is not presently part of the repository.
+> **Repository snapshot note:** this README documents the native node telemetry exported by `Camera`, `SFF1`, `SFF2`, and `Encoder`, but it does not advertise a cross-node plotting script that is not presently part of the repository.
 
 ---
 
@@ -335,8 +335,8 @@ Maximum size:
 
 ```text
 IPv4 packet = 20 + 8 + 40 + 1280 = 1348 B
-L2 frame    = 14 + 1348           = 1362 B
-IPv4 margin = 1500 - 1348         = 152 B
+L2 frame    = 14 + 1348          = 1362 B
+IPv4 margin = 1500 - 1348        = 152 B
 ```
 
 The value `80` is intentionally conservative because the same point packet will later receive the additional service metadata inserted by `SFF1`.
