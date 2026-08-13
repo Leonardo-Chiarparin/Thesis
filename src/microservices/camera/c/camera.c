@@ -36,7 +36,7 @@
 #define CACHE_MODE CACHE_MODE_MIDDLE
 
 #define PACING_MARGIN 100 // %
-#define PACING_MODE 1
+#define PACING_MODE 0
 
 #define END_OF_STREAM 0xFFFFFFFF
 #define WAITING_TIME 5000
@@ -548,7 +548,7 @@ int main( int argc, char *argv[] ) {
     if ( port_init( PORT_TX, mbuf_pool ) != 0 )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Virtual port configuration failed...\n" );
 
-    printf( "\n[SYSTEM] Preparing volumetric data ( modality: %d )...\n", CACHE_MODE );
+    printf( "\n[SYSTEM] Preparing volumetric data for modality \"%s\"...\n", ( CACHE_MODE == CACHE_MODE_BEST ) ? "BEST" : ( CACHE_MODE == CACHE_MODE_MIDDLE ) ? "MIDDLE" : ( CACHE_MODE == CACHE_MODE_WORST ) ? "WORST" : "" );
     
     for ( int i = 0; i < K_FRAMES; i++ ) {
         snprintf( frames[ i ].file_path, sizeof( frames[ i ].file_path ), "%s/loot_vox10_%d.bin", SEQUENCE_FOLDER, i + 1000 );

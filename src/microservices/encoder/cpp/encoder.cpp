@@ -640,7 +640,7 @@ static int worker_loop( __rte_unused void *arg ) {
             if ( active_skip == 0 ) 
                 active_skip = 1;
 
-            uint64_t timeout_cycles = ( timer_hz / ( TARGET_FPS / active_skip ) ); 
+            uint64_t timeout_cycles = ( timer_hz / ( TARGET_FPS / active_skip ) )* 3; 
 
             bool is_complete = ( candidate.x.size() == candidate.original_points );
             bool is_outdated = ( candidate.last_arrival > 0 && ( rte_get_timer_cycles() - candidate.last_arrival ) > timeout_cycles );
