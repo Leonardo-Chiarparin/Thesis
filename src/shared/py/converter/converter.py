@@ -126,7 +126,20 @@ def process_data( input_directory: str, output_directory: str, telemetry_file: s
             writer = csv.DictWriter( fcsv, fieldnames = [ "filename", "status", "num_points", "read_ascii_ms", "write_bin_ms", "conversion_ms", "size_ascii_bytes", "size_bin_bytes" ], delimiter = ";" ) 
             writer.writeheader() 
 
-            writer.writerows( telemetry_records )
+            telemetry_format = []
+
+            for record in telemetry_records:
+                record_format = {}
+
+                for k, v in record.items():
+                    if isinstance( v, float ):
+                        record_format[ k ] = f"{v:.3f}"
+                    else:
+                        record_format[ k ] = v
+
+                telemetry_format.append( record_format )
+
+            writer.writerows( telemetry_format )
 
         print( f"\n[SYSTEM] Conversion telemetry saved to: \"{telemetry_file}\"" )
     except Exception as e:

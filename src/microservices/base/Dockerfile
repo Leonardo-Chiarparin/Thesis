@@ -6,6 +6,7 @@ ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
 
 # "--no-install-recommends" avoids downloading unnecessary extra packages, while "rm -rf /var/lib/apt/lists/*" clears the "apt" cache after installation
+# Only explicit "build" / runtime dependencies are therefore considered. In addition, removing the package index afterwards keeps the reusable "base" image smaller & deterministic
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     iproute2 \
@@ -22,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# "DPDK" ( "Stable" version "22.11 LTS" )
+# Collects & sets the fixed "DPDK 22.11.4 LTS" ( "stable" version ) baseline used by the whole experiment
 RUN wget http://fast.dpdk.org/rel/dpdk-22.11.4.tar.xz && \
     tar -xf dpdk-22.11.4.tar.xz && \
     cd dpdk-stable-22.11.4 && \

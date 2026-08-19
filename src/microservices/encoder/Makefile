@@ -4,16 +4,18 @@ DPDK_LIBS = $(shell pkg-config --libs libdpdk)
 CXX = g++
 NVCC = nvcc
 
-# Variables to guarantee high user-space performance 
-CXXFLAGS = -O3 -march=native -ffast-math -funroll-loops $(DPDK_CFLAGS) -I./h -std=c++14 -Wall
-NVCCFLAGS = -O3 -arch=sm_61 -I./h -std=c++14 -Xcompiler -fPIC
-LDFLAGS = $(DPDK_LIBS) -lcudart -lpthread
+CPU_ARCH ?= native
+CUDA_ARCH ?= sm_61
+CUDA_HOME ?= /usr/local/cuda
 
-LDFLAGS = $(DPDK_LIBS) -L/usr/local/cuda/lib64 -lcudart -lpthread
+# Compiler settings to guarantee optimal user-space execution performance 
+CXXFLAGS = -O3 -march=$(CPU_ARCH) -ffast-math -funroll-loops $(DPDK_CFLAGS) -I./h -std=c++14 -Wall
+NVCCFLAGS = -O3 -arch=$(CUDA_ARCH) -I./h -std=c++14 -Xcompiler -fPIC
+LDFLAGS = $(DPDK_LIBS) -L$(CUDA_HOME)/lib64 -lcudart -lpthread
 
 TARGET = /tmp/encoder_dpdk
 
-# Forces make to run these elements ignoring cached files
+# Declares orchestration targets that do not map to generated output files
 .PHONY: all clean
 
 all: $(TARGET)

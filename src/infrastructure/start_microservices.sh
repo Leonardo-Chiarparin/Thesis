@@ -11,7 +11,7 @@ echo -e "\n[SYSTEM] Removing any existing microservices...\n"
 
 sudo docker rm -f camera sff1 encoder sff2 decoder sff3 user 2>/dev/null || true
 
-# Function to launch containers in detached mode, with the specified name and folder
+# Launches containers sequentially in detached mode, configuring explicit naming, working directories, "CPU" affinity, optional "GPU" access, shared "HugePages" & designed "DPDK" "lcores"
 start_node() {
   local NODE_NAME=$1
   local FOLDER_NAME=$2
@@ -66,12 +66,12 @@ wait_for_dpdk_init "/tmp/vh-sff2-dec"
 wait_for_dpdk_init "/tmp/vh-sff2-sff3"
 
 start_node "sff3" "sff3" "3" "false" "3"
-# wait_for_dpdk_init "/tmp/vh-sff3-in"
-# wait_for_dpdk_init "/tmp/vh-sff3-eg"
+# wait_for_dpdk_init "/tmp/vh-sff3-sff2"
+# wait_for_dpdk_init "/tmp/vh-sff3-usr"
 
 start_node "sff1" "sff1" "3" "false" "3"
-wait_for_dpdk_init "/tmp/vh-sff1-in"
-wait_for_dpdk_init "/tmp/vh-sff1-eg"
+wait_for_dpdk_init "/tmp/vh-sff1-cam"
+wait_for_dpdk_init "/tmp/vh-sff1-sff2"
 
 start_node "camera" "camera" "2" "false" "2"
 wait_for_dpdk_init "/tmp/vh-cam"
