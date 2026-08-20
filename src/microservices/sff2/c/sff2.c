@@ -159,6 +159,7 @@ struct point_tx {
 
 struct temporal_payload {
     uint32_t frame_id;
+    uint64_t timestamp; 
     uint16_t skip;
     uint16_t padding;
 } __attribute__((__packed__));
@@ -846,7 +847,7 @@ static inline bool transmit_control_packet( uint16_t tx_port, struct rte_mbuf *m
 
 static inline void classify_temporal_control( struct rte_mbuf *m ) {
 
-    // Purpose: It classifies an exact 8-byte Encoder-originated temporal update by replacing its shell with required condition ( "SPI 200", "SI 255" ) & forwarding the payload unchanged to SFF1
+    // Purpose: It classifies an exact 16-byte Encoder-originated temporal update by replacing its shell with required condition ( "SPI 200", "SI 255" ) & forwarding the payload unchanged to SFF1
 
     const size_t old_net_len = sizeof( struct net_hdr );
     const size_t new_outer_len = sizeof( struct temporal_hdr );

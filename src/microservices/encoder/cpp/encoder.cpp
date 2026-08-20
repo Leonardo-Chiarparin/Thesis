@@ -242,7 +242,7 @@ static inline uint16_t mpeg_ts_pid( const uint8_t *ts ) {
 static inline bool ts_starts_video_pes( const uint8_t *ts ) {
 
     // Purpose: It identifies a video "Packetized Elementary Stream" ( "PES" ) boundary by combining the "MPEG-TS" payload-unit-start indicator with the elementary-sequence start code.
-    //          Such parser is employeed only for source-frame association. Complete transport packets remain byte-preserved & the encoded "H.265" components are never rewritten
+    //          Such a parser is employed only for source-frame association. Full transport packets remain byte-preserved, & the encoded "H.265" components are never rewritten
 
     if ( ts[ 0 ] != 0x47 )
         return false;
@@ -272,7 +272,7 @@ static void ffmpeg_init() {
 
     // Purpose: It creates operating-system inter-process communication "pipes" & spawns the persistent hardware-accelerated "H.265" subprocess before timed frame processing.
     //          The input element remains blocking only for the dedicated writer thread, while "FFmpeg" applies the configured queue argument & low-delay "NVENC" / "muxer" settings.
-    //          This function isolates "codec"-side management from the "DPDK" "worker" while keeping the session startup outside the measured application stream
+    //          This function segregates "codec"-side management from the "DPDK" "worker", thereby keeping session startup outside the measured application stream
     
     if ( pipe( ffmpeg_in ) < 0 || pipe( ffmpeg_out ) < 0 ) {
         perror( "[SYSTEM] Error: Failed to create \"FFmpeg\" pipes...\n" );
@@ -319,7 +319,7 @@ static void ffmpeg_init() {
 
 static inline uint32_t writer_pending_frames() {
 
-    // Purpose: It calculates the number of pending frames for "FFmpeg" elaboration
+    // Purpose: It calculates the number of frames awaiting "FFmpeg" elaboration
 
     pthread_mutex_lock( &writer_mutex );
 
@@ -332,8 +332,8 @@ static inline uint32_t writer_pending_frames() {
 
 static inline int acquire_yuv_slot( struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz, double *slot_wait_ms ) {
 
-    // Purpose: It acquires a preallocated "I420" memory slot, maintaining network service processing whenever all three slots are occupied.
-    //          During contention, raw input & currently available encoded output continue to be drained prior to the wait condition is re-evaluated
+    // Purpose: It acquires a preallocated "I420" memory slot, maintaining network service processing whenever all three spots are occupied.
+    //          During contention, raw input & currently available encoded output are actively drained before the wait condition is re-evaluated
 
     uint64_t wait_start = rte_get_timer_cycles();
 
@@ -500,8 +500,8 @@ static void ffmpeg_writer_start() {
 
 static void ffmpeg_preroll() {
 
-    // Purpose: It activates the persistent "FFmpeg" / "NVENC" session with an initial private blank "I420" "Group of Pictures" ( "GOP" ) before application telemetry commences.
-    //          Pre-roll frames reuse the normal blocking writer & parser but never allocate network packets or populate per-frame metrics
+    // Purpose: It activates the persistent "FFmpeg" / "NVENC" session with an initial private blank "I420" "Group of Pictures" ( "GOP" ) prior to commencing application telemetry.
+    //          Pre-roll frames utilize the normal blocking writer & parser but strictly refrain allocating network packets or populating per-frame metrics
 
     struct rte_mbuf *tx_bufs[ BURST_SIZE ];
     int burst_idx = 0;
@@ -564,7 +564,7 @@ static void ffmpeg_preroll() {
 
 static void ffmpeg_writer_stop() {
 
-    // It terminates the dedicated "FFmpeg" writer thread, ensuring completion of all remaining tasks
+    // It terminates the dedicated "FFmpeg" writer thread, ensuring robust completion of all residual tasks
 
     if ( !writer_started )
         return;
@@ -580,7 +580,7 @@ static void ffmpeg_writer_stop() {
 
 static inline void wait_for_idle( struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz ) {
     
-    // It halts execution until all pending writer elements are processed, actively draining the network & "FFmpeg" outputs
+    // It halts execution until all pending writer elements are completely processed, vigorously draining the network & "FFmpeg" outputs
     
     while ( writer_pending_frames() > 0 ) {
         poll_network_rx();
@@ -660,9 +660,9 @@ static void telemetry_to_csv() {
     printf( "[SYSTEM] Metrics successfully exported to: \"%s\".\n", TELEMETRY_PATH );
 }
 
-static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, int *burst_idx, uint32_t *tx_packets, uint32_t *tx_zero_accepts, uint32_t *tx_partial_accepts, uint32_t *tx_resubmit_calls, uint32_t *tx_resubmitted_packets, uint64_t *last_egress_cycles = NULL ) {
+static inline bool flush_tx_burst( struct rte_mbuf **tx_bufs, int *burst_idx, uint32_t *tx_packets, uint32_t *tx_zero_accepts, uint32_t *tx_partial_accepts, uint32_t *tx_resubmit_calls, uint32_t *tx_resubmitted_packets, uint64_t *last_egress_cycles = NULL ) {
     if ( *burst_idx == 0 )
-        return;
+        return true;
 
     uint16_t sent = 0;
     uint16_t retries = 0;
@@ -710,7 +710,9 @@ static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, int *burst_idx, ui
                 for ( int k = sent; k < *burst_idx; k++ )
                     rte_pktmbuf_free( tx_bufs[ k ] );
 
-                break;
+                *burst_idx = 0;
+
+                return false;
             }
 
             uint16_t pause_count = ( retries < pause_window ) ? retries : pause_window;
@@ -721,11 +723,13 @@ static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, int *burst_idx, ui
     }
 
     *burst_idx = 0;
+
+    return true;
 }
 
 static inline bool send_temporal_control( uint32_t source_frame_id, uint16_t requested_skip ) {
 
-    // Purpose: It originates the plain 8-byte temporal control message consumed by the SFF2 classifier, deliberately omitting "NSH" encapsulation
+    // Purpose: It originates the plain 16-byte temporal control message consumed by the SFF2 classifier, deliberately omitting "NSH" encapsulation
 
     if ( requested_skip == 0 )
         requested_skip = 1;
@@ -775,18 +779,18 @@ static inline bool send_temporal_control( uint32_t source_frame_id, uint16_t req
     ipv4 -> hdr_checksum = 0;
     ipv4 -> hdr_checksum = rte_ipv4_cksum( ipv4 );
 
+    temporal -> timestamp = rte_cpu_to_be_64( rte_get_timer_cycles() );
+
     struct rte_mbuf *control_bufs[ 1 ] = { m };
     int control_burst_idx = 1;
 
-    flush_tx_burst( control_bufs, &control_burst_idx, NULL, NULL, NULL, NULL, NULL );
-
-    return true;
+    return flush_tx_burst( control_bufs, &control_burst_idx, NULL, NULL, NULL, NULL, NULL );
 }
 
 static inline bool geometry_from_sff1( const frame_buffer &fb, const struct host_point *active_points, uint32_t active_point_count, geometry_result *result, uint64_t timer_hz ) {
 
-    // Purpose: It utilizes the latest frame-local geometry snapshot provieded by SFF1 exclusively when the active point count matches the assembled set.
-    //          Whole frames exploit centroid, extents, bounding-box centre & "max_r". An "EOS"-finalized partial component may apply the progressive mathematics but recomputes the exact radius over its active collection
+    // Purpose: It exploits the latest frame-local geometry snapshot provided by SFF1 exclusively when the active point count matches the assembled set.
+    //          Whole frames apply centroid, extents, bounding-box centre & "max_r". An "EOS"-finalized partial component may reuse the progressive mathematics but recomputes the precise radius over its active collection
 
     uint32_t metadata_active_points = rte_be_to_cpu_32( fb.geo.active_point_count );
 
@@ -924,7 +928,7 @@ static inline bool geometry_recompute_local( const struct host_point *active_poi
 
 static inline bool resolve_geometry( const frame_buffer &fb, const struct host_point *active_points, uint32_t active_point_count, geometry_result *result, uint64_t timer_hz ) {
 
-    // Purpose: It resolves the optimal geometry source based on the global "OFFLOAD_MODE" configuration & metadata validity
+    // Purpose: It resolves the optimal spatial source predicated on the global "OFFLOAD_MODE" configuration & metadata validity
 
     if ( OFFLOAD_MODE ) {
         if ( geometry_from_sff1( fb, active_points, active_point_count, result, timer_hz ) )
@@ -936,8 +940,8 @@ static inline bool resolve_geometry( const frame_buffer &fb, const struct host_p
 
 static inline void update_workload_controller( uint32_t frame_id, uint16_t active_skip, double service_ms, double wait_raw_queue_ms, uint32_t frame_backlog, uint32_t codec_backlog, struct telemetry_csv *telemetry ) {
 
-    // Purpose: It applies one-level temporal adaptation following the establishment of steady-state conditions in the raw data path
-    //          Samples remain observable in telemetry but are discarded from the decision "EWMA" when the controller becomes armed
+    // Purpose: It applies one-level temporal adaptation following the establishment of steady-state conditions within the raw data path
+    //          Samples remain observable in telemetry but are consistently discarded from the decision "EWMA" until the controller becomes armed
 
     if ( active_skip == 0 )
         active_skip = 1;
@@ -1064,7 +1068,7 @@ static inline void update_workload_controller( uint32_t frame_id, uint16_t activ
 
 static inline void begin_mpeg_frame( struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz ) {
 
-    // Purpose: It associates a newly detected video "PES" boundary with the oldest frame submitted to "FFmpeg", settling its encoding latency interval
+    // Purpose: It associates a newly detected video "PES" boundary with the oldest frame submitted to "FFmpeg", effectively settling its encoding latency interval
 
     if ( current_out_frame_id > 0 && !is_preroll_frame( current_out_frame_id ) && *burst_idx > 0 ) {
         uint32_t old_idx = ( current_out_frame_id - 1 ) % K_FRAMES;
@@ -1093,7 +1097,7 @@ static inline void begin_mpeg_frame( struct rte_mbuf **tx_bufs, int *burst_idx, 
 
 static inline void emit_mpeg_payload( const uint8_t *mpeg_data, uint16_t mpeg_len, struct rte_mbuf **tx_bufs, int *burst_idx ) {
 
-    // Purpose: It transmits a bounded "UDP" "MPEG-TS" media chunk to the SFF2 proxy, attaching reconstruction metadata without exposing service-chain state
+    // Purpose: It transmits a restricted "UDP" "MPEG-TS" media chunk to the SFF2 proxy, affixing reconstruction details without exposing service-chain state
 
     if ( current_out_frame_id == 0 || is_preroll_frame( current_out_frame_id ) || mpeg_len == 0 )
         return;
@@ -1149,7 +1153,7 @@ static inline void emit_mpeg_payload( const uint8_t *mpeg_data, uint16_t mpeg_le
 
 static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz ) {
 
-    // Purpose: It reconstructs complete 188-byte "MPEG-TS" units from arbitrary "pipe" reads, detects video-"PES" frontiers & emits limited conveyance groups
+    // Purpose: It reconstructs complete 188-byte "MPEG-TS" units from arbitrary "pipe" reads, detects video-"PES" frontiers, & emits appropriately limited conveyance groups
 
     ts_pending.insert( ts_pending.end(), data, data + data_len );
 
@@ -1216,7 +1220,7 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
 
 static inline void drain_ffmpeg( struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz ) {
 
-    // Purpose: It asynchronously drains hardware-encoded "MPEG-TS" bytes, associating the first outcome with its source frame & relaying the media chunk without blocking the data path "worker"
+    // Purpose: It asynchronously drains hardware-encoded "MPEG-TS" bytes, associates the first outcome with its source frame, & relays the media chunk without imposing blocking constraints the data path "worker"
 
     while ( 1 ) {
         uint8_t read_buffer[ FFMPEG_READ_SIZE ];
@@ -1241,8 +1245,8 @@ static inline void drain_ffmpeg( struct rte_mbuf **tx_bufs, int *burst_idx, uint
 
 static inline void poll_network_rx() {
 
-    // Purpose: It drains the SFF2-facing standard "UDP" receive queue, situating valid point packet at deterministic offsets derived from "sequence_number" values.
-    //          Geometry metadata are supplied by the SFF2 proxy as application-side context, while "NSH" elaboration remain outside Encoder
+    // Purpose: It drains the SFF2-facing standard "UDP" receive queue, situating valid point packet at deterministic offsets derived from "sequence_number" parameters.
+    //          Geometry metadata is furnished by the SFF2 proxy serving as application-side context, while "NSH" elaboration remains isolated outside the Encoder domain
 
     struct rte_mbuf *bufs[ BURST_SIZE ];
 
@@ -1701,7 +1705,7 @@ static int worker_loop( __rte_unused void *arg ) {
 
 int main( int argc, char *argv[] ) {
 
-    // Purpose: It starts the Encoder service function, persistent hardware "H.265" subprocess, "CUDA" / "I420" resources, & "FFmpeg" components before delegating data-path processing to "DPDK" "worker"
+    // Purpose: It starts the Encoder service function, persistent hardware "H.265" subprocess, "CUDA" / "I420" resources, & "FFmpeg" components before delegating data-path processing to the "DPDK" "worker"
 
     setvbuf( stdout, NULL, _IONBF, 0 );
 

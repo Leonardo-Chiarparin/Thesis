@@ -16,64 +16,64 @@
 
 ## 🧭 Realization Status
 
-This repository is an experimental research platform rather than a production-ready "Service Function Chaining" ( "SFC" ) framework. The current snapshot implements & evaluates the upstream portion of the intended volumetric chain, while the downstream reconstruction & user-facing stages are still under development.
+This repository serves as an experimental research platform rather than a production-ready "Service Function Chaining" ( "SFC" ) framework. The current snapshot implements & evaluates the upstream segment of the intended volumetric chain, while the downstream reconstruction & user-facing stages remain under active development.
 
 | Node | Condition | Responsibility |
 |---|---|---|
 | `Camera` | Validated | "DPDK"-native point-cloud source, warm-mode file acquisition, frame packetisation, absolute scheduling, temporal selection, & initial telemetry |
-| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-level spatial aggregation, exact frame-completing radius evaluation, experimental "Network Service Header" ( "NSH" ) metadata insertion, & control ( "Temporal" ) decapsulation to `Camera` |
-| `SFF2`<br>( Route 0 ) | Validated | Stateful dispatcher & proxy for the `SFF1` -> `SFF2` -> `Encoder` that removes outer encapsulation before "SFC"-unaware application elements, preserving relevant application content |
-| `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback retrieval, workload-driven monitoring, "CUDA" projection, "FFmpeg" / "NVENC" pre-roll & encoding, "MPEG-TS" chunking & attribution, & "UDP" output segmentation |
-| `SFF2`<br>( Route 1 ) | Validated | Proxy-maintained `Encoder` -> `SFF2` -> `Decoder` path ( "Main" ) transition & compressed-media relay heading for prospective `Decoder` |
-| `Decoder` | Under<br>development | "H.265" decoding & spatial reconstruction, intended to remain "SFC"-unaware & receive an ordinary application datagram from the proxy boundary |
-| `SFF2`<br>( Route 2 ) | Reserved, not operational | Upcoming `Decoder` -> `SFF2` -> `SFF3` passage. The application format & route-specific telemetry are intentionally left undefined until the `Decoder` output contract is stabilised |
-| `SFF3` | Under<br>development | Final data path stage & user-side command entrypoint ( "Pose" ) |
+| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-level spatial aggregation, exact frame-completing radius evaluation, experimental "Network Service Header" ( "NSH" ) metadata insertion, & control ( "Temporal" ) decapsulation directed to `Camera` |
+| `SFF2`<br>( Route 0 ) | Validated | Stateful dispatcher & proxy for the `SFF1` -> `SFF2` -> `Encoder` path; removes outer encapsulation prior to "SFC"-unaware application elements, thereby preserving relevant application content |
+| `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback retrieval, workload-driven monitoring, "CUDA" projection, "FFmpeg" / "NVENC" pre-roll & encoding, "MPEG-TS" chunking & attribution, alongside "UDP" output segmentation |
+| `SFF2`<br>( Route 1 ) | Validated | Proxy-maintained `Encoder` -> `SFF2` -> `Decoder` path ( "Main" ) transition & compressed-media relay directed towards the prospective `Decoder` |
+| `Decoder` | Under<br>development | "H.265" decoding & spatial reconstruction; intended to remain "SFC"-unaware & receive an ordinary application datagram from the proxy boundary |
+| `SFF2`<br>( Route 2 ) | Reserved, not operational | Upcoming `Decoder` -> `SFF2` -> `SFF3` passage. The application format & route-specific telemetry are intentionally deferred until the `Decoder` output contract is stabilised |
+| `SFF3` | Under<br>development | Final data-path stage & user-side command entry point ( "Pose" ) |
 | `User` | Under<br>development | Rendering, interaction, zoom generation, & client-perceived "Quality of Experience" ( "QoE" ) measurements |
 
-The **presently sustained upstream chain** is represented horizontally as:
+The **presently sustained upstream chain** is represented horizontally as:
 
 ```
 Camera -> SFF1 -> SFF2 ( Route 0 ) -> Encoder -> SFF2 ( Route 1 )
 ```
 
-The **complete target primary route**, namely **"Main"**, stays:
+The **complete target primary route**, designated as **"Main"**, is structured as:
 
 ```
 Camera -> SFF1 -> SFF2 ( Route 0 ) -> Encoder -> SFF2 ( Route 1 ) -> Decoder -> SFF2 ( Route 2 ) -> SFF3 -> User
 ```
 
-Control is deliberately separated into two independent logical service paths rather than being represented as one monolithic feedback packet:
+Control mechanisms are deliberately separated into two independent logical service paths rather than consolidated into a single monolithic feedback packet:
 
 ```
 "Temporal" : Encoder -> SFF2 -> SFF1 -> Camera
 "Pose"     : User -> SFF3 -> SFF2 -> Decoder
 ```
 
-The temporal loop is fully operational. `Encoder` determines a `temporal_skip`, `SFF2` classifies the plain datagram into the corresponding chain, `SFF1` eliminates the envelope, & `Camera` applies the requested factor before subsequent source-frame transmission. The representative validation run remains at `current_skip = 1`, because `Encoder` workload never satisfies the configured indicators.
+The temporal loop is fully operational. `Encoder` determines a `temporal_skip`, `SFF2` classifies the plain datagram into the corresponding chain, `SFF1` eliminates the envelope, & `Camera` applies the requested factor prior to subsequent source-frame transmission. The representative validation run is maintained at `current_skip = 1`, as the `Encoder` workload does not satisfy the configured overload indicators.
 
-"Pose" evolution is not yet active. Consequently, `yaw = 0`, `pitch = 0`, & `zoom = 1` remain static references for the complete validated upstream course. However, the planned design is to originate updated information at the `User`, move it through `SFF3` & `SFF2`, & expose it to `Decoder` without requiring any node to become responsible for client-driven quality adjustment.
+"Pose" evolution is not yet active. Consequently, `yaw = 0`, `pitch = 0`, & `zoom = 1` serve as static references for the complete validated upstream course. However, the proposed design intends to originate updated information at the `User`, propagate it through `SFF3` & `SFF2`, & expose it to `Decoder` without requiring any intermediate node to assume responsibility for client-driven quality adjustments.
 
-> **Repository note:** this README documents the native telemetry exported by `Camera`, `SFF1`, `SFF2`, & `Encoder`, together with the offline Converter & the independent "FFmpeg" statistics used for cross-checking.
+> **Repository Note:** This README documents the native telemetry exported by `Camera`, `SFF1`, `SFF2`, & `Encoder`, alongside the offline Converter & independent "FFmpeg" statistics utilised for cross-verification.
 
-> **Validation scope:** the quantitative results reported below refer to the representative 300-frame "Loot" experiment with the precise compile-time & launcher setting present in this snapshot. In particular, `Camera` exploits `CACHE_MODE_MIDDLE` together with `WARM_MODE_ENABLED`. `Encoder` uses `OFFLOAD_MODE_ENABLED` & `TEMPORAL_ADAPTATION_ENABLED`. The measured `Camera` start-to-start interval is approximately `33.330 ms`, corresponding to approximately `30.003 frames/s`. This result establishes the nominal upstream source cadence for the measured configuration, but, for intellectual honesty, it is not yet a complete `Camera`-to-`User` real-time proof since `Decoder`, `SFF3`, & `User` are still missing.
+> **Validation Scope:** The quantitative results delineated below refer to the representative 300-frame "Loot" experiment using the precise compile-time & launcher configurations present in this snapshot. Specifically, `Camera` employs `CACHE_MODE_MIDDLE` in conjunction with `WARM_MODE_ENABLED`. `Encoder` utilises `OFFLOAD_MODE_ENABLED` & `TEMPORAL_ADAPTATION_ENABLED`. The measured `Camera` start-to-start interval is approximately `33.330 ms`, corresponding to roughly `30.003 frames/s`. While this result establishes the nominal upstream source cadence for the measured configuration, it does not constitute a complete `Camera`-to-`User` real-time proof, as `Decoder`, `SFF3`, & `User` remain unimplemented.
 
 ---
 
 ## 🎯 1. Project Motivation & Research Objective
 
-The project investigates whether selected functions of a real-time volumetric streaming pipeline can be moved away from conventional application-level microservices & executed directly while packets traverse a "DPDK"-based "SFC".
+This project investigates the feasibility of migrating selected functions within a real-time volumetric streaming pipeline from conventional application-level microservices to direct execution during packet traversal through a "DPDK"-based "SFC".
 
-The objective is **not** merely to replace kernel sockets with a faster packet-I / O "API". The central research question is whether the forwarding path can become an active computational component without overloading the data plane or compromising the semantic correctness of frame-level processing, thereby preserving bounded queuing conduct, integrity, & sufficient observability to attribute latency to components that actually produce it.
+The objective extends beyond merely substituting kernel sockets with a faster packet-I / O "API". The principal research question addresses whether the forwarding path can function as an active computational component without overloading the data plane or compromising the semantic correctness of frame-level processing. This approach aims to preserve bounded queuing behaviour, data integrity, & sufficient observability to accurately attribute latency to the responsible components.
 
 ### 1.1 Why "DPDK" & "UDP" Are Topological Requirements
 
-"DPDK" is employed because the experiment needs more than aggregate throughput. Service functions must be able to inspect & modify the packet envelope directly, retain per-frame state, perform incremental computation while traffic is in flight, observe local queue acceptance, & account separately for active `rte_eth_tx_burst()` execution & wall-clock backpressure. A conventional kernel-socket path would deliberately hide part of that packet lifecycle behind socket queues, scheduler wake-ups, generic buffering, & transport-stack policy. Those mechanisms are valuable for general-purpose applications, but they would make the principal experimental boundary less explicit.
+"DPDK" is employed because the experiment necessitates more than aggregate throughput. Service functions require the capability to inspect & modify the packet envelope directly, retain per-frame state, perform incremental computations while traffic is in flight, observe local queue acceptance, & account separately for active `rte_eth_tx_burst()` execution versus wall-clock backpressure. A conventional kernel-socket path would deliberately obscure portions of the packet lifecycle behind socket queues, scheduler wake-ups, generic buffering, & transport-stack policies. While valuable for general-purpose applications, such mechanisms would blur the principal experimental boundaries.
 
-"UDP" is equally required. Volumetric frames already carry their own identity, packet sequence, original-point count, & temporal relevance. The application therefore benefits from preserving datagram boundaries & deciding explicitly which information remains useful. A reliable ordered byte stream such as "TCP" would couple later data to retransmission & in-order delivery of earlier missing bytes, introducing head-of-line blocking precisely when a late volumetric frame can be less valuable than a newer one. It would also move flow control & recovery policy into the transport layer, while this project intentionally studies source-rate regulation through an application-aware temporal controller.
+"UDP" is equally requisite. Volumetric frames inherently carry their own identity, packet sequence, original-point count, & temporal relevance. Consequently, the application benefits from preserving datagram boundaries & explicitly determining which information retains utility. A reliable, ordered byte stream such as "TCP" would couple subsequent data to the retransmission & in-order delivery of prior missing bytes, thereby introducing head-of-line blocking precisely when a delayed volumetric frame holds less value than a more recent one. Furthermore, it would shift flow control & recovery policies into the transport layer, whereas this project intentionally investigates source-rate regulation via an application-aware temporal controller.
 
-This choice does **not** assume that "UDP" is trustworthy. Instead, correctness is made observable through explicit frame & packet identifiers, point / media counters, integrity percentages, validation of protocol fields, redundant "End-of-Stream" ( "EOS" ) signalling, & bounded local resubmission when a Tx ring temporarily accepts zero elements.
+This architectural choice does **not** assume "UDP" reliability. Instead, correctness is rendered observable through explicit frame & packet identifiers, point / media counters, integrity percentages, protocol field validation, redundant "End-of-Stream" ( "EOS" ) signalling, & bounded local resubmissions when a Tx ring temporarily accepts zero elements.
 
-**Accordingly**, the architecture employs "DPDK" & "UDP" to obtain:
+**Accordingly**, the architecture leverages "DPDK" & "UDP" to achieve:
 
 ```
 explicit packet ownership & lifetime
@@ -86,13 +86,13 @@ service-path-specific metadata processing
 control over temporal relevance at the source
 ```
 
-Performance is a consequence of the design, but **experimental control, packet semantic visibility, & avoidance of transport-level head-of-line coupling are equally important motivations**.
+Performance is a natural consequence of the design; however, **experimental control, packet semantic visibility, & the avoidance of transport-level head-of-line coupling serve as equally pivotal motivations**.
 
 ### 1.2 Selecting Computation for the Data Plane
 
-The design separates operations according to their mathematical dependency structure.
+The design delineates operations according to their underlying mathematical dependency structures.
 
-Operations that are **associative, incrementally composable, & element-progressive** are natural candidates for in-network execution ( "GAC" ):
+Operations that are **associative, incrementally composable, & element-progressive** present as natural candidates for in-network execution ( "GAC" ):
 
 ```
 sum_x, sum_y, sum_z
@@ -101,7 +101,7 @@ max_x, max_y, max_z
 active_point_count
 ```
 
-From these running quantities, `SFF1` can expose significant values such as:
+From these running quantities, `SFF1` extracts significant metrics, including:
 
 ```
 C_N = ( 1 / N ) * sum_i( p_i )
@@ -109,19 +109,19 @@ E_N = p_max,N - p_min,N
 B_N = ( p_min,N + p_max,N ) / 2
 ```
 
-where `C_N` is the centroid of the points observed so far, while `E_N` & `B_N` are respectively the current axis-aligned extent & bounding-box centre.
+where `C_N` denotes the centroid of the observed points, while `E_N` & `B_N` represent the current axis-aligned extent & bounding-box centre, respectively.
 
-Clearly, not every geometric entity can be made exact before frame completion, such as the maximum outer radius:
+Certain geometric entities, such as the maximum outer radius, cannot achieve exactitude prior to frame completion:
 
 ```
 max_r = max_i || p_i - C_final ||_2
 ```
 
-It depends on `C_final`, which is unknown until the frame has been received entirely. "GAC" therefore keeps a compact frame-local `XYZ` workspace, performs the first aggregation pass while packets are already being forwarded, & executes the precise distance pass only when the final population is known. The result is attached to the scene-completing packet.
+This metric is contingent upon `C_final`, which remains undetermined until the frame is entirely received. Consequently, "GAC" maintains a compact frame-local `XYZ` workspace, executing the initial aggregation pass while packets are actively forwarded, & performs the precise distance calculation only upon ascertaining the final population. The resultant data is then appended to the scene-completing packet.
 
-Such limitation is not a missing optimisation that can be solved by simply sending a different packet earlier. Pre-computing the accurate centroid-dependent boundary at the `Camera`, in an offline stage, or in another processing element would move the computation outside the data-plane location that the experiment is intended to evaluate. Likewise, pose-dependent transformed frontiers cannot be finalised before the relevant stance is available. Consequently, the implementation distinguishes rigorously between **continuous in-path information** & **frame-global information that is mathematically unavailable until a barrier is reached**.
+This limitation is not merely a deferred optimisation resolvable by transmitting an alternative packet earlier. Pre-computing the accurate centroid-dependent boundary at the `Camera`, within an offline stage, or via another processing element would shift the computation outside the data-plane locale under experimental evaluation. Similarly, pose-dependent transformed frontiers cannot be finalised until the requisite stance data is available. Thus, the implementation rigorously distinguishes between **continuous in-path information** & **frame-global information mathematically unavailable until a specific barrier is breached**.
 
-Procedures that require the complete active point set, final reconstruction parameters, "GPU" visibility, or "codec" state remain downstream:
+Procedures necessitating the complete active point set, final reconstruction parameters, "GPU" visibility, or "codec" state are retained downstream:
 
 ```
 final geometric scaling
@@ -134,13 +134,13 @@ visibility / depth conflict resolution
 "H.265" / "NVENC" compression
 ```
 
-The `Encoder` is neither a conventional isolated application nor a pure stateless data-plane function. It still contains a frame-completion bound before projection, but it performs packet-by-packet conversion & placement as elements arrive, consumes progressive / final geometric metadata, cooperatively services "DPDK" while "CPU" / "GPU" work is in progress, & decouples "codec" input through a writer queue. It can be interpreted as a **hybrid frame-aware elaboration node** positioned between application-level semantics & data-plane-oriented incremental execution.
+The `Encoder` operates neither as a conventional isolated application nor as a purely stateless data-plane function. It retains a frame-completion boundary prior to projection, yet it incrementally performs packet-by-packet conversion & placement, consumes progressive / final geometric metadata, cooperatively services "DPDK" during "CPU" / "GPU" workloads, & decouples "codec" input via a writer queue. It functions as a **hybrid frame-aware elaboration node** situated between application-level semantics & data-plane-oriented incremental execution.
 
 ### 1.3 Connection with the Reference Pipeline
 
-The methodical approach is informed by the state-of-the-art literature, including baseline & works already cited in this repository, which provides a complete volumetric streaming mechanism & a useful performance-evaluation framework.
+This methodical approach is informed by state-of-the-art literature, including baseline models & works previously cited in this repository, which offer a comprehensive volumetric streaming mechanism & a robust performance-evaluation framework.
 
-The present project does **not** reproduce that architecture verbatim. Conversely, it reformulates the same workload around:
+The current project does **not** replicate that architecture verbatim. Instead, it reformulates the corresponding workload around:
 
 ```
 "DPDK"-native packet I / O
@@ -156,15 +156,15 @@ temporal source regulation
 per-node telemetry
 ```
 
-Consequently, comparisons with the reference implementation must be made only at **semantically equivalent frontiers**. Precise numerical equality is neither expected nor methodologically correct when transport mechanisms, buffering, node boundaries, "CPU" placement, cache residency, "GPU" kernels, or "codec" queuing policy differ.
+Consequently, comparisons with the reference implementation are valid only at **semantically equivalent frontiers**. Exact numerical parity is neither anticipated nor methodologically sound given variations in transport mechanisms, buffering, node boundaries, "CPU" placement, cache residency, "GPU" kernels, or "codec" queuing policies.
 
 ### 1.4 Guidelines & "Codec" Scope
 
-Two distinctions remain essential for the interpretation of this work.
+Two distinctions remain critical for accurate interpretation of this work.
 
-First, the project adopts the **"SFC" concepts** of "Service Path Identifier" ( "SPI" ) & "Service Index" ( "SI" ), , alogside with an experimental "MD-Type-2"-like context layout. The wire representation is nevertheless a closed project protocol & is described as **"NSH"-inspired**, not as a claim of generic "RFC 8300" interoperability.
+Firstly, the project integrates the **"SFC" concepts** of "Service Path Identifier" ( "SPI" ) & "Service Index" ( "SI" ), alongside an experimental "MD-Type-2"-like context layout. Nevertheless, the wire representation constitutes a closed project protocol & is appropriately characterised as **"NSH"-inspired**, rather than asserting generic "RFC 8300" interoperability.
 
-Second, `Encoder` does **not** implement "MPEG" "V-PCC" or "G-PCC". It constructs a custom 6-view "Geometry" / "Texture" / "Occupancy" "Atlas" & uses "HEVC" ( `hevc_nvenc` ) as the video compression engine for that representation. Its bitrate & latency therefore characterise a property of the projection-&-video path & must not be reported as a standards-compliant coding result.
+Secondly, `Encoder` does **not** implement "MPEG" "V-PCC" or "G-PCC". It constructs a custom 6-view "Geometry" / "Texture" / "Occupancy" "Atlas", employing "HEVC" ( `hevc_nvenc` ) as the video compression engine for this representation. The resulting bitrate & latency metrics characterise the specific projection-&-video path & should not be presented as standards-compliant coding benchmarks.
 
 ---
 
@@ -172,17 +172,17 @@ Second, `Encoder` does **not** implement "MPEG" "V-PCC" or "G-PCC". It const
 
 | Device | Importance |
 |---|---|
-| `Camera` | Establishes the absolute timeline, reads the prepared fixed-width frames, serialises coordinates into network byte order, packetises below the "MTU", & applies the most recent `temporal_skip` before a frame enters the chain. Thus, the source prevents unnecessary elements from consuming downstream resources once the workload controller requests temporal relief. |
-| `SFF1` | Demonstrates the primary in-path computation principle. It computes progressive centroid / extent / bounding-box information during forwarding & the exact final `max_r` at frame completion, then exports the result through experimental service metadata. It also decapsulates the "Temporal" control chain but no longer decides which source frames are skipped. |
-| `SFF2` | Separates traffic steering from service-function awareness. It acts as a 4-port forwarder & stateful "NSH" proxy, enforcing the primary & both reverse control paths. Capable boundaries use "SPI" / "SI" semantics, whereas Encoder & the future Decoder operate on ordinary "UDP" application packets. |
-| `Encoder` | Reconstructs complete frames while performing packet-arrival conversion incrementally, validates & consumes the cumulative metadata produced by SFF1 when offload is enabled, falls back to local calculations otherwise, executes the "CUDA" projection pipeline, feeds a persistent pre-rolled "NVENC" process, attributes asynchronous "MPEG-TS" output to source elements, & regulates temporal load according to its measured processing condition. |
+| `Camera` | Establishes the absolute timeline, reads prepared fixed-width frames, serialises coordinates into network byte order, packetises below the "MTU", & applies the most recent `temporal_skip` before frame injection. This prevents superfluous elements from consuming downstream resources when temporal relief is requested. |
+| `SFF1` | Demonstrates the core in-path computation principle. It calculates progressive centroid / extent / bounding-box metrics during forwarding & the exact final `max_r` upon frame completion, exporting results via experimental service metadata. Additionally, it decapsulates the "Temporal" control chain without independently deciding frame omissions. |
+| `SFF2` | Segregates traffic steering from service-function awareness. Functions as a 4-port forwarder & stateful "NSH" proxy, enforcing the primary & both reverse control paths. Capable boundaries utilise "SPI" / "SI" semantics, whereas Encoder & the future Decoder operate on standard "UDP" application packets. |
+| `Encoder` | Reconstructs complete frames while incrementally processing packet-arrival conversions. Validates & consumes cumulative metadata produced by SFF1 ( when offload is active ), executes local calculations as fallbacks, drives the "CUDA" projection pipeline, feeds a persistent pre-rolled "NVENC" process, attributes asynchronous "MPEG-TS" outputs to source elements, & regulates temporal loads based on processing conditions. |
 
-"OVS"-"DPDK" stays deliberately immediate. It provides deterministic adjacency between "vhost-user" interfaces & a "Default-Deny" policy substrate. It does not execute point-cloud computations. Service functions are the components responsible for application-specific data-plane work.
+"OVS"-"DPDK" remains deliberately immediate, providing deterministic adjacency between "vhost-user" interfaces alongside a "Default-Deny" policy substrate. It performs no point-cloud computations. Service functions are the sole components responsible for application-specific data-plane operations.
 
-The architectural boundary is therefore explicit:
+The architectural boundary is thus clearly demarcated:
 
 ```
-"OVS"-"DPDK"      -> deterministic virtual adjacency
+"OVS"-"DPDK"    -> deterministic virtual adjacency
 "SFF1" / "SFF2" -> route computation & steering
 "Encoder"       -> hybrid frame / "GPU" / "codec" processing
 "Camera"        -> workload admission through temporal selection
@@ -194,41 +194,41 @@ The architectural boundary is therefore explicit:
 
 ### 3.1 "Main" Service Path
 
-The project uses:
+The project defines:
 
 ```
 MAIN_SPI = 100
 ```
 
-The "SI" model is kept by `SFF2` even when an adjacent application function is "SFC"-unaware. Primary transitions are:
+The "SI" model is preserved by `SFF2` even when adjacent application functions lack "SFC" awareness. Primary transitions include:
 
 ```
 SFF1 emits aware state                         : "SPI 100", "SI 255" + geometry context
 SFF2 captures state & removes service envelope : Encoder receives plain "UDP" + geo_agg_hdr
 Encoder returns plain compressed traffic       : proxy state advances "SI 255 -> 254"
-SFF2 forwards plain application traffic         : Decoder remains "SFC"-unaware
-Future Decoder return                           : proxy state advances "SI 254 -> 253"
-SFF2 re-imposes base "NSH" toward SFF3          : "SPI 100", "SI 253"
+SFF2 forwards plain application traffic        : Decoder remains "SFC"-unaware
+Future Decoder return                          : proxy state advances "SI 254 -> 253"
+SFF2 re-imposes base "NSH" toward SFF3         : "SPI 100", "SI 253"
 ```
 
-Accordingly, the complete validated portion is:
+The fully validated segment is:
 
 ```
 Camera -> SFF1 ( "GAC", aware boundary )-> SFF2 ( proxy capture / decapsulation ) -> Encoder ( unaware ) -> SFF2 ( proxy state transition ) -> Decoder ( unaware )
 ```
 
-`SFF2` ( Route 2 ) contains the fundamental scaffold required to insert the service header toward `SFF3`, but `Decoder`-side packet contract is not committed. Semantics & telemetry are therefore intentionally deferred rather than implied from an unstable format.
+`SFF2` ( Route 2 ) incorporates the fundamental scaffolding required to inject the service header toward `SFF3`, though the `Decoder`-side packet contract remains uncommitted. Semantics & telemetry are intentionally deferred to prevent reliance on an unstable format.
 
 ### 3.2 "Temporal" Service Path
 
-"Temporal" adaptation uses:
+"Temporal" adaptation utilises:
 
 ```
 TEMPORAL_SPI = 200
 TEMPORAL_SI  = 255
 ```
 
-`Encoder` generates this decision, within the present scenario, the dominant modification target is **elaboration capacity**, not user-selected visual quality.
+`Encoder` generates this decision; within the current scenario, the primary modification target is **elaboration capacity**, not user-selected visual quality.
 
 ```
 Encoder
@@ -239,7 +239,7 @@ Encoder
   -> Camera updates temporal skip
 ```
 
-The structure is:
+The structural layout is:
 
 ```
 frame_id : uint32
@@ -247,40 +247,40 @@ skip     : uint16
 padding  : uint16
 ```
 
-Once the `Camera` has adopted a value, it selects source frames according to the active factor before segmentation. The resulting nominal active-element rate is:
+Upon adopting a value, the `Camera` filters source frames based on the active factor prior to segmentation. The resulting nominal active-element rate is:
 
 ```
 FPS = TARGET_FPS / skip
 ```
 
-Such organization matters. If an overloaded `Encoder` were to discard frames only after they crossed `Camera`, `SFF1`, & `SFF2`, upstream bandwidth & computation would already have been consumed. Returning the decision to the `Camera` switches the controller into an admission mechanism for the next part of the stream.
+This structural arrangement is pivotal. If an overloaded `Encoder` discarded frames post-transit through `Camera`, `SFF1`, & `SFF2`, upstream bandwidth & computational resources would be wasted. Reverting the decision to the `Camera` transforms the controller into an admission mechanism for the stream's subsequent segments.
 
 ### 3.3 "Pose" Service Path
 
-"Pose" control is separated from temporal regulation:
+"Pose" control is distinct from temporal regulation:
 
 ```
 POSE_SPI = 300
 POSE_SI  = 255
 ```
 
-The intended direction is:
+The intended flow is:
 
 ```
 User -> SFF3 -> SFF2 -> Decoder
 ```
 
-At the `SFF2` frontier, an "NSH"-encapsulated pose payload is stripped & redirected as plain "UDP" to `Decoder`. The current upstream run does not exercise this chain because `Decoder`, `SFF3`, & `User` interaction are still under development.
+At the `SFF2` boundary, an "NSH"-encapsulated pose payload is stripped & redirected as plain "UDP" to `Decoder`. The current upstream run bypasses this chain, as `Decoder`, `SFF3`, & `User` interactions remain in development.
 
-This is also why `yaw`, `pitch`, & `zoom` remain static in the present `Camera` to `Encoder` path. Dynamic user stance is planned to become a **downstream reconstruction or rendering concern**.
+Consequently, `yaw`, `pitch`, & `zoom` remain static across the validated `Camera` to `Encoder` pathway. Dynamic user stances are slated to become a **downstream reconstruction or rendering concern**.
 
 ### 3.4 Protocol Clarification
 
-The project uses an 8-byte `nsh_hdr`, the "SPI" / "SI" concept, a "Time-to-Live" ( "TTL" ) field, & a defined context for geometric metadata. `SFF2` also preserves proxy state while service functions are unaware of the chain envelope.
+The architecture employs an 8-byte `nsh_hdr`, the "SPI" / "SI" paradigm, a "Time-to-Live" ( "TTL" ) field, & a defined context for geometric metadata. `SFF2` sustains proxy state while service functions remain agnostic to the chain envelope.
 
-Nevertheless, the realization must still be described as **experimental / "NSH"-inspired**, not as a generic "RFC 8300" interoperable stack. The spatial container is a fixed contract shared by the participating programs, & the selected `next_protocol` / information conventions are interpreted inside this repository.
+Nevertheless, the implementation is accurately described as **experimental / "NSH"-inspired**, not as a universally interoperable "RFC 8300" stack. The spatial container operates as a fixed contract among participating modules, & the chosen `next_protocol` / information conventions are interpreted strictly within this repository's context.
 
-The service-chain-facing endpoints predominantly use the project-selected "UDP" port `6633`, while the source-facing Camera adjacency retains its dedicated ports. The current address contract is:
+Service-chain endpoints predominantly utilise the project-designated "UDP" port `6633`, while the source-facing Camera adjacency maintains its dedicated ports. The current address contract is:
 
 | Adjacency / Endpoint | "IPv4" Address | "UDP" Port |
 |---|---|---:|
@@ -295,11 +295,11 @@ The service-chain-facing endpoints predominantly use the project-selected "UDP" 
 | `SFF2` -> `SFF3` endpoint | `10.0.5.1` | `6633` |
 | future `SFF3` -> `SFF2` endpoint | `10.0.5.2` | `6633` |
 
-These addresses are an explicit closed-testbed contract rather than a dynamically routed deployment model. "OVS"-"DPDK" establishes the physical virtual adjacency, while the native functions construct / validate the corresponding "Ethernet" / "IPv4" / "UDP" envelope.
+These IP allocations define an explicit closed-testbed contract rather than a dynamically routed deployment model. "OVS"-"DPDK" provides the physical virtual adjacency, while native functions construct & validate the corresponding "Ethernet" / "IPv4" / "UDP" envelopes.
 
-Whenever an "IPv4" header is created or rewritten, its header checksum is cleared & recomputed with `rte_ipv4_cksum()`. The current "IPv4" experiment deliberately writes the "UDP" checksum field as zero. This is valid for the present "IPv4" testbed, but it must not be carried unchanged into a future "IPv6" design, where a zero "UDP" checksum is not the ordinary endpoint rule.
+When an "IPv4" header is generated or rewritten, its checksum is cleared & recomputed via `rte_ipv4_cksum()`. The current "IPv4" framework deliberately sets the "UDP" checksum to zero. While valid within this testbed, this practice must not persist into future "IPv6" iterations, where zeroed "UDP" checksums contravene standard endpoint rules.
 
-The important aspect at this stage is the ability to evaluate conditions, in-path elaboration, proxy decapsulation / re-encapsulation, & "SFC"-unaware components under one controlled protocol definition.
+The fundamental capability demonstrated here is the evaluation of conditions, in-path elaboration, proxy decapsulation / re-encapsulation, & "SFC"-unaware component integration within a unified, controlled protocol definition.
 
 ---
 
@@ -307,9 +307,9 @@ The important aspect at this stage is the ability to evaluate conditions, in-pat
 
 ### 4.1 Endianness & Portability
 
-Offline ( `.bin` ) & network ( live ) representations intentionally have different roles.
+Offline ( `.bin` ) & network ( live ) representations serve distinctly different roles by design.
 
-The `Converter.py` script writes a contiguous 16-byte point data type using "Little-Endian" `float32` coordinates:
+The `Converter.py` script constructs a contiguous 16-byte point data structure employing "Little-Endian" `float32` coordinates:
 
 ```
 "x", "y", "z" -> "<f4"
@@ -317,15 +317,15 @@ The `Converter.py` script writes a contiguous 16-byte point data type using "L
 "padding"     -> "u1"
 ```
 
-Before network transmission, `Camera` reinterprets each "IEEE-754" value as a 32-bit word & converts the bit pattern to network byte order. `SFF1` reverses that operation for geometric computation & re-encodes coordinates when exporting metadata. `Encoder` performs the network-to-host shift when receiving the point stream & spatial context.
+Prior to network transmission, `Camera` reinterprets each "IEEE-754" value as a 32-bit word, converting the bit pattern to network byte order. `SFF1` reverses this operation for geometric computation & re-encodes coordinates when exporting metadata. `Encoder` executes the network-to-host shift upon receiving the point stream & spatial context.
 
 Consequently:
 
 - protocol fields are serialised on the "DPDK" path;
-- geometric details use the same explicit bit-pattern convention;
-- the file remains a host-preparation artefact using the documented layout.
+- geometric details adhere to the explicit bit-pattern convention;
+- the file remains a host-preparation artefact strictly following the documented layout.
 
-This removes the previous ambiguity between storage & network formats. The on-wire representation is explicit for implemented components, while the offline result stays tied to the Converter agreement used by this experiment.
+This architecture eliminates ambiguity between storage & network formats. The on-wire representation is explicit for implemented components, whereas the offline result adheres to the Converter specification governing this experiment.
 
 ### 4.2 Common Structures
 
@@ -333,14 +333,14 @@ This removes the previous ambiguity between storage & network formats. The on-wi
 |---|---:|---|
 | `point_tx` | `16 B` | `x`, `y`, `z` as `float32`, "RGB" as `uint8`, plus an additional `padding` byte |
 | `cam_hdr` | `40 B` | Frame identity, packet sequence, Camera timestamp, static pose reference, temporal skip, original-point count, & points in the packet |
-| `nsh_hdr` | `8 B` | Service-chain base carrying "SPI", "SI", "TTL", metadata type, & next-protocol fields |
+| `nsh_hdr` | `8 B` | Service-chain base conveying "SPI", "SI", "TTL", metadata type, & next-protocol fields |
 | `nsh_md2_ctx_hdr` | `4 B` | Project geometric-context descriptor |
 | `geo_agg_hdr` | `44 B` | Centroid, extent, bounding-box centre, precise / progressive `max_r`, & active-point count |
 | `enc_hdr` | `48 B` | Media packet identifier, scale, pose-compatibility, & reconstruction information |
 | `temporal_payload` | `8 B` | Source frame associated with the control decision & requested adjustment |
-| `pose_payload` | `12 B` | `yaw`, `pitch`, & `zoom` values for User to Decoder course |
+| `pose_payload` | `12 B` | `yaw`, `pitch`, & `zoom` values for the User to Decoder path |
 
-The project no longer uses the previous fixed `int_hdr` sums / extrema block as its public downstream geometry contract. `SFF1` sends directly usable quantities through `geo_agg_hdr`.
+The project has superseded the previous fixed `int_hdr` sums / extrema block for downstream geometry contracts. `SFF1` now transmits directly usable quantities via `geo_agg_hdr`.
 
 ### 4.3 Point Record — 16 Bytes
 
@@ -364,11 +364,11 @@ The project no longer uses the previous fixed `int_hdr` sums / extrema block a
 Total = 16 B
 ```
 
-The explicit padding byte creates a deterministic 16-byte record that is shared by the Converter & native devices. The layout is convenient for fixed-offset packet parsing & aligned host-side storage. However, it is not, by itself, a claim that every operation is vectorised ( e.g., via "SIMD" executions ).
+The explicit padding byte guarantees a deterministic 16-byte record shared seamlessly between the Converter & native devices. This layout facilitates fixed-offset packet parsing & aligned host-side storage; however, it does not inherently imply global vectorisation ( e.g., via "SIMD" executions ).
 
 ### 4.4 Camera Header
 
-The 40-byte `cam_hdr` survives the upstream point path & carries out frame-local details:
+The 40-byte `cam_hdr` persists across the upstream point path, conveying vital frame-local details:
 
 ```
 frame_id
@@ -383,9 +383,9 @@ points_in_packet
 padding
 ```
 
-`frame_id` identifies the original source frame & remains meaningful even when temporal selection removes intermediate elements. `sequence_number` represents the `Camera` packet position. `original_points` defines the complete expected size & `points_in_packet` records the contribution of the current datagram, allowing each receiver to reconstruct them without any derivation from an external index.
+`frame_id` identifies the original source frame, retaining meaning even when intermediate elements are omitted via temporal selection. `sequence_number` designates the `Camera` packet position. `original_points` defines the total expected size, while `points_in_packet` records the contribution of the current datagram, enabling receivers to reconstruct frames without relying on external indices.
 
-The initial pose, as stated various times, is deliberately static:
+The initial pose is deliberately static:
 
 ```
 yaw   = 0.0
@@ -393,7 +393,7 @@ pitch = 0.0
 zoom  = 1.0
 ```
 
-Dynamic stance is reserved for the independent "Pose" service path.
+Dynamic stance adjustments are reserved for the independent "Pose" service path.
 
 ### 4.5 Geometric Metadata Produced by SFF1
 
@@ -407,7 +407,7 @@ max_r
 active_point_count
 ```
 
-For an observed point prefix `P_N`, the progressive quantities are:
+For an observed point prefix `P_N`, the progressive quantities are derived as:
 
 ```
 C_N = ( 1 / N ) * sum_{ p in P_N }( p )
@@ -415,17 +415,17 @@ E_N = p_max,N - p_min,N
 B_N = ( p_min,N + p_max,N ) / 2
 ```
 
-Middle elements carry the best currently available snapshot. On the frame-completing packet, `C_N`, `E_N`, & `B_N` become final & `max_r` is computed exactly as:
+Intermediate elements convey the most accurate snapshot currently available. Upon the arrival of the frame-completing packet, `C_N`, `E_N`, & `B_N` crystallise, & `max_r` is computed precisely as:
 
 ```
 max_r = max_{ p in P_frame } || p - C_final ||_2
 ```
 
-`active_point_count` allows `Encoder` to determine whether the received information describes the complete active point set. With `OFFLOAD_MODE_ENABLED`, valid metadata eliminates local geometry aggregation & radius computation.
+`active_point_count` enables `Encoder` to verify if the received metadata comprehensively describes the active point set. With `OFFLOAD_MODE_ENABLED`, valid metadata precludes the need for local geometry aggregation & radius computation.
 
 ### 4.6 Encoder Structure
 
-The 48-byte `enc_hdr` accompanies compressed media leaving the node:
+The 48-byte `enc_hdr` accompanies compressed media exiting the node:
 
 ```
 frame_id
@@ -442,25 +442,25 @@ centroid_y
 centroid_z
 ```
 
-`packet_id` restarts for each encoded frame attributed from the "MPEG-TS" / "PES" stream. The remaining fields preserve the geometric quantities required by `Decoder` to obtain the projected representation.
+`packet_id` resets for each encoded frame attributed from the "MPEG-TS" / "PES" stream. The remaining fields conserve the geometric parameters requisite for `Decoder` to execute the projected representation.
 
-`yaw` & `pitch` are currently retained for packet-format compatibility but remain static in the validated run. Dynamic pose information is expected to arrive independently through the "Pose" service-chain.
+`yaw` & `pitch` are retained for packet-format compatibility but remain static in the validated iteration. Dynamic pose metadata is anticipated to arrive independently via the "Pose" service chain.
 
 ---
 
 ## 📐 5. "MTU"-Aware Packet Design
 
-The project designs every normal packet around a standard:
+The system architectures normal packets around a standard limit:
 
 ```
 "IPv4" "MTU" = 1500 B
 ```
 
-All implemented application packets are sized so the complete datagram remains below this limit. "Eth" framing is shown separately because the "MTU" excludes its 14-byte header.
+All implemented application packets are carefully sized to keep the complete datagram beneath this threshold. "Eth" framing is calculated separately, as the "MTU" excludes its 14-byte header.
 
 ### 5.1 Camera -> SFF1
 
-`Camera` sends up to:
+`Camera` transmits a maximum of:
 
 ```
 POINTS_PER_PACKET = 80
@@ -480,15 +480,15 @@ cam_hdr                    40 B
 80 * point_tx            1280 B
 -------------------------------
 "IPv4" datagram          1348 B
-"Eth" frame              1362 B   ( excluding "FCS" / preamble )
+"Eth" frame              1362 B ( excluding "FCS" / preamble )
 "IP"-"MTU" margin         152 B
 ```
 
-The value `80` is intentionally conservative because the same point packet will receive the additional service metadata inserted by `SFF1`, thereby leaving deliberate headroom rather than filling the "MTU" to the theoretical maximum.
+The threshold of `80` is intentionally conservative, ensuring sufficient headroom for the supplemental service metadata inserted by `SFF1` rather than saturating the "MTU" to its theoretical maximum.
 
 ### 5.2 SFF1 -> SFF2 -> Encoder
 
-`SFF1` removes the previous "Eth" / "IPv4" / "UDP" network envelope, performs spatial aggregation, & prepends its own service block:
+`SFF1` strips the preceding "Eth" / "IPv4" / "UDP" network envelope, conducts spatial aggregation, & prepends its distinct service block:
 
 ```
 "IPv4"                     20 B
@@ -504,7 +504,7 @@ cam_hdr                    40 B
 "IP"-"MTU" margin          96 B
 ```
 
-At Route 0, `SFF2` acts as an "NSH" proxy. It strips the `nsh_hdr` + context encapsulation prior to unaware `Encoder` while **preserving ****`geo_agg_hdr`**** as application-visible geometry**:
+At Route 0, `SFF2` functions as an "NSH" proxy. It decapsulates the `nsh_hdr` + context layer prior to reaching the unaware `Encoder`, while **preserving `geo_agg_hdr` as application-visible geometry**:
 
 ```
 "IPv4"                     20 B
@@ -518,18 +518,18 @@ cam_hdr                    40 B
 "IP"-"MTU" margin         108 B
 ```
 
-The metadata is therefore present where service-path processing requires it but does not leak into "SFC"-unaware parsers.
+This ensures metadata remains accessible for service-path processing without intruding into "SFC"-unaware parsers.
 
 ### 5.3 Encoder -> SFF2 -> Decoder
 
-The `Encoder` groups complete "MPEG-TS" without tearing them across various datagrams. Packets are fixed at:
+The `Encoder` consolidates complete "MPEG-TS" chunks, preventing fragmentation across multiple datagrams. Packets are fixed at:
 
 ```
 TS_PACKET_SIZE   = 188 B
 MTU_PAYLOAD_SIZE = 7 * 188 = 1316 B
 ```
 
-Largest encoded-media size is:
+The maximum encoded-media size is:
 
 ```
 "IPv4"                      20 B
@@ -550,75 +550,75 @@ Hence:
 8 x 188 = 1504 B  -> exceeds the available 1376 B
 ```
 
-`Encoder` & `Decoder` are "SFC"-unaware. "SFF2" retains the primary service-path state around those functions rather than forcing each application parser to implement service-chain headers.
+`Encoder` & `Decoder` operate oblivious to "SFC" layers. "SFF2" preserves the primary service-path state surrounding these functions, alleviating the need for application parsers to manage service-chain headers.
 
 ### 5.4 "Temporal" & "Pose" Packets
 
-Control paths use intentionally small payloads. For the "Temporal" chain,
+Control pathways utilise purposefully minimal payloads. For the "Temporal" chain,
 
-`Encoder` -> `SFF2` ( plain ):
+`Encoder` -> `SFF2` ( plain ):
 
 ```
 "IPv4" + "UDP" + temporal_payload = 20 + 8 + 8 = 36 B
 ```
 
-`SFF2` -> `SFF1` ( experimental "NSH" ):
+`SFF2` -> `SFF1` ( experimental "NSH" ):
 
 ```
 "IPv4" + "UDP" + nsh_hdr + temporal_payload = 20 + 8 + 8 + 8 = 44 B
 ```
 
-`SFF1` -> `Camera` ( plain ) returns to the `36 B` "IPv4" datagram.
+`SFF1` -> `Camera` ( plain ) reverts to the `36 B` "IPv4" datagram format.
 
-"Pose" chain supports a 12-byte element structure:
+The "Pose" chain accommodates a 12-byte element structure:
 
 ```
 SFF3 -> SFF2    : 20 + 8 + 8 + 12 = 48 B "IPv4" datagram
 SFF2 -> Decoder : 20 + 8 + 12     = 40 B ...
 ```
 
-Remaining application formats are **not specified yet**. These should be documented only when `Decoder` output contract is stable.
+Remaining application formats are **pending specification**. They will be documented once the `Decoder` output contract reaches stability.
 
 ### 5.5 "Virtio" Queue Size & "DPDK" Rx / Tx Dimensioning
 
-The project distinguishes the **"virtio-user" queue capacity configured at "vdev" creation** from the **descriptor count requested when the application sets up each "ethdev" Rx / Tx queue**. Such elements are related controls rather than additive buffering layers. For a "virtio-user" "PMD", the "ethdev" queues are backed by "virtqueues", & the descriptor count requested by the application must remain compatible with the capabilities exposed by the "virtio-user" / "vhost" path. They should therefore be interpreted together, not summed as if they were independent cascaded queues.
+The architecture differentiates the **"virtio-user" queue capacity configured during "vdev" creation** from the **descriptor count requested when initialising each "ethdev" Rx / Tx queue**. These elements represent related controls rather than cumulative buffering strata. For a "virtio-user" "PMD", the "ethdev" queues are supported by "virtqueues", & the descriptor count must align with the capabilities of the "virtio-user" / "vhost" path. Consequently, they must be analysed concurrently.
 
 **"virtio-user" queue size**
 
-The "EAL" `queue_size` parameter configures the depth of the "virtio-user" "virtqueue" associated with the "vhost-user" transport. A larger value increases the number of descriptors that can remain outstanding between a service function & the "OVS"-"DPDK" "vhost" endpoint before descriptor exhaustion becomes visible as backpressure.
+The "Environment Abstraction Layer" ( "EAL" ) `queue_size` parameter governs the depth of the "virtqueue" associated with the "vhost-user" transport. A higher value permits more descriptors to remain outstanding between a service function & the "OVS"-"DPDK" "vhost" endpoint before backpressure manifests.
 
 ```
-Camera                  Rx 4096 / Tx 4096
-SFF1 Camera-facing      Rx 4096
-SFF1 SFF2-facing        Rx 1024
-SFF1                    Tx 1024
-SFF2 Encoder-facing     Rx 4096
-SFF2 Decoder-facing     Rx 4096
-SFF2 SFF1/SFF3-facing   Rx 1024
-SFF2                    Tx 1024
-Encoder                 Rx 4096 / Tx 4096
+Camera                Rx 4096 / Tx 4096
+SFF1 Camera-facing    Rx 4096
+SFF1 SFF2-facing      Rx 1024
+SFF1                  Tx 1024
+SFF2 Encoder-facing   Rx 4096
+SFF2 Decoder-facing   Rx 4096
+SFF2 SFF1/SFF3-facing Rx 1024
+SFF2                  Tx 1024
+Encoder               Rx 4096 / Tx 4096
 ```
 
-The asymmetry is intentional. Links attached to compute-heavy end functions are provisioned with additional elasticity, whereas relay-to-relay interfaces remain shallower because both sides are expected to return to their polling loops continuously.
+This asymmetry is deliberate. Links interfacing with compute-intensive end functions are allocated additional elasticity, whereas relay-to-relay interfaces maintain shallower depths, assuming continuous polling loop returns.
 
-These queues absorb finite producer / consumer skew, but the source can still encounter local Tx-ring congestion. For this reason, telemetry distinguishes actual `rte_eth_tx_burst()` execution from wall-clock submission time & records zero-accept / resubmission behaviour explicitly.
+These queues buffer finite producer / consumer skew, though the source may still encounter local Tx-ring congestion. Consequently, telemetry isolates active `rte_eth_tx_burst()` execution from wall-clock submission time, explicitly recording zero-accept / resubmission instances.
 
-Chosen depths also interact with the shared `mbuf` pools. Each active node uses:
+Chosen depths also interface with shared `mbuf` pools. Each active node requires:
 
 ```
 NUM_MBUFS       = 16383
 MBUF_CACHE_SIZE = 256
 ```
 
-& `SFF2`, for instance, requests a total of:
+`SFF2`, for instance, demands a total of:
 
 ```
 1024 + 4096 + 4096 + 1024 = 10240 Rx descriptors
 ```
 
-across its four ports. The pool therefore retains headroom for in-flight packets, burst processing, & per-"lcore "caching rather than being dimensioned only to the sum of the receive rings.
+across its four ports. The pool thus maintains sufficient headroom for in-flight packets, burst processing, & per-"lcore" caching, rather than being scaled strictly to the sum of receive rings.
 
-Larger queue capacities are not universally better. They consume additional memory, can postpone the visibility of a persistently overloaded consumer, & may increase the amount of traffic waiting in the path before backpressure becomes observable. Descriptor depth, `queue_size`, core placement, & cooperative polling must therefore be treated as a **joint buffering-&-scheduling design**, & all of them must remain fixed when comparing benchmark runs.
+Larger queue capacities do not unilaterally guarantee superior performance. They consume additional memory, can obscure persistent consumer overload, & may elevate the volume of queued traffic before backpressure becomes detectable. Thus, descriptor depth, `queue_size`, core allocation, & cooperative polling must be managed as an **integrated buffering-&-scheduling framework**, held constant across comparative benchmark iterations.
 
 ---
 
@@ -626,11 +626,11 @@ Larger queue capacities are not universally better. They consume additional memo
 
 ### 6.1 Role
 
-The `Camera` is the only node that originates the volumetric schedule. It reads the pre-converted "Loot" sequence, assigns source frame IDs, serialises coordinates for network transmission, packetises each point cloud, timestamps the element, & submits "DPDK" bursts to "SFF1". Consequently, its contribution is both functional & experimental. Every downstream timing quantity is ultimately conditioned by the source cadence, burst structure, cache mode, & residency policy established at this component.
+The `Camera` functions as the exclusive node originating the volumetric schedule. It ingests the pre-converted "Loot" sequence, allocates source frame IDs, serialises coordinates for network transmission, packetises each point cloud, timestamps the element, & submits "DPDK" bursts to "SFF1". Consequently, its contribution is simultaneously functional & experimental. Every downstream timing quantity is ultimately conditioned by the source cadence, burst structure, cache mode, & residency policy established at this component.
 
 The reference workload is configured as:
 
-```
+```text
 K_FRAMES   = 300
 TARGET_FPS = 30.0
 BURST_SIZE = 32
@@ -638,30 +638,30 @@ BURST_SIZE = 32
 
 ### 6.2 Input Modes
 
-Three cache / storage modes are implemented:
+Three distinct cache / storage modes are implemented:
 
-| Mode | Allocation | `fread()` | Meaning |
-|---|---|---|---|
-| `CACHE_MODE_BEST` | Before streaming | Before streaming | Cleanest datapath-oriented experiment; frame bytes are already resident in the application buffer |
-| `CACHE_MODE_MIDDLE` | Before streaming | Inside frame loop | Storage-aware experiment; disk / page-cache access remains visible in Camera residency |
-| `CACHE_MODE_WORST` | Inside frame loop | Inside frame loop | Deliberately pessimistic mode including allocation & file read in the frame path |
+| **Mode** | **Allocation** | **fread()** | **Meaning** |
+| -------------------------------- | ----------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| `CACHE_MODE_BEST`                | Before streaming  | Before streaming  | Cleanest datapath-oriented experiment; frame bytes already reside within the application buffer |
+| `CACHE_MODE_MIDDLE`              | Before streaming  | Inside frame loop | Storage-aware experiment; disk / page-cache access remains visible within Camera residency      |
+| `CACHE_MODE_WORST`               | Inside frame loop | Inside frame loop | Deliberately pessimistic mode incorporating allocation & file read within the frame path        |
 
-The current source selects:
+The current source configuration selects:
 
-```
+```text
 CACHE_MODE = CACHE_MODE_MIDDLE
 WARM_MODE  = WARM_MODE_ENABLED
 ```
 
-`WARM_MODE_ENABLED` maps & locks source documents before the measured sequence so the timed `fread()` path retains ordinary file-read semantics while operating over a resident file-backed working set. The resulting `disk_io_ms` should be interpreted as **timed buffered acquisition from the warmed condition**, not as a direct measurement of cold physical-storage latency.
+`WARM_MODE_ENABLED` maps & locks source documents prior to the measured sequence, ensuring the timed `fread()` path retains standard file-read semantics while operating across a resident file-backed working set. The resulting `disk_io_ms` should be interpreted as **timed buffered acquisition from a warmed condition**, rather than a direct measurement of cold physical-storage latency.
 
-Results obtained with different settings are different experimental conditions & must not be mixed in the same performance claim.
+Results  obtained under varying settings constitute distinct experimental  conditions & must not be conflated within identical performance  claims.
 
 ### 6.3 Packetisation
 
-Each selected frame is divided into packets of at most 80 points. The `Camera` assigns:
+Each selected frame is partitioned into packets containing a maximum of 80 points. The `Camera` assigns:
 
-```
+```text
 frame_id
 sequence_number
 timestamp = t_send_start
@@ -670,46 +670,46 @@ original_points
 points_in_packet
 ```
 
-The `Camera` timestamp is generated immediately before the packet-transmission loop & propagated unchanged across all packets of the same frame.
+The `Camera`  timestamp is generated immediately prior to the packet-transmission  loop & propagates unchanged across all packets corresponding to the  same frame.
 
-Coordinates are converted from the prepared little-endian host representation to network-order "IEEE-754" bit patterns before transmission. "RGB" & the explicit padding byte remain byte-valued fields.
+Coordinates transition from the prepared  little-endian host representation to network-order "IEEE-754" bit  patterns prior to transmission. "RGB" values & the explicit padding  byte remain byte-valued fields.
 
 ### 6.4 Isochronous Scheduling & Camera-Side "Temporal" Selection
 
-The source establishes one absolute session origin & computes the ideal deadline for frame index `k` as:
+The source establishes a singular absolute session origin & computes the ideal deadline for frame index `k` as:
 
-```
+```text
 T_ideal( k ) = T_0 + k * ( 1 / TARGET_FPS )
 ```
 
 For the current configuration:
 
-```
+```text
 TARGET_FPS = 30
 T_base     = 33.333... ms
 ```
 
-Before each source-frame decision, the `Camera` polls for a `temporal_payload`. If the current factor is `s`, the frame is selected when:
+Prior to each source-frame decision, the `Camera` polls for a `temporal_payload`. Should the current factor be `skip`, the frame is selected when:
 
-```
-( frame_id - 1 ) mod s = 0
-```
-
-and the nominal admitted rate becomes:
-
-```
-FPS_effective = TARGET_FPS / s
+```text
+( frame_id - 1 ) mod skip = 0
 ```
 
-Selected & skipped frames both advance against the same absolute source timeline. This prevents temporal adaptation from redefining the session clock & preserves meaningful frame-ID-based scheduling & jitter calculations downstream.
+& the nominal admitted rate resolves to:
 
-The current design therefore has no separate `PACING_MODE`. Source timing is governed by the absolute target schedule, while local Tx-ring pressure is exposed through retry telemetry rather than hidden behind an additional pacing heuristic.
+```text
+FPS = TARGET_FPS / skip
+```
+
+Both  selected & skipped frames advance against the identical absolute  source timeline. This mechanism prevents temporal adaptation from  redefining the session clock, thereby preserving meaningful  frame-ID-based scheduling & downstream jitter calculations.
+
+Consequently, the current design omits a separate `PACING_MODE`. Source timing is governed entirely by the absolute target schedule,  whereas local Tx-ring pressure is exposed via retry telemetry rather  than being obscured behind a supplementary pacing heuristic.
 
 ### 6.5 Meaning of Tx Backpressure Counters
 
-A zero return from `rte_eth_tx_burst()` means that the local Tx path accepted no packets in that attempt. The `Camera` retries with a bounded pause strategy & records:
+A zero return from `rte_eth_tx_burst()` indicates the local Tx path accepted zero packets during that specific attempt. The `Camera` retries employing a bounded pause strategy & records:
 
-```
+```text
 tx_zero_accepts
 tx_partial_accepts
 tx_resubmit_calls
@@ -717,62 +717,62 @@ tx_resubmitted_packets
 mbuf_starvation
 ```
 
-These quantities must not be called "UDP" retransmissions. They occur **before successful local "DPDK" queue acceptance** & therefore measure producer / consumer pressure at the local packet-I/O boundary.
+These quantities must not be classified as "UDP" retransmissions. They transpire **prior to successful local "DPDK" queue acceptance** & thus measure producer / consumer pressure directly at the local packet-I/O boundary.
 
-The validated run exhibits many zero-accept attempts because approximately ten thousand point packets are emitted per frame, yet every frame remains complete & `mbuf_starvation = 0`. The counters are therefore useful evidence that backpressure existed without being converted into application-visible loss in this experiment.
+The  validated run exhibits numerous zero-accept attempts due to the  emission of approximately ten thousand point packets per frame;  nevertheless, every frame remains complete & `mbuf_starvation = 0`.  The counters thereby provide robust evidence that backpressure existed  without translating into application-visible loss during this  experiment.
 
 ### 6.6 Camera Telemetry — Complete Semantics
 
-The `Camera` exports **all 23 fields** shown below. Their boundaries deliberately separate logical work, local "DPDK" queue activity, & the source-residency interval; consequently they should not be collapsed into one generic transmission metric.
+The `Camera` exports **all 23 fields**  delineated below. Their boundaries deliberately segregate logical work,  local "DPDK" queue activity, & the source-residency interval;  consequently, they must not be collapsed into a singular generic  transmission metric.
 
-| Metric | Unit / Type | Exact Definition | Interpretation |
-|---|---|---|---|
-| `frame_id` | identifier | Original source-frame identifier ( `1 ... K_FRAMES` ). | Preserves the source timeline even when later `temporal_skip > 1` causes a frame to be omitted. |
-| `status` | boolean | `1` when all declared points are accepted for local "DPDK" transmission & no `mbuf` allocation failure occurs; otherwise `0`. | A temporally non-selected source frame is also recorded with `status = 0`, but it is intentionally absent from the transmitted path rather than lost. |
-| `current_skip` | factor | Snapshot of the active Camera-side `temporal_skip` sampled before the frame-selection decision. | Defines the effective admitted source rate as `TARGET_FPS / current_skip`. |
-| `last_control_frame` | identifier | Frame identifier carried by the most recent admissible "Temporal" control decision received from `SFF1`. | Makes controller propagation observable at the source. |
-| `timestamp_start_tx` | seconds | `t_send_start / timer_hz`; the Camera timestamp copied into `cam_hdr.timestamp`. | Shared-host reference used by downstream latency metrics. |
-| `tx_points` | points | Sum of point records belonging to packets successfully accepted by the Camera-facing "DPDK" Tx queue. | Compared with the source frame population to determine `status`. |
-| `tx_packets` | packets | Number of "DPDK" datagrams successfully accepted for the frame. | Approximately `ceil( tx_points / POINTS_PER_PACKET )` in a complete frame. |
-| `payload_bytes` | bytes | `tx_points * POINT_SIZE_BYTES`. | Point bytes only; excludes `cam_hdr` & repeated network headers. |
-| `internal_throughput_mbs` | MB/s | `( payload_bytes + sizeof( cam_hdr ) ) / 1e6 / send_duration_s`. | Decimal logical frame throughput over the Camera submission interval. |
-| `logical_bitrate_mbps` | Mbit/s | `logical_frame_bytes * 8 * ( TARGET_FPS / current_skip ) / 1e6`. | Counts point payload plus one logical `cam_hdr` per frame. |
-| `network_bitrate_mbps` | Mbit/s | `( payload_bytes + tx_packets * sizeof( main_hdr ) ) * 8 * effective_fps / 1e6`. | Includes repeated "Eth" / "IPv4" / "UDP" / `cam_hdr` overhead for each Camera packet. |
-| `disk_io_ms` | ms | Timed acquisition interval for the selected `CACHE_MODE`. | With `CACHE_MODE_MIDDLE` + `WARM_MODE_ENABLED`, this is warmed buffered `fread()` latency, not cold physical-storage latency. |
-| `serialization_ms` | ms | Time required to convert point coordinates into the explicit on-wire network byte order. | Measures point-record serialisation only. |
-| `tx_duration_ms` | ms | `t_send_end - t_send_start`. | Wall-clock packet-submission interval, including local zero-accept retry pauses. |
-| `active_tx_ms` | ms | Sum of intervals spent inside `rte_eth_tx_burst()` calls. | Does not include backoff / pause time between calls. |
-| `active_process_ms` | ms | `disk_io_ms + serialization_ms + tx_duration_ms`. | Reference-compatible active Camera processing boundary. |
-| `total_residency_ms` | ms | `t_send_end - t_start_residency`, where residency begins before timed file acquisition. | Complete Camera frame residence for a selected source frame. |
-| `node_efficiency_pct` | % | `100 * active_process_ms / total_residency_ms`. | Expected to approach `100 %` because the Camera residence is intentionally bounded around its own active source path. |
-| `tx_zero_accepts` | count | Number of Tx attempts for which `rte_eth_tx_burst()` returns `0`. | Local queue backpressure indicator; **not** a "UDP" retransmission count. |
-| `tx_partial_accepts` | count | Number of Tx attempts accepting fewer packets than requested while accepting at least one. | Separates partial progress from total zero acceptance. |
-| `tx_resubmit_calls` | count | Number of subsequent Tx calls performed after a preceding incomplete acceptance. | Counts local re-presentation attempts. |
-| `tx_resubmitted_packets` | packet-attempts | Sum of packet requests presented by resubmission calls. | The same unsent `mbuf` may contribute repeatedly; therefore this value is intentionally larger than the unique packet population. |
-| `mbuf_starvation` | count | Frame-local `mbuf` allocation failures encountered while packetising. | A non-zero value may make the frame incomplete even if the transport itself is error-free. |
+| **Metric**                | **Unit / Type** | **Exact Definition**                                                                                                              | **Interpretation**                                                                                                                                             |
+| ------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frame_id`                | identifier      | Original source-frame identifier ( `1 ... K_FRAMES` ).                                                                            | Preserves the source timeline even when a subsequent `temporal_skip > 1` induces frame omission.                                                               |
+| `status`                  | boolean         | `1` when all declared points are accepted for local "DPDK" transmission & no `mbuf` allocation failure transpires; otherwise `0`. | A temporally non-selected source frame is recorded with `status = 0`, yet it is intentionally absent from the transmitted path rather than classified as lost. |
+| `current_skip`            | factor          | Snapshot of the active Camera-side `temporal_skip` sampled prior to the frame-selection decision.                                 | Determines the effective admitted source rate as `TARGET_FPS / current_skip`.                                                                                  |
+| `last_control_frame`      | identifier      | Frame identifier conveyed by the most recent admissible "Temporal" control decision received from `SFF1`.                         | Renders controller propagation observable at the source.                                                                                                       |
+| `timestamp_start_tx`      | seconds         | `t_send_start / timer_hz`; the Camera timestamp embedded into `cam_hdr.timestamp`.                                                | Shared-host reference utilised by downstream latency metrics.                                                                                                  |
+| `tx_points`               | points          | Aggregate of point records belonging to packets successfully accepted by the Camera-facing "DPDK" Tx queue.                       | Evaluated against the source frame population to derive `status`.                                                                                              |
+| `tx_packets`              | packets         | Quantity of "DPDK" datagrams successfully accepted for the frame.                                                                 | Approximates `ceil( tx_points / POINTS_PER_PACKET )` within a complete frame.                                                                                  |
+| `payload_bytes`           | bytes           | `tx_points * POINT_SIZE_BYTES`.                                                                                                   | Restricts to point bytes only; excludes `cam_hdr` & recurrent network headers.                                                                                 |
+| `internal_throughput_mbs` | MB/s            | `( payload_bytes + sizeof( cam_hdr ) ) / 1e6 / send_duration_s`.                                                                  | Decimal logical frame throughput across the Camera submission interval.                                                                                        |
+| `logical_bitrate_mbps`    | Mbit/s          | `logical_frame_bytes * 8 * ( TARGET_FPS / current_skip ) / 1e6`.                                                                  | Encompasses point payload alongside one logical `cam_hdr` per frame.                                                                                           |
+| `network_bitrate_mbps`    | Mbit/s          | `( payload_bytes + tx_packets * sizeof( main_hdr ) ) * 8 * effective_fps / 1e6`.                                                  | Incorporates recurrent "Eth" / "IPv4" / "UDP" / `cam_hdr` overhead per Camera packet.                                                                          |
+| `disk_io_ms`              | ms              | Timed acquisition interval for the designated `CACHE_MODE`.                                                                       | Under `CACHE_MODE_MIDDLE` + `WARM_MODE_ENABLED`, this indicates warmed buffered `fread()` latency, not cold physical-storage latency.                          |
+| `serialization_ms`        | ms              | Duration required to translate point coordinates into the explicit on-wire network byte order.                                    | Measures point-record serialisation exclusively.                                                                                                               |
+| `tx_duration_ms`          | ms              | `t_send_end - t_send_start`.                                                                                                      | Wall-clock packet-submission span, incorporating local zero-accept retry pauses.                                                                               |
+| `active_tx_ms`            | ms              | Aggregate of intervals spent actively executing `rte_eth_tx_burst()` calls.                                                       | Excludes backoff / pause durations between invocations.                                                                                                        |
+| `active_process_ms`       | ms              | `disk_io_ms + serialization_ms + tx_duration_ms`.                                                                                 | Reference-compatible active Camera processing boundary.                                                                                                        |
+| `total_residency_ms`      | ms              | `t_send_end - t_start_residency`, where residency initiates prior to timed file acquisition.                                      | Comprehensive Camera frame residence for a selected source frame.                                                                                              |
+| `node_efficiency_pct`     | %               | `100 * active_process_ms / total_residency_ms`.                                                                                   | Anticipated to approach `100 %` as Camera residence is purposefully bounded around its intrinsic active source path.                                           |
+| `tx_zero_accepts`         | count           | Quantity of Tx attempts where `rte_eth_tx_burst()` yields `0`.                                                                    | Local queue backpressure indicator; **not** a "UDP" retransmission sum.                                                                                        |
+| `tx_partial_accepts`      | count           | Quantity of Tx attempts accepting fewer packets than requested whilst accepting at least one.                                     | Differentiates partial progression from total zero acceptance.                                                                                                 |
+| `tx_resubmit_calls`       | count           | Quantity of subsequent Tx invocations executed following preceding incomplete acceptance.                                         | Enumerates local re-presentation attempts.                                                                                                                     |
+| `tx_resubmitted_packets`  | packet-attempts | Aggregate of packet requests introduced by resubmission calls.                                                                    | An identical unsent `mbuf` may contribute repeatedly; thus, this value is characteristically larger than the unique packet population.                         |
+| `mbuf_starvation`         | count           | Frame-local `mbuf` allocation failures encountered during packetisation.                                                          | A non-zero incidence may render the frame incomplete even if the transport substrate remains error-free.                                                       |
 
-The principal equations are therefore:
+The principal equations are thus formulated:
 
 ```text
-logical_frame_bytes = payload_bytes + sizeof( cam_hdr )
-network_frame_bytes = payload_bytes + tx_packets * sizeof( main_hdr )
-effective_fps       = TARGET_FPS / current_skip
+logical_frame_bytes     = payload_bytes + sizeof( cam_hdr )
+network_frame_bytes     = payload_bytes + tx_packets * sizeof( main_hdr )
+effective_fps           = TARGET_FPS / current_skip
 
 internal_throughput_mbs = ( logical_frame_bytes / 1,000,000 ) / tx_duration_s
 logical_bitrate_mbps    = logical_frame_bytes * 8 * effective_fps / 1,000,000
 network_bitrate_mbps    = network_frame_bytes * 8 * effective_fps / 1,000,000
 
-active_process_ms    = disk_io_ms + serialization_ms + tx_duration_ms
-node_efficiency_pct  = 100 * active_process_ms / total_residency_ms
+active_process_ms       = disk_io_ms + serialization_ms + tx_duration_ms
+node_efficiency_pct     = 100 * active_process_ms / total_residency_ms
 ```
 
-A particularly important distinction concerns Tx resubmission. `tx_resubmitted_packets` is an **attempt-volume** counter, not a unique packet counter: if the same pending `mbuf` is presented several times while the virtual Tx path rejects it, it contributes repeatedly. This is why the value can legitimately exceed `tx_packets` by a large factor without indicating duplicated wire traffic.
+A particularly critical distinction concerns Tx resubmission. `tx_resubmitted_packets` operates as an **attempt-volume** counter, rather than a unique packet counter: should the same pending `mbuf`  be presented iteratively while the virtual Tx path rejects it, it  contributes repetitively. This elucidates why the value can legitimately  exceed `tx_packets` by a significant margin without implying duplicated wire traffic.
 
 ### 6.7 "End-of-Stream" Behaviour
 
-After the configured sequence, the `Camera` emits repeated `END_OF_STREAM` control packets containing the `Camera` header & no point payload. Redundancy is used to make the terminal condition robust to transient local queue behaviour in the experimental environment.
+Following the configured sequence, the `Camera` emits recurrent `END_OF_STREAM` control packets containing the `Camera`  header & devoid of point payload. This redundancy ensures the  terminal condition remains resilient to transient local queue behaviour  within the experimental environment.
 
-The "EOS" marker is a protocol event, not an additional source frame, & is excluded from the 300-frame telemetry table.
+The "EOS" marker  constitutes a protocol event, rather than a supplementary source frame,  & is excluded from the 300-frame telemetry table.
 
 ---
 
@@ -780,43 +780,43 @@ The "EOS" marker is a protocol event, not an additional source frame, & is exclu
 
 ### 7.1 Role
 
-`SFF1` is the "Geometry-Aware Classifier" ( "GAC" ) of the current architecture. Its purpose is to demonstrate that useful frame geometry can be derived **while point packets are already traversing the service path**, instead of reconstructing the same statistics for the first time inside the `Encoder`.
+`SFF1`  operates as the "Geometry-Aware Classifier" ( "GAC" ) within the  current architecture. Its fundamental purpose is to demonstrate that  actionable frame geometry can be derived **while point packets actively traverse the service path**, rather than reconstructing identical statistics initially inside the `Encoder`.
 
-For each valid `Camera` packet it:
+For each valid `Camera` packet, it:
 
 ```text
-validates "Ethernet" / "IPv4" / "UDP" and Camera metadata
+validates "Ethernet" / "IPv4" / "UDP" & Camera metadata
 decodes point coordinates from network byte order
 updates frame-progressive geometric state
-stores "XYZ" in a preallocated frame-local workspace
+stores "XYZ" within a preallocated frame-local workspace
 computes progressive centroid / extent / bounding-box centre
-computes exact max_r when the frame becomes complete
+computes exact max_r upon frame completion
 replaces the outer network envelope in place
-adds experimental "NSH" + geometric context
+appends experimental "NSH" + geometric context
 forwards the original Camera application payload
 records frame-level telemetry
 ```
 
-The "GAC" is intentionally more than a forwarding label while remaining substantially narrower than a complete application processor.
+The  "GAC" is purposefully designed to exceed the capabilities of a mere  forwarding label while remaining substantially narrower than a  full-fledged application processor.
 
 ### 7.2 "Temporal" Control Is Relayed, Not Decided, by SFF1
 
-The current `SFF1` does **not** perform source-frame temporal filtering.
+The current `SFF1` iteration does **not** execute source-frame temporal filtering.
 
-"Temporal" adaptation is generated by the `Encoder` & applied by the `Camera`. `SFF1` is only the final service-chain-aware relay in the reverse "Temporal" path:
+"Temporal" adaptation is orchestrated by the `Encoder` & enacted by the `Camera`. `SFF1` functions solely as the terminal service-chain-aware relay along the reverse "Temporal" trajectory:
 
 ```text
-SFF2 -> SFF1 : "NSH"-encapsulated temporal_payload
-SFF1         : validates "SPI" = 200 / "SI" = 255
-SFF1         : removes the service-chain envelope
-SFF1 -> Camera: plain "UDP" temporal_payload
+SFF2 -> SFF1   : "NSH"-encapsulated temporal_payload
+SFF1           : validates "SPI" = 200 / "SI" = 255
+SFF1           : strips the service-chain envelope
+SFF1 -> Camera : plain "UDP" temporal_payload
 ```
 
-The `current_skip` observed by `SFF1` on the primary data path is therefore the factor already selected by the `Camera` & carried inside `cam_hdr`. It is used for telemetry & effective-rate interpretation, not for a second local frame-drop decision.
+The `current_skip` observed by `SFF1` on the primary data path is, therefore, the factor already adopted by the `Camera` & encapsulated within `cam_hdr`.  It serves telemetry & effective-rate interpretation purposes,  rather than acting as a secondary local frame-drop determinant.
 
 ### 7.3 Progressive Geometric Offloading
 
-For the active prefix containing `N` points, `SFF1` maintains:
+For an active prefix containing `N` points, `SFF1` maintains:
 
 ```text
 S_N     = sum_i( p_i )
@@ -824,7 +824,7 @@ p_min,N = component-wise min_i( p_i )
 p_max,N = component-wise max_i( p_i )
 ```
 
-and derives:
+& incrementally derives:
 
 ```text
 C_N = S_N / N
@@ -832,27 +832,27 @@ E_N = p_max,N - p_min,N
 B_N = ( p_min,N + p_max,N ) / 2
 ```
 
-These operations can be updated as each point arrives & therefore fit naturally inside a data-plane-oriented classifier.
+These  operations permit updating upon each point's arrival, naturally  aligning with the computational profile of a data-plane-oriented  classifier.
 
-The exact farthest-point radius is different:
+The exact farthest-point radius presents a distinct mathematical dependency:
 
 ```text
 max_r = max_i || p_i - C_final ||_2
 ```
 
-Since `C_final` changes until the final point is known, exact `max_r` cannot generally be committed from the first packet without either revisiting previous points or moving the computation to an upstream preprocessing stage. The current implementation therefore stores only `XYZ` coordinates in a preallocated workspace & performs a second radius pass once the frame is complete.
+Since `C_final` remains indeterminate until the final point is ascertained, exact `max_r`  cannot be resolved universally from the initial packet without either  revisiting preceding points or offloading the computation upstream.  Consequently, the current implementation records only `XYZ` coordinates within a preallocated workspace & executes a secondary radius pass upon frame completion.
 
-This is a deliberate compromise. The expensive application representation is not rebuilt inside `SFF1`, packet forwarding continues while the first pass is performed, & downstream `Encoder` geometry work is removed when the final metadata are valid.
+This represents a calculated compromise. The computationally expensive application representation is not regenerated inside `SFF1`, packet forwarding persists uninterrupted during the initial pass, & downstream `Encoder` geometry operations are obviated once the final metadata is validated.
 
 ### 7.4 In-Place Header Replacement
 
-The incoming `Camera` datagram contains:
+The incoming `Camera` datagram encompasses:
 
 ```text
 [ "Ethernet" | "IPv4" | "UDP" | cam_hdr | points ]
 ```
 
-`SFF1` removes the original network envelope & prepends:
+`SFF1` strips the original network envelope & prepends:
 
 ```text
 [ "Ethernet" | "IPv4" | "UDP" | nsh_hdr | md2_ctx | geo_agg_hdr ]
@@ -864,17 +864,17 @@ while preserving:
 [ cam_hdr | points ]
 ```
 
-The resulting packet is:
+The resultant packet is structured as:
 
 ```text
 [ "Ethernet" | "IPv4" | "UDP" | nsh_hdr | md2_ctx | geo_agg_hdr | cam_hdr | points ]
 ```
 
-This is the central in-path transformation: service metadata are added to the packet already being forwarded rather than creating a separate frame-level side channel.
+This  constitutes the central in-path transformation: service metadata is  appended directly to the packet during forwarding, eschewing the  creation of a disparate frame-level side channel.
 
 ### 7.5 Frame-Global Boundary Constraint
 
-There are two distinct meanings of a geometric "boundary" in the present implementation.
+Two distinct definitions of a geometric "boundary" exist within the current implementation.
 
 Axis-aligned extrema are packet-progressive:
 
@@ -884,76 +884,75 @@ min_y / max_y
 min_z / max_z
 ```
 
-and therefore become increasingly accurate as packets arrive.
+& consequently attain increasing accuracy as packets arrive.
 
-A centroid-dependent radial boundary is not packet-final until the centroid is final. Similarly, a boundary after an arbitrary future user pose would require that pose before it could be evaluated. No packet format can remove this mathematical dependency by itself.
+Conversely,  a centroid-dependent radial boundary cannot achieve finality until the  centroid itself is finalised. Similarly, establishing a boundary  contingent upon an arbitrary future user pose necessitates the prior  availability of said pose. No packet format inherently resolves this  mathematical dependency.
 
-The project therefore avoids an artificial preprocessing solution at the `Camera` or offline converter. Such a solution could certainly send the final geometry earlier, but it would invalidate the research question of performing the operation at the service function **in place on the data path**. The present design preserves that objective & makes the unavoidable frame-global step explicit.
+Therefore, the project deliberately avoids artificial preprocessing solutions at the `Camera`  or via an offline converter. Such solutions could transmit final  geometry prematurely but would negate the fundamental research objective  of evaluating in-place execution at the service function **on the data path**. The current design upholds this objective, rendering the unavoidable frame-global step explicit.
 
 ### 7.6 SFF1 Telemetry — Complete Semantics
 
-`SFF1` exports **36 fields**. The current version treats the node as an active "Geometry-Aware Classifier" ( "GAC" ), hence geometry, exact radius, receive span, active forwarding work, & complete residence remain independently observable.
+`SFF1` exports **36 fields**.  The current iteration treats the node as an active "Geometry-Aware  Classifier" ( "GAC" ); hence, geometry, exact radius, receive span,  active forwarding operations, & overall residence remain  independently verifiable.
 
-| Metric | Unit / Type | Exact Definition | Interpretation |
-|---|---|---|---|
-| `frame_id` | identifier | Original Camera frame identifier. | Maintains source-relative timing semantics. |
-| `status` | boolean | `1` when the full declared point population is received & forwarded; otherwise `0`. | Functional integrity flag for the "GAC" output. |
-| `current_skip` | factor | `temporal_skip` copied from the Camera header for the current frame. | `SFF1` observes this value; it no longer chooses source frames. |
-| `camera_send_timestamp` | seconds | Camera `cam_hdr.timestamp` converted from timer cycles. | Absolute shared-host source reference. |
-| `recv_start_timestamp` | seconds | First accepted packet-arrival timestamp for the frame. | Defines node entry. |
-| `node_exit_timestamp` | seconds | Timestamp selected for frame completion, normally the last successful Tx activity. | Defines node exit for residency & scheduling analysis. |
-| `original_points` | points | Point population declared by `cam_hdr.original_points`. | Reference denominator for integrity. |
-| `rx_points` | points | Total point records validated at `SFF1` ingress. | Must equal `original_points` for a complete frame. |
-| `tx_points` | points | Point records associated with successfully accepted outgoing packets. | Must equal `rx_points` for `status = 1`. |
-| `rx_packets` | packets | Validated Camera packets received for the frame. | Input segmentation indicator. |
-| `tx_packets` | packets | Packets successfully forwarded toward `SFF2`. | Output segmentation is expected to preserve the Camera packet count. |
-| `payload_bytes` | bytes | `tx_points * sizeof( point_tx )`. | Forwarded point bytes only. |
-| `data_integrity_pct` | % | `100 * rx_points / original_points`. | Point-population integrity at `SFF1` ingress. |
-| `internal_throughput_mbs` | MB/s | `( rx_points * 16 + one cam_hdr ) / 1e6 / receive_s`, where `receive_s = last_rx - first_arrival`. | Pure ingress-span logical throughput rather than residency-normalised throughput. |
-| `logical_bitrate_mbps` | Mbit/s | `( tx_point_bytes + one cam_hdr ) * 8 * effective_fps / 1e6`. | Logical forwarded workload at the active temporal rate. |
-| `network_bitrate_mbps` | Mbit/s | `( tx_point_bytes + tx_packets * ( sizeof( main_hdr ) + sizeof( cam_hdr ) ) ) * 8 * effective_fps / 1e6`. | Includes repeated "Eth" / "IPv4" / "UDP" + experimental "NSH" / context / geometry metadata + `cam_hdr`. |
-| `tx_duration_ms` | ms | `last_successful_tx - first_successful_tx`. | Wall span of successful egress activity. |
-| `active_tx_ms` | ms | Accumulated time spent inside `rte_eth_tx_burst()` calls. | Local Tx execution only. |
-| `active_process_ms` | ms | Accumulated packet-processing, geometry, envelope-rewrite & flush work attributed to the frame. | Numerator used by current `node_efficiency_pct`. |
-| `geometry_aggregation_ms` | ms | Accumulated first-pass sum / extrema / progressive metadata computation. | Disjoint from the exact `max_r` pass in the current implementation. |
-| `max_r_ms` | ms | Exact second-pass farthest-point radius calculation executed when the final point population is known. | Measures the frame-global geometric dependency intentionally offloaded to the "GAC". |
-| `cycle_ms` | ms | `current_frame_exit - previous_frame_exit` ( first frame starts from its own initial arrival ). | Source-cycle occupancy reference. |
-| `header_wait_ms` | ms | `max( 0, cycle_ms - total_residency_ms )`. | Inter-frame idle / waiting component outside the current frame residence. |
-| `total_residency_ms` | ms | `frame_exit - first_arrival`. | Complete `SFF1` residence from first input packet to frame completion / egress. |
-| `node_efficiency_pct` | % | `100 * active_process_ms / total_residency_ms`. | Fraction of residence directly attributed to active `SFF1` work. |
-| `camera_to_node_latency_ms` | ms | `first_sff1_arrival - camera_send_timestamp` on the shared host timer domain. | Local Camera-to-`SFF1` propagation / scheduling interval. |
-| `schedule_delay_ms` | ms | `( first_arrival - session_start ) - ( frame_id - first_arrival_frame_id ) / TARGET_FPS`, converted to ms. | Deviation of processing availability from the original isochronous Camera timeline. |
-| `network_jitter_ms` | ms | Absolute difference between observed first-arrival spacing & the frame-ID-derived ideal spacing. | Remains meaningful when future temporal gaps make consecutive received IDs non-adjacent. |
-| `eth_errors` | cumulative count | Snapshot of the process-wide invalid "Ethernet" counter when the frame record is initialised. | Cumulative diagnostic, **not** a frame-local delta. |
-| `ipv4_errors` | cumulative count | Snapshot of the process-wide invalid "IPv4" counter. | Cumulative diagnostic. |
-| `udp_errors` | cumulative count | Snapshot of the process-wide invalid "UDP" counter. | Cumulative diagnostic. |
-| `nsh_errors` | cumulative count | Snapshot of experimental service-header / control-envelope validation failures. | Cumulative diagnostic. |
-| `tx_zero_accepts` | count | Frame-local Tx attempts returning zero accepted packets. | Local "DPDK" backpressure. |
-| `tx_partial_accepts` | count | Frame-local Tx calls with partial acceptance. | Local "DPDK" backpressure. |
-| `tx_resubmit_calls` | count | Frame-local calls made after incomplete acceptance. | Local resubmission count. |
-| `tx_resubmitted_packets` | packet-attempts | Requested packet population across resubmission calls. | May count the same pending packet more than once. |
+| **Metric**                  | **Unit / Type**  | **Exact Definition**                                                                                          | **Interpretation**                                                                                            |
+| --------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `frame_id`                  | identifier       | Original Camera frame identifier.                                                                             | Sustains source-relative timing semantics.                                                                    |
+| `status`                    | boolean          | `1` when the complete declared point population is received & forwarded; otherwise `0`.                       | Functional integrity indicator for the "GAC" output.                                                          |
+| `current_skip`              | factor           | `temporal_skip` duplicated from the Camera header for the current frame.                                      | `SFF1` merely observes this value; it relinquishes source-frame selection.                                    |
+| `camera_send_timestamp`     | seconds          | Camera `cam_hdr.timestamp` translated from timer cycles.                                                      | Absolute shared-host source reference.                                                                        |
+| `recv_start_timestamp`      | seconds          | Initial accepted packet-arrival timestamp for the frame.                                                      | Denotes node entry.                                                                                           |
+| `node_exit_timestamp`       | seconds          | Timestamp assigned to frame completion, typically the final successful Tx activity.                           | Denotes node exit for residency & scheduling analysis.                                                        |
+| `original_points`           | points           | Point population stipulated by `cam_hdr.original_points`.                                                     | Reference denominator establishing integrity.                                                                 |
+| `rx_points`                 | points           | Total point records validated at `SFF1` ingress.                                                              | Must equate to `original_points` for frame completeness.                                                      |
+| `tx_points`                 | points           | Point records correlated with successfully accepted outgoing packets.                                         | Must equate to `rx_points` to yield `status = 1`.                                                             |
+| `rx_packets`                | packets          | Validated Camera packets aggregated for the frame.                                                            | Input segmentation metric.                                                                                    |
+| `tx_packets`                | packets          | Packets successfully forwarded toward `SFF2`.                                                                 | Output segmentation is anticipated to mirror the Camera packet count.                                         |
+| `payload_bytes`             | bytes            | `tx_points * sizeof( point_tx )`.                                                                             | Forwarded point bytes exclusively.                                                                            |
+| `data_integrity_pct`        | %                | `100 * rx_points / original_points`.                                                                          | Point-population integrity evaluated at `SFF1` ingress.                                                       |
+| `internal_throughput_mbs`   | MB/s             | `( rx_points * 16 + one cam_hdr ) / 1e6 / receive_s`, where `receive_s = last_rx - first_arrival`.            | Pure ingress-span logical throughput, distinct from residency-normalised throughput.                          |
+| `logical_bitrate_mbps`      | Mbit/s           | `( tx_point_bytes + one cam_hdr ) * 8 * effective_fps / 1e6`.                                                 | Logical forwarded workload at the corresponding active temporal rate.                                         |
+| `network_bitrate_mbps`      | Mbit/s           | `( tx_point_bytes + tx_packets * ( sizeof( main_hdr ) + sizeof( cam_hdr ) ) ) * 8 * effective_fps / 1e6`.     | Incorporates recurrent "Eth" / "IPv4" / "UDP" + experimental "NSH" / context / geometry metadata + `cam_hdr`. |
+| `tx_duration_ms`            | ms               | `last_successful_tx - first_successful_tx`.                                                                   | Wall-clock span representing successful egress activity.                                                      |
+| `active_tx_ms`              | ms               | Accumulated duration executing `rte_eth_tx_burst()` calls.                                                    | Local Tx execution exclusively.                                                                               |
+| `active_process_ms`         | ms               | Accumulated packet-processing, geometry, envelope-rewrite, & flush operations attributed to the frame.        | Numerator utilised for current `node_efficiency_pct`.                                                         |
+| `geometry_aggregation_ms`   | ms               | Accumulated first-pass sum / extrema / progressive metadata calculation.                                      | Segregated from the exact `max_r` pass in the present implementation.                                         |
+| `max_r_ms`                  | ms               | Exact second-pass farthest-point radius calculation triggered once the final point population is established. | Quantifies the frame-global geometric dependency intentionally offloaded to the "GAC".                        |
+| `cycle_ms`                  | ms               | `current_frame_exit - previous_frame_exit` ( initial frame commences from its own initial arrival ).          | Source-cycle occupancy reference.                                                                             |
+| `header_wait_ms`            | ms               | `max( 0, cycle_ms - total_residency_ms )`.                                                                    | Inter-frame idle / wait interval external to the current frame residence.                                     |
+| `total_residency_ms`        | ms               | `frame_exit - first_arrival`.                                                                                 | Complete `SFF1` residence spanning initial input packet to frame completion / egress.                         |
+| `node_efficiency_pct`       | %                | `100 * active_process_ms / total_residency_ms`.                                                               | Fraction of residence directly ascribable to active `SFF1` operations.                                        |
+| `camera_to_node_latency_ms` | ms               | `first_sff1_arrival - camera_send_timestamp` synchronised on the shared host timer domain.                    | Local Camera-to-`SFF1` propagation / scheduling interval.                                                     |
+| `schedule_delay_ms`         | ms               | `( first_arrival - session_start ) - ( frame_id - first_arrival_frame_id ) / TARGET_FPS`, translated to ms.   | Deviation of processing availability relative to the original isochronous Camera timeline.                    |
+| `network_jitter_ms`         | ms               | Absolute disparity between the observed first-arrival spacing & the frame-ID-derived ideal spacing.           | Maintains significance when ensuing temporal gaps render consecutive received IDs non-adjacent.               |
+| `eth_errors`                | cumulative count | Snapshot of the process-wide invalid "Ethernet" counter registered upon frame-record initialisation.          | Cumulative diagnostic, **not** a frame-local delta.                                                           |
+| `ipv4_errors`               | cumulative count | Snapshot of the process-wide invalid "IPv4" counter.                                                          | Cumulative diagnostic.                                                                                        |
+| `udp_errors`                | cumulative count | Snapshot of the process-wide invalid "UDP" counter.                                                           | Cumulative diagnostic.                                                                                        |
+| `nsh_errors`                | cumulative count | Snapshot detailing experimental service-header / control-envelope validation failures.                        | Cumulative diagnostic.                                                                                        |
+| `tx_zero_accepts`           | count            | Frame-local Tx attempts yielding zero accepted packets.                                                       | Local "DPDK" backpressure indicator.                                                                          |
+| `tx_partial_accepts`        | count            | Frame-local Tx invocations resulting in partial acceptance.                                                   | Local "DPDK" backpressure indicator.                                                                          |
+| `tx_resubmit_calls`         | count            | Frame-local calls initiated following an incomplete acceptance.                                               | Local resubmission tally.                                                                                     |
+| `tx_resubmitted_packets`    | packet-attempts  | Requested packet population aggregated across resubmission calls.                                             | Subject to counting the identical pending packet multiple times.                                              |
 
-The core byte / timing relations are:
+The core byte / timing formulations are:
 
 ```text
-receive_s              = last_rx - first_arrival
-logical_rx_frame_bytes = rx_points * 16 + one cam_hdr
-logical_tx_frame_bytes = tx_points * 16 + one cam_hdr
+receive_s               = last_rx - first_arrival
+logical_rx_frame_bytes  = rx_points * 16 + one cam_hdr
+logical_tx_frame_bytes  = tx_points * 16 + one cam_hdr
 
-effective_fps = TARGET_FPS / current_skip
+effective_fps           = TARGET_FPS / current_skip
 
 internal_throughput_mbs = ( logical_rx_frame_bytes / 1,000,000 ) / receive_s
 logical_bitrate_mbps    = logical_tx_frame_bytes * 8 * effective_fps / 1,000,000
 
-network_tx_bytes = tx_points * 16 + tx_packets * ( "Eth" + "IPv4" + "UDP" + nsh_hdr + nsh_md2_ctx_hdr + geo_agg_hdr + cam_hdr )
+network_tx_bytes        = tx_points * 16 + tx_packets * ( "Eth" + "IPv4" + "UDP" + nsh_hdr + nsh_md2_ctx_hdr + geo_agg_hdr + cam_hdr )
 
-network_bitrate_mbps = network_tx_bytes * 8 * effective_fps / 1,000,000
+network_bitrate_mbps    = network_tx_bytes * 8 * effective_fps / 1,000,000
 
-node_efficiency_pct = 100 * active_process_ms / total_residency_ms
+node_efficiency_pct     = 100 * active_process_ms / total_residency_ms
 ```
 
-`geometry_aggregation_ms` & `max_r_ms` are now intentionally non-overlapping. The former ends after the progressive sum / extrema update; only then does the frame-completing branch begin the exact centroid-dependent radius scan. This separation is necessary for a defensible measurement of the work moved from `Encoder` to the "GAC".
-
+`geometry_aggregation_ms` & `max_r_ms`  are deliberately structured to be non-overlapping. The former concludes  subsequent to the progressive sum / extrema update; exclusively  thereafter does the frame-completing branch execute the exact  centroid-dependent radius scan. This separation is imperative for  establishing a defensible measurement of the workload transitioned from `Encoder` to the "GAC".
 
 ---
 
@@ -961,7 +960,7 @@ node_efficiency_pct = 100 * active_process_ms / total_residency_ms
 
 ### 8.1 Role & Ports
 
-`SFF2` is the central four-port steering element:
+`SFF2` operates as the central four-port steering hub:
 
 ```text
 PORT_SFF1    = 0
@@ -970,9 +969,9 @@ PORT_DECODER = 2
 PORT_SFF3    = 3
 ```
 
-Its current role is no longer adequately described as a simple forwarder. It is a **stateful experimental "NSH" proxy** that permits service-chain-aware functions & service-chain-unaware applications to coexist in the same path.
+Its current functionality transcends a rudimentary forwarder. It constitutes a **stateful experimental "NSH" proxy**  facilitating the coexistence of service-chain-aware functions &  service-chain-unaware applications within an identical trajectory.
 
-The three service-path identifiers are:
+The three primary service-path identifiers are:
 
 ```text
 "Main"     "SPI" = 100
@@ -982,41 +981,41 @@ The three service-path identifiers are:
 
 ### 8.2 Implemented Primary Routing
 
-For `SFF1 -> Encoder`, `SFF2` receives the experimental "NSH" geometry envelope, validates the service state, decrements the "TTL", & stores frame-local proxy state. It then removes the incoming service-chain envelope & reconstructs a plain "Ethernet" / "IPv4" / "UDP" packet for the `Encoder`.
+For `SFF1 -> Encoder`, `SFF2`  ingests the experimental "NSH" geometry envelope, validates the service  state, decrements the "TTL", & instantiates frame-local proxy  state. Subsequently, it strips the incoming service-chain encapsulation  & reconstructs a standard "Ethernet" / "IPv4" / "UDP" packet  destined for the `Encoder`.
 
-The preserved application content is:
+The retained application content is formatted as:
 
 ```text
 [ geo_agg_hdr | cam_hdr | point payload ]
 ```
 
-The `Encoder` therefore consumes useful geometry without parsing "NSH".
+Consequently, the `Encoder` processes actionable geometry without necessitating "NSH" parsing.
 
-When encoded media returns from the `Encoder`, `SFF2` identifies the `Encoder`-facing attachment as the next primary-chain transition, advances the proxy state, & forwards the plain application packet toward the future `Decoder`.
+Upon the return of encoded media from the `Encoder`, `SFF2` identifies the `Encoder`-facing  attachment as the next primary-chain transition, increments the proxy  state, & forwards the unencapsulated application packet towards the  prospective `Decoder`.
 
-This design deliberately treats `Encoder` & `Decoder` attachment domains as **"SFC"-unaware application domains**: service-chain state is maintained by the proxy rather than duplicated inside the application.
+This architecture intentionally designates the `Encoder` & `Decoder` attachment domains as **"SFC"-unaware application domains**: service-chain state maintenance is exclusively delegated to the proxy rather than duplicated within application nodes.
 
 ### 8.3 "Temporal" & "Pose" Control Paths
 
-The `Encoder` emits a plain 8-byte `temporal_payload`. `SFF2` recognises this control shape on the `Encoder` port & classifies it into:
+The `Encoder` emits an unencapsulated 8-byte `temporal_payload`. `SFF2` discerns this control structure on the `Encoder` port & categorises it as:
 
 ```text
 "SPI" = 200
 "SI"  = 255
 ```
 
-before forwarding it to `SFF1`.
+prior to forwarding it to `SFF1`.
 
-The future pose direction works in the opposite encapsulation sense. A valid "Pose" packet from the `SFF3`-facing port uses:
+The anticipated pose trajectory operates via an inverse encapsulation logic. A valid "Pose" packet originating from the `SFF3`-facing port applies:
 
 ```text
 "SPI" = 300
 "SI"  = 255
 ```
 
-`SFF2` removes the service-chain envelope & forwards the 12-byte pose application payload as plain "UDP" to the future `Decoder`.
+`SFF2` strips the service-chain envelope & forwards the 12-byte pose application payload as standard "UDP" to the prospective `Decoder`.
 
-The two control paths are intentionally separate because they solve different problems:
+The dual control paths remain purposefully segregated as they address disparate imperatives:
 
 ```text
 "Temporal" -> Encoder workload regulation -> Camera admission rate
@@ -1025,15 +1024,15 @@ The two control paths are intentionally separate because they solve different pr
 
 ### 8.4 Burst Ownership
 
-`SFF2` aggregates outgoing packets into "DPDK" bursts. A burst is associated with the telemetry owner of the current frame & route so that successful Tx acceptance can be attributed to the correct frame.
+`SFF2`  aggregates outgoing packets into formulated "DPDK" bursts. Each burst  is assigned to the telemetry owner corresponding to the current frame  & route, ensuring successful Tx acceptance is correctly attributed.
 
-This matters because a single physical `SFF2` worker services four logical ports & several packet classes. Without explicit burst ownership, Tx time & byte counts could be assigned to the wrong frame whenever routing transitions occur close together.
+This attribution is critical given a single physical `SFF2`  worker processes four logical ports & multiple packet typologies.  In the absence of explicit burst ownership, Tx durations & byte  tallies could be erroneously ascribed during rapid routing transitions.
 
-The implementation therefore flushes an existing burst when its owner or route changes & records first / last Tx cycles & active Tx cycles for the corresponding telemetry entry.
+Therefore,  the implementation flushes an active burst whenever its owner or route  shifts, subsequently recording initial / terminal Tx cycles alongside  active Tx cycles for the respective telemetry entry.
 
 ### 8.5 Proxy State & Unaware Service Functions
 
-For each primary frame, `SFF2` stores a minimal proxy context containing:
+For each primary frame, `SFF2` retains a minimal proxy context comprising:
 
 ```text
 frame_id
@@ -1042,79 +1041,79 @@ frame_id
 valid state
 ```
 
-The state is captured when a valid `SFF1` primary packet enters the proxy boundary. While the packet is decapsulated for an unaware function, `SFF2` remains responsible for the logical service-index transition.
+The state is registered when a legitimate `SFF1` primary packet permeates the proxy boundary. While the packet remains decapsulated for an unaware function, `SFF2` upholds responsibility for managing the logical service-index transition.
 
-The design has two advantages for the experiment.
+This architecture offers two distinct advantages for the experiment.
 
-First, the `Encoder` can remain focused on point processing, "CUDA", & "codec" behaviour instead of becoming a second service-chain parser. Second, the same principle can be applied to the future `Decoder`, making it possible to compare application processing without requiring service-chain logic inside each application node.
+Firstly, the `Encoder`  concentrates exclusively on point processing, "CUDA" acceleration,  & "codec" mechanics without assuming the burden of a secondary  service-chain parser. Secondly, this methodology extends to the  prospective `Decoder`,  facilitating comparative analysis of application processing without  demanding service-chain logic integration within each application node.
 
-The trade-off is explicit statefulness in the forwarder. Frame identity must remain valid & consistent for the proxy to advance or re-impose service state correctly.
+The  concession is explicit statefulness situated within the forwarder.  Frame identity must endure validly & consistently to enable the  proxy to increment or re-impose service state accurately.
 
-The previous repository description of a `RED`-like / `AQM` heuristic does not apply to this snapshot. The current `SFF2` source contains no such congestion controller; workload adaptation has moved to the `Encoder`-driven "Temporal" path.
+The previously documented repository detailing a `RED`-like / `AQM` heuristic is obsolete within this snapshot. The present `SFF2` source omits such congestion controllers; workload adaptation has been entirely relocated to the `Encoder`-driven "Temporal" path.
 
 ### 8.6 Route-Specific Payload Semantics
 
-Route 0 ( `SFF1 -> Encoder` ) carries point data:
+Route 0 ( `SFF1 -> Encoder` ) conveys point data:
 
 ```text
 logical payload -> point bytes + one cam_hdr
 application context visible to Encoder -> geo_agg_hdr
 ```
 
-Route 1 ( `Encoder -> Decoder` ) carries encoded media:
+Route 1 ( `Encoder -> Decoder` ) transports encoded media:
 
 ```text
 logical payload -> "MPEG-TS" bytes + one cam_hdr + one enc_hdr
 ```
 
-Route 2 ( `Decoder -> SFF3` ) is intentionally not assigned a stable application-byte formula yet. The base proxy branch can re-impose service metadata when the future `Decoder` returns a packet with a valid frame identifier, but the `Decoder` payload layout, completion semantics, & `SFF3` contract are not final.
+Route 2 ( `Decoder -> SFF3`  ) remains intentionally devoid of a stable application-byte formula.  The base proxy branch is capable of re-imposing service metadata upon  receiving a packet from the future `Decoder` possessing a valid frame identifier, yet the `Decoder` payload schema, completion semantics, & `SFF3` contract lack finality.
 
-This distinction is important: **proxy scaffolding exists for Route 2, but validated Route-2 telemetry does not**.
+This differentiation is crucial: **proxy scaffolding is established for Route 2, yet validated Route-2 telemetry remains absent**.
 
 ### 8.7 SFF2 Telemetry — Complete Semantics
 
-`SFF2` uses one 36-column telemetry schema for its route arrays. In the current validated snapshot, quantitative records are meaningful for Route 0 ( `SFF1 -> Encoder` ) & Route 1 ( `Encoder -> Decoder` ). Route 2 keeps the proxy / forwarding scaffold but intentionally has no committed application-format accounting yet.
+`SFF2`  implements a uniform 36-column telemetry schema across its route  arrays. Within the current validated snapshot, quantitative metrics hold  significance exclusively for Route 0 ( `SFF1 -> Encoder` ) & Route 1 ( `Encoder -> Decoder` ). Route 2 maintains the proxy / forwarding framework but purposefully lacks committed application-format accounting.
 
-| Metric | Unit / Type | Exact Definition | Interpretation |
-|---|---|---|---|
-| `frame_id` | identifier | Source frame identifier carried by `cam_hdr`. | Used to bind route telemetry & per-frame proxy context. |
-| `status` | boolean | Route 0: complete point reception + exact point forwarding. Route 1: non-empty media reception + exact media-byte forwarding. | Route-specific integrity indicator. |
-| `current_skip` | factor | "Temporal" skip propagated in `cam_hdr`. | Defines `effective_fps = TARGET_FPS / current_skip`. |
-| `camera_send_timestamp` | seconds | Original Camera timestamp retained across the "Main" path. | Cross-node reference. |
-| `recv_start_timestamp` | seconds | First packet arrival at the selected `SFF2` route. | Node-entry reference. |
-| `node_exit_timestamp` | seconds | Final route timestamp, normally last successful Tx / last relevant activity. | Node-exit reference. |
-| `original_points` | points | Original point count retained from `cam_hdr`. | Meaningful on both routes as source metadata; Route 1 itself carries compressed media. |
-| `rx_points` | points | Route 0 ingress point count. | Expected to be zero by design on Route 1. |
-| `tx_points` | points | Route 0 successfully forwarded point count. | Expected to be zero by design on Route 1. |
-| `rx_media_bytes` | bytes | Route 1 compressed-media bytes received after `cam_hdr + enc_hdr`. | Expected to be zero on Route 0. |
-| `tx_media_bytes` | bytes | Route 1 compressed-media bytes associated with successful Tx packets. | Expected to equal `rx_media_bytes` for `status = 1`. |
-| `rx_packets` | packets | Packets validated at route ingress. | Point datagrams on Route 0; compressed-media datagrams on Route 1. |
-| `tx_packets` | packets | Packets successfully accepted on route egress. | Used for repeated wire-envelope accounting. |
-| `payload_bytes` | bytes | Route 0: `rx_points * 16`. Route 1: `rx_media_bytes`. | Route-native application payload. |
-| `data_integrity_pct` | % | Route 0: `100 * rx_points / original_points`. Route 1: `100 * tx_media_bytes / rx_media_bytes`. | Point-integrity vs byte-preservation semantics are intentionally route-specific. |
-| `internal_throughput_mbs` | MB/s | `logical_rx_frame_bytes / 1e6 / receive_s`, with `receive_s = last_rx - first_arrival`. | Ingress logical throughput. |
-| `logical_bitrate_mbps` | Mbit/s | `logical_tx_frame_bytes * 8 * effective_fps / 1e6`. | Counts application bytes + frame metadata once. |
-| `network_bitrate_mbps` | Mbit/s | Route-specific outgoing bytes including the repeated Encoder- or Decoder-facing network envelope. | Represents the current "DPDK" datagram construction, not physical preamble / "FCS". |
-| `tx_duration_ms` | ms | `last_successful_tx - first_successful_tx`. | Route egress span. |
-| `active_tx_ms` | ms | Accumulated time spent inside route Tx-burst calls. | Local Tx execution. |
-| `active_process_ms` | ms | Accumulated route classification, proxy processing, rewriting & Tx work. | Numerator of `node_efficiency_pct`. |
-| `cycle_ms` | ms | `route_frame_exit - previous_route_frame_exit`. | Per-route source cycle. |
-| `header_wait_ms` | ms | `max( 0, cycle_ms - total_residency_ms )`. | Inter-frame idle component for that route. |
-| `total_residency_ms` | ms | `route_frame_exit - first_route_arrival`. | Complete frame residence inside the selected `SFF2` route. |
-| `node_efficiency_pct` | % | `100 * active_process_ms / total_residency_ms`. | Active steering / proxy fraction of residence. |
-| `camera_to_node_latency_ms` | ms | `first_route_arrival - camera_send_timestamp`. | Absolute shared-host Camera-relative latency; unlike the Encoder field, it is not baseline-corrected. |
-| `schedule_delay_ms` | ms | First-arrival deviation from `( frame_id - first_arrival_frame_id ) / TARGET_FPS`. | Preserves the source timeline across temporal frame-ID gaps. |
-| `network_jitter_ms` | ms | Absolute observed inter-arrival error relative to the frame-ID-derived expected interval. | Route-level timing dispersion. |
-| `eth_errors` | cumulative count | Snapshot of process-wide "Ethernet" validation failures. | Cumulative diagnostic. |
-| `ipv4_errors` | cumulative count | Snapshot of process-wide "IPv4" validation failures. | Cumulative diagnostic. |
-| `udp_errors` | cumulative count | Snapshot of process-wide "UDP" validation failures. | Cumulative diagnostic. |
-| `nsh_errors` | cumulative count | Snapshot of proxy / experimental "NSH" validation-state failures. | Cumulative diagnostic; can also reflect inconsistent per-frame proxy state. |
-| `tx_zero_accepts` | count | Route-local Tx calls returning zero acceptance. | Local queue pressure. |
-| `tx_partial_accepts` | count | Route-local partial Tx acceptances. | Local queue pressure. |
-| `tx_resubmit_calls` | count | Route-local resubmission calls following incomplete Tx acceptance. | Not a transport retransmission. |
-| `tx_resubmitted_packets` | packet-attempts | Packet requests presented by resubmission calls. | May recount a pending packet across multiple attempts. |
+| **Metric**                  | **Unit / Type**  | **Exact Definition**                                                                                                                | **Interpretation**                                                                                             |
+| --------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `frame_id`                  | identifier       | Source frame identifier derived from `cam_hdr`.                                                                                     | Orchestrates the binding between route telemetry & per-frame proxy context.                                    |
+| `status`                    | boolean          | Route  0: complete point reception + precise point forwarding. Route 1:  non-empty media reception + precise media-byte forwarding. | Route-specific integrity flag.                                                                                 |
+| `current_skip`              | factor           | "Temporal" skip parameter conveyed within `cam_hdr`.                                                                                | Dictates `effective_fps = TARGET_FPS / current_skip`.                                                          |
+| `camera_send_timestamp`     | seconds          | Original Camera timestamp preserved throughout the "Main" trajectory.                                                               | Facilitates cross-node referencing.                                                                            |
+| `recv_start_timestamp`      | seconds          | Initial packet arrival logged at the specific `SFF2` route.                                                                         | Denotes node-entry.                                                                                            |
+| `node_exit_timestamp`       | seconds          | Terminal route timestamp, generally indicating the last successful Tx / last relevant operation.                                    | Denotes node-exit.                                                                                             |
+| `original_points`           | points           | Original point count extracted from `cam_hdr`.                                                                                      | Retains significance on both routes as source metadata; Route 1 strictly handles compressed media.             |
+| `rx_points`                 | points           | Ingress point count for Route 0.                                                                                                    | Architecturally expected to be zero on Route 1.                                                                |
+| `tx_points`                 | points           | Successfully forwarded point count for Route 0.                                                                                     | Architecturally expected to be zero on Route 1.                                                                |
+| `rx_media_bytes`            | bytes            | Compressed-media bytes received on Route 1 subsequent to `cam_hdr + enc_hdr`.                                                       | Anticipated to be zero on Route 0.                                                                             |
+| `tx_media_bytes`            | bytes            | Compressed-media bytes on Route 1 correlated with successful Tx packets.                                                            | Anticipated to match `rx_media_bytes` for `status = 1`.                                                        |
+| `rx_packets`                | packets          | Validated packets upon route ingress.                                                                                               | Point datagrams on Route 0; compressed-media datagrams on Route 1.                                             |
+| `tx_packets`                | packets          | Packets successfully accepted during route egress.                                                                                  | Utilised for calculating recurrent wire-envelope overhead.                                                     |
+| `payload_bytes`             | bytes            | Route 0: `rx_points * 16`. Route 1: `rx_media_bytes`.                                                                               | Represents route-native application payload.                                                                   |
+| `data_integrity_pct`        | %                | Route 0: `100 * rx_points / original_points`. Route 1: `100 * tx_media_bytes / rx_media_bytes`.                                     | Point-integrity versus byte-preservation semantics are deliberately route-specific.                            |
+| `internal_throughput_mbs`   | MB/s             | `logical_rx_frame_bytes / 1e6 / receive_s`, where `receive_s = last_rx - first_arrival`.                                            | Designates ingress logical throughput.                                                                         |
+| `logical_bitrate_mbps`      | Mbit/s           | `logical_tx_frame_bytes * 8 * effective_fps / 1e6`.                                                                                 | Encompasses application bytes + singular instance of frame metadata.                                           |
+| `network_bitrate_mbps`      | Mbit/s           | Route-specific egress bytes including the repeated network envelope facing the Encoder or Decoder.                                  | Illustrates current "DPDK" datagram construction, excluding physical preamble / "FCS".                         |
+| `tx_duration_ms`            | ms               | `last_successful_tx - first_successful_tx`.                                                                                         | Spans the route egress interval.                                                                               |
+| `active_tx_ms`              | ms               | Accumulated duration engaged in route Tx-burst operations.                                                                          | Represents local Tx execution.                                                                                 |
+| `active_process_ms`         | ms               | Accumulated work across route classification, proxy processing, header rewriting & Tx.                                              | Serves as the numerator for `node_efficiency_pct`.                                                             |
+| `cycle_ms`                  | ms               | `route_frame_exit - previous_route_frame_exit`.                                                                                     | Denotes the per-route source cycle.                                                                            |
+| `header_wait_ms`            | ms               | `max( 0, cycle_ms - total_residency_ms )`.                                                                                          | Identifies the inter-frame idle interval specific to that route.                                               |
+| `total_residency_ms`        | ms               | `route_frame_exit - first_route_arrival`.                                                                                           | Spans complete frame residence within the chosen `SFF2` route.                                                 |
+| `node_efficiency_pct`       | %                | `100 * active_process_ms / total_residency_ms`.                                                                                     | Represents the active steering / proxy quotient of overall residence.                                          |
+| `camera_to_node_latency_ms` | ms               | `first_route_arrival - camera_send_timestamp`.                                                                                      | Absolute shared-host Camera-relative latency; distinct from the Encoder field as it omits baseline-correction. |
+| `schedule_delay_ms`         | ms               | First-arrival variation from `( frame_id - first_arrival_frame_id ) / TARGET_FPS`.                                                  | Sustains the source timeline irrespective of temporal frame-ID discontinuities.                                |
+| `network_jitter_ms`         | ms               | Absolute recorded inter-arrival error against the frame-ID-derived anticipated interval.                                            | Highlights route-level timing dispersion.                                                                      |
+| `eth_errors`                | cumulative count | Snapshot capturing process-wide "Ethernet" validation failures.                                                                     | Functions as a cumulative diagnostic.                                                                          |
+| `ipv4_errors`               | cumulative count | Snapshot capturing process-wide "IPv4" validation failures.                                                                         | Functions as a cumulative diagnostic.                                                                          |
+| `udp_errors`                | cumulative count | Snapshot capturing process-wide "UDP" validation failures.                                                                          | Functions as a cumulative diagnostic.                                                                          |
+| `nsh_errors`                | cumulative count | Snapshot detailing proxy / experimental "NSH" validation-state anomalies.                                                           | Cumulative diagnostic; may also indicate fragmented per-frame proxy states.                                    |
+| `tx_zero_accepts`           | count            | Route-local Tx attempts concluding with zero acceptance.                                                                            | Signifies local queue pressure.                                                                                |
+| `tx_partial_accepts`        | count            | Route-local partial Tx acceptances.                                                                                                 | Signifies local queue pressure.                                                                                |
+| `tx_resubmit_calls`         | count            | Route-local resubmission invocations succeeding an incomplete Tx attempt.                                                           | Does not indicate a transport retransmission.                                                                  |
+| `tx_resubmitted_packets`    | packet-attempts  | Packet requests generated through those resubmission invocations.                                                                   | May repeatedly count a single pending packet across multiple attempts.                                         |
 
-The route-specific formulas are:
+The route-specific formulations operate as follows:
 
 ```text
 Route 0 ( SFF1 -> Encoder )
@@ -1122,21 +1121,21 @@ Route 0 ( SFF1 -> Encoder )
 logical_rx_frame_bytes = rx_points * 16 + one cam_hdr
 logical_tx_frame_bytes = tx_points * 16 + one cam_hdr
 
-network_tx_bytes = tx_points * 16 + tx_packets * ( "Eth" + "IPv4" + "UDP" + geo_agg_hdr + cam_hdr )
+network_tx_bytes       = tx_points * 16 + tx_packets * ( "Eth" + "IPv4" + "UDP" + geo_agg_hdr + cam_hdr )
 
-integrity = 100 * rx_points / original_points
+integrity              = 100 * rx_points / original_points
 
 Route 1 ( Encoder -> Decoder )
 
 logical_rx_frame_bytes = rx_media_bytes + one cam_hdr + one enc_hdr
 logical_tx_frame_bytes = tx_media_bytes + one cam_hdr + one enc_hdr
 
-network_tx_bytes = tx_media_bytes + tx_packets * ( "Eth" + "IPv4" + "UDP" + cam_hdr + enc_hdr )
+network_tx_bytes       = tx_media_bytes + tx_packets * ( "Eth" + "IPv4" + "UDP" + cam_hdr + enc_hdr )
 
-integrity = 100 * tx_media_bytes / rx_media_bytes
+integrity              = 100 * tx_media_bytes / rx_media_bytes
 ```
 
-For both validated routes:
+Consistent across both validated routes:
 
 ```text
 receive_s               = last_rx - first_arrival
@@ -1144,7 +1143,7 @@ internal_throughput_mbs = ( logical_rx_frame_bytes / 1,000,000 ) / receive_s
 node_efficiency_pct     = 100 * active_process_ms / total_residency_ms
 ```
 
-The `eth_errors`, `ipv4_errors`, `udp_errors`, & `nsh_errors` fields are snapshots of process-wide cumulative diagnostics, whereas Tx resubmission counters are frame / route local. This difference must be respected when aggregating CSV rows: summing the cumulative error columns would double-count historical failures.
+The metrics `eth_errors`, `ipv4_errors`, `udp_errors`, & `nsh_errors`  represent snapshots of process-wide cumulative diagnostics, whereas Tx  resubmission parameters are exclusively frame / route local. This  differentiation must be strictly adhered to when aggregating CSV rows:  summarising cumulative error columns would inadvertently result in the  double-counting of historical failures.
 
 ---
 
@@ -1152,21 +1151,21 @@ The `eth_errors`, `ipv4_errors`, `udp_errors`, & `nsh_errors` fields are snapsho
 
 ### 9.1 Role
 
-The `Encoder` is intentionally "NSH"-unaware. It receives ordinary "UDP" packets whose application payload begins with the geometric context exposed by the `SFF2` proxy:
+The `Encoder` is deliberately engineered to remain "NSH"-unaware. It processes  standard "UDP" packets where the application payload initiates with the  geometric context imparted by the `SFF2` proxy:
 
 ```text
 [ geo_agg_hdr | cam_hdr | points ]
 ```
 
-Its role combines two execution models.
+Its functional paradigm integrates two distinct execution models.
 
-At packet arrival it behaves in a data-plane-oriented manner: coordinates are decoded & written directly into deterministic frame offsets, packet-completion state is updated incrementally, & the most complete geometry snapshot is retained. During "CPU" / "GPU" work, the implementation continues servicing network input through cooperative polling.
+Upon  packet ingress, it functions in a data-plane-oriented capacity:  coordinates are decoded & written instantaneously into deterministic  frame offsets, packet-completion status is incremented continuously,  & the optimal geometry snapshot is preserved. Simultaneously, during  intensive "CPU" / "GPU" cycles, the implementation sustains network  reception through cooperative polling.
 
-At projection time it still requires a frame-level readiness condition because the exact active point set & final geometry must be known. The `Encoder` is therefore a **hybrid frame-aware element**, positioned between a conventional application that waits passively for a complete object & a pure packet-local data-plane function.
+Conversely, at  the projection phase, a stringent frame-level readiness constraint is  enforced, given that the exact active point set & definitive  geometry must be fully resolved. Consequently, the `Encoder` constitutes a **hybrid frame-aware entity**,  uniquely positioned between a traditional passive application awaiting  complete objects & an atomic packet-local data-plane operation.
 
 ### 9.2 Frame Assembly
 
-A frame buffer tracks:
+The frame buffer orchestrates tracking for:
 
 ```text
 original_points
@@ -1182,29 +1181,29 @@ cam_hdr snapshot
 geo_agg_hdr snapshot
 ```
 
-Packet sequence numbers determine the destination offset. Point conversion therefore occurs while packets arrive rather than through a separate post-reception frame conversion pass.
+Packet  sequence numbers definitively govern destination offsets. Therefore,  point conversion executes progressively as packets arrive, negating the  necessity for an independent post-reception frame conversion traversal.
 
-A normal frame becomes processable only when all expected packets & points have arrived. At "EOS", a partial final frame can be compacted & processed if necessary, but the validated 300-frame run contains complete frames only.
+A  standard frame is deemed processable exclusively when all anticipated  packets & points are successfully aggregated. Upon an "EOS"  condition, a fragmentary final frame may undergo compaction &  processing; however, the validated 300-frame test suite comprises only  complete frames.
 
 ### 9.3 Selecting the Most Complete Geometry Snapshot
 
-`SFF1` emits progressive geometry. The `Encoder` consequently retains the snapshot with the greatest valid `active_point_count` observed for the frame.
+`SFF1` continuously broadcasts progressive geometry. Consequently, the `Encoder` isolates the snapshot possessing the maximum valid `active_point_count` identified for that specific frame.
 
-For a complete frame, `geometry_from_sff1()` accepts the offloaded result only when:
+For a finalised frame, `geometry_from_sff1()` authorises the offloaded metrics strictly when:
 
 ```text
 metadata_active_points == active_point_count
 ```
 
-and all decoded geometry values are finite & internally valid.
+& all decoded geometry components demonstrate finiteness & internal consistency.
 
-This prevents an early progressive packet from being mistaken for the final geometric description.
+This mechanism precludes an early progressive packet from being erroneously interpreted as the definitive geometric description.
 
 ### 9.4 Frame Readiness & Incomplete Frames
 
-The normal processing path requires point completeness before projection because the six-view representation & "codec" input are frame-level products.
+The  conventional processing trajectory demands absolute point completeness  preceding projection, as the six-view representation & "codec" input  inherently rely on frame-level aggregates.
 
-This barrier does not mean that all upstream work is deferred. Before readiness, the `Encoder` has already:
+However, this barrier does not imply that antecedent tasks are postponed. Prior to achieving readiness, the `Encoder` has proactively:
 
 ```text
 validated packet headers
@@ -1215,19 +1214,19 @@ tracked geometric metadata progression
 recorded arrival timing
 ```
 
-The remaining barrier is therefore associated with operations whose result is inherently frame-level rather than with passive waiting for every computation to begin.
+The  residual barrier is strictly confined to operations yielding inherently frame-level results, avoiding passive stagnation across the  computational pipeline.
 
 ### 9.5 Division of Geometric Work & Selectable Offload
 
-The build provides:
+The build exposes the following configurations:
 
 ```text
 OFFLOAD_MODE_DISABLED = 0
 OFFLOAD_MODE_ENABLED  = 1
-OFFLOAD_MODE          = OFFLOAD_MODE_ENABLED   ( current run )
+OFFLOAD_MODE          = OFFLOAD_MODE_ENABLED ( actual run )
 ```
 
-With offload enabled & valid complete "GAC" metadata, the `Encoder` obtains:
+When offload is activated & complete "GAC" metadata is validated, the `Encoder` secures:
 
 ```text
 centroid
@@ -1236,33 +1235,31 @@ raw bounding-box centre
 max_r
 ```
 
-without recomputing the corresponding frame scans locally. For complete offloaded frames:
+without executing redundant local frame scans. Under conditions of complete offloaded frames, telemetry dictates:
 
 ```text
 geometry_aggregation_ms = 0
 max_r_ms                 = 0
 ```
 
-inside `Encoder` telemetry by design.
+Should metadata prove unavailable, inconsistent, deactivated, or partial, `geometry_recompute_local()`  provides a robust functional fallback. It reconstructs sums / extrema,  derives the centroid / extent / box centre, & executes the radius  pass across the active point set while persistently polling "DPDK".
 
-If metadata are unavailable, inconsistent, disabled, or incomplete, `geometry_recompute_local()` remains a functional fallback. It recomputes sums / extrema, derives centroid / extent / box centre, & performs the radius pass over the active point set while periodically polling "DPDK".
-
-The final object scale used before projection is based on the radius target:
+The ultimate object scale, instituted prior to projection, hinges upon the radius target:
 
 ```text
 target_radius = CAMERA_DISTANCE * 0.2
 final_scale   = target_radius / max_r
 ```
 
-subject to validity checks in the implementation.
+contingent upon implementation-level validity verifications.
 
-This selectable path is important experimentally: it permits a controlled future `OFFLOAD_MODE_ENABLED` vs. `OFFLOAD_MODE_DISABLED` comparison without changing the packet-processing architecture.
+This selectable trajectory holds profound experimental significance: it facilitates a highly controlled `OFFLOAD_MODE_ENABLED` versus `OFFLOAD_MODE_DISABLED` comparative analysis without altering the underlying packet-processing architecture.
 
 ### 9.6 Workload-Driven "Temporal" Controller
 
-"Temporal" adaptation is located at the `Encoder` because the experimental bottleneck is the processing node rather than a user-side quality selector.
+"Temporal" adaptation is strategically centralised at the `Encoder`, as the primary experimental bottleneck resides at the processing node rather than a superficial user-side quality selector.
 
-The controller observes a service-time sample `T_n` & applies an exponentially weighted moving average:
+The controller extracts a service-time sample `T_n` & formulates an exponentially weighted moving average:
 
 ```text
 T_base            = 1000 / TARGET_FPS
@@ -1271,7 +1268,7 @@ E_n               = alpha * T_n + ( 1 - alpha ) * E_( n - 1 )
 workload_ratio    = E_n / T_budget( active_skip )
 ```
 
-Current parameters are:
+Current operational parameters include:
 
 ```text
 TARGET_FPS         = 30
@@ -1289,7 +1286,7 @@ OVERLOAD_FRACTION  = 0.25
 RECOVERY_FRACTION  = 0.10
 ```
 
-The controller first waits for a stable start-up window. Once armed, overload is detected when at least one of the following is true:
+The  controller necessitates an initial stable start-up window. Once primed,  an overload condition is triggered when any of the ensuing predicates  evaluate as true:
 
 ```text
 workload_ratio >= 0.90
@@ -1297,13 +1294,13 @@ wait_raw_queue_ms > 0.25 * active_budget_ms
 frame_backlog >= 2
 ```
 
-After two consecutive overload observations, the requested skip increases by one, up to `MAX_SKIP`.
+Following two consecutive overload recognitions, the requested skip increments by a factor of one, up to the defined `MAX_SKIP`.
 
-Recovery is deliberately more conservative. For `active_skip > 1`, the controller evaluates whether the current "EWMA" would fit within `75 %` of the budget at `skip - 1`, while raw-queue wait stays below `10 %` of the current budget & frame backlog remains zero. Nine consecutive recoverable observations are required before reducing the skip.
+Recovery protocols are purposely more conservative. For `active_skip > 1`, the controller assesses whether the current "EWMA" would successfully conform within `75 %` of the budget designated at `skip - 1`, provided the raw-queue wait remains under `10 %`  of the active budget & the frame backlog is sustained at zero. Nine  consecutive recoverable observations must be registered before a  reduction in the skip factor is authorised.
 
-If the `Camera` has not yet reflected a requested value, the `Encoder` retries the same control decision every three observations rather than continuously increasing the request.
+If the `Camera` fails to mirror a requested adjustment, the `Encoder` reiterates the control decision every three observations, mitigating runaway request escalations.
 
-Events are exported as:
+Logged events manifest as:
 
 ```text
 "WARMUP"
@@ -1314,28 +1311,28 @@ Events are exported as:
 "INVALID"
 ```
 
-The current validation run reports five start-up `WARMUP` records followed by 295 `IDLE` records. `current_skip` remains `1` for all 300 frames because the workload ratio remains well below the overload threshold & `frame_backlog` remains zero.
+The referenced validation sequence records five initial `WARMUP` events followed by 295 `IDLE` events. The parameter `current_skip` remains strictly `1` across all 300 frames, indicating the workload ratio never breaches the overload threshold & `frame_backlog` persistently stays at zero.
 
 ### 9.7 "CUDA" Memory Strategy
 
-The projection pipeline preallocates persistent device buffers, a "CUDA" stream, & timing events. Host "I420" output slots are also allocated once & registered with "CUDA".
+The  projection pipeline proactively preallocates persistent device buffers,  a designated "CUDA" stream, & precise timing events. Host "I420"  output slots are similarly allocated at inception & formally  registered with "CUDA".
 
-Current buffering parameters include:
+Current buffering frameworks incorporate:
 
 ```text
 H2D_CHUNK_POINTS = 65536
 YUV_BUFFER_COUNT = 3
 ```
 
-The point array is transferred asynchronously in chunks. Before each chunk, the "CUDA" path can invoke the `Encoder`'s "DPDK" polling callback. After kernel launch & copy-back, the worker continues polling while `cudaStreamQuery()` reports the stream as incomplete.
+The  point array is transferred asynchronously via designated chunks. Prior  to each chunk transfer, the "CUDA" path asserts the capacity to invoke  the `Encoder`'s "DPDK" polling callback. Following kernel initiation & subsequent copy-back, the worker continually polls while `cudaStreamQuery()` denotes the stream as incomplete.
 
-This design limits the duration for which "GPU" submission prevents packet reception & avoids repeated device allocation on the measured path.
+This  configuration strictly curtails the duration wherein "GPU" submission  obstructs packet reception & circumvents repetitive device  allocations along the measured pathway.
 
 ### 9.8 "CUDA" Projection Stages
 
-The static pose of the current experiment allows the pipeline to avoid a separate point-wise transformed-bounding-box reduction.
+The  static pose implemented within the current experiment permits the  pipeline to bypass a distinct point-wise transformed-bounding-box  reduction.
 
-The raw bounding-box centre is transformed analytically around the centroid & final scale:
+The raw bounding-box centre is mathematically transformed directly around the centroid & final scale:
 
 ```text
 B'_x = ( B_x - C_x ) * final_scale
@@ -1343,15 +1340,15 @@ B'_y = ( B_y - C_y ) * final_scale
 B'_z = ( B_z - C_z ) * final_scale + CAMERA_DISTANCE
 ```
 
-The corresponding scaled extents determine a global orthographic scale. In implementation terms:
+These scaled extents subsequently define a comprehensive global orthographic scale. Expressed programmatically:
 
 ```text
 global_scale = 1.10 * max( extent'_x / WIDTH, extent'_y / HEIGHT, extent'_z / WIDTH )
 ```
 
-The `1.10` factor provides projection margin.
+The multiplier `1.10` ensures adequate projection margin.
 
-The subsequent stages are:
+The ensuing stages are structured as:
 
 ```text
 asynchronous "H2D" transfer
@@ -1360,11 +1357,11 @@ atlas packing
 asynchronous "D2H" copy
 ```
 
-Dynamic pose support may require revisiting this optimisation once pose-dependent transformations are introduced downstream.
+Support  for dynamic poses will eventually necessitate a reassessment of this  optimisation once pose-dependent variables are actively introduced  downstream.
 
 ### 9.9 Six-View G-Buffer
 
-The fused "CUDA" kernel performs, per point:
+The integrated "CUDA" kernel executes the following per point:
 
 ```text
 object-centred scaling
@@ -1376,32 +1373,32 @@ atomic z-buffer visibility arbitration
 geometry / occupancy / texture updates
 ```
 
-`atomicMax()` resolves visibility conflicts in the integer depth buffer. This places the principal point-parallel work on the "GPU" while keeping only compact geometric control calculations on the host.
+The directive `atomicMax()`  mitigates visibility conflicts within the integer depth buffer. This  paradigm localises intensive point-parallel computations upon the "GPU",  leaving only streamlined geometric control formulations resident on the  host.
 
 ### 9.10 Atlas Geometry
 
-The base projected view uses:
+The foundational projected view operates on:
 
 ```text
 WIDTH  = 640
 HEIGHT = 480
 ```
 
-Faces are padded to:
+Faces receive padding to:
 
 ```text
 FACE_W_PADDED = 640
 FACE_H_PADDED = 512
 ```
 
-and arranged in a four-by-three cross:
+& are structurally aligned in a four-by-three cross formation:
 
 ```text
 CROSS_W = 2560
 CROSS_H = 1536
 ```
 
-Three vertically stacked crosses represent:
+Three identical, vertically stacked crosses represent:
 
 ```text
 "Geometry"
@@ -1409,24 +1406,24 @@ Three vertically stacked crosses represent:
 "Occupancy"
 ```
 
-so the encoded "I420" frame is:
+yielding an encoded "I420" frame dimension of:
 
 ```text
 ENCODER_W = 2560
 ENCODER_H = 4608
 ```
 
-The corresponding uncompressed "I420" buffer is:
+The corresponding uncompressed "I420" buffer demands:
 
 ```text
 TOTAL_YUV_SIZE = 17,694,720 B
 ```
 
-per submitted frame.
+per actively submitted frame.
 
 ### 9.11 "GPU" Timing Probes
 
-The `Encoder` exports:
+The `Encoder` logs the following metrics:
 
 ```text
 gpu_transfer_ms
@@ -1437,20 +1434,20 @@ host_overhead_ms
 projection_ms
 ```
 
-"CUDA" event timings isolate asynchronous "GPU" stages, whereas `projection_ms` is the complete host-visible interval around the projection call. Because cooperative "DPDK" polling can execute while the stream is incomplete, `host_overhead_ms` should be interpreted as residual host-visible time rather than as a pure arithmetic-"CPU" kernel metric.
+"CUDA" event chronologies isolate strictly asynchronous "GPU" operations, whereas `projection_ms`  captures the full host-visible interval enveloping the projection call.  Given that cooperative "DPDK" polling proceeds while the stream  maintains an incomplete status, `host_overhead_ms` signifies residual host-visible time rather than acting as a definitive arithmetic-"CPU" kernel metric.
 
 ### 9.12 Persistent "FFmpeg" / "NVENC" Process & Pre-Roll
 
-A single persistent "FFmpeg" process is launched for the experiment. Current rate-control / latency-oriented settings include:
+A  singular, persistent "FFmpeg" process initiates concurrently with the  experiment. Contemporary rate-control & latency-oriented parameters  specify:
 
 ```text
-"codec"            = hevc_nvenc
+"codec"          = hevc_nvenc
 preset           = p2
 tune             = ull
 rate control     = cbr
 target bitrate   = 10M
 buffer size      = 20M
-"GOP"              = 15
+"GOP"            = 15
 B frames         = 0
 lookahead        = 0
 delay            = 0
@@ -1458,185 +1455,185 @@ zero latency     = 1
 flush packets    = 1
 ```
 
-Before application frames are measured, the `Encoder` submits one "GOP" of private blank pre-roll frames:
+Preceding the measurement of application frames, the `Encoder` propels one "GOP" consisting of private, unrecorded pre-roll frames:
 
 ```text
 FRAMES = 15
 ```
 
-The pre-roll uses the ordinary writer & parser path so the persistent "codec", muxer, & attribution logic enter a warmed operational state. Pre-roll frames are never transmitted as application network frames & do not populate the 300-row `Encoder` telemetry.
+This pre-roll sequence traverses the standard writer & parser conduits, propelling the persistent "codec", muxer, & attribution logic into  an operational, warmed state. Crucially, pre-roll frames bypass application network transmission entirely & remain omitted from the 300-row `Encoder` telemetry.
 
-A dedicated writer thread & three registered "I420" slots decouple projection from blocking writes to "FFmpeg" stdin. If all slots are occupied, the `Encoder` keeps servicing network / "codec" activity while waiting for a reusable slot.
+A  dedicated writer thread & three designated "I420" slots uncouple  the projection phase from blocking interactions with "FFmpeg" stdin. In  instances where all slots are committed, the `Encoder` perpetually services network / "codec" activities while awaiting slot emancipation.
 
 ### 9.13 Why "MPEG-TS" / "PES" Parsing Is Necessary
 
-Pipe reads from "FFmpeg" do not preserve video-frame boundaries. The `Encoder` therefore reconstructs fixed 188-byte "MPEG-TS" packets from arbitrary read sizes & identifies video "PES" starts.
+Pipe reads sourced from "FFmpeg" inherently fail to preserve distinct video-frame boundaries. Thus, the `Encoder`  is obliged to reconstruct strictly structured 188-byte "MPEG-TS"  packets from variable read sizes & identify precise video "PES"  demarcations.
 
-The first associated video-"PES" boundary is matched to the oldest frame submitted to "FFmpeg". This enables:
+The initial identified video-"PES"  boundary corresponds directly to the oldest frame assigned to "FFmpeg".  This enables the derivation of:
 
 ```text
 encode_h265_ms = first_associated_PES - ffmpeg_input_start
 ```
 
-The metric includes asynchronous "codec", scheduling, muxing, & pipe-delivery effects. It is intentionally **not** presented as a pure "NVENC" hardware-kernel duration.
+This metric consolidates asynchronous "codec", scheduling, muxing, & pipe-delivery contingencies. It is emphatically **not** promoted as an isolated "NVENC" hardware-kernel execution interval.
 
 ### 9.14 Encoder Output Packetisation
 
-The `Encoder` groups seven complete TS packets:
+The `Encoder` systematically aggregates seven complete TS packets:
 
 ```text
 7 * 188 B = 1316 B
 ```
 
-and prepends:
+& affixes the subsequent headers:
 
 ```text
 cam_hdr
 enc_hdr
 ```
 
-before creating a plain "UDP" packet for the `SFF2` proxy.
+before constructing an unencapsulated "UDP" packet destined for the `SFF2` proxy.
 
-No service-chain header is emitted by the `Encoder`. Primary-path "NSH" state remains an `SFF2` responsibility.
+Notably, the `Encoder` issues no service-chain headers. Primary-path "NSH" state management persists unambiguously as an `SFF2` prerogative.
 
 ### 9.15 Encoder Telemetry — Complete Semantics
 
-The `Encoder` exports **54 fields**, making it the most instrumented node in the implemented chain. The schema intentionally separates raw reception, local geometry, "CUDA" wall / device intervals, writer behaviour, workload control, "codec" emergence, compressed egress, & partial `Camera`-relative latency.
+The `Encoder` generates **54 fields**,  cementing its status as the most exhaustively instrumented node within  the established chain. This schema deliberately separates raw ingestion,  local geometry manipulation, "CUDA" wall / device durations, writer  mechanics, workload regulation, "codec" materialisation, compressed  egress, & partial `Camera`-relative delays.
 
-| Metric | Unit / Type | Exact Definition | Interpretation |
-|---|---|---|---|
-| `frame_id` | identifier | Original Camera frame identifier. | Binds raw input, geometry, controller state, "codec" attribution & compressed output. |
-| `status` | boolean | `1` for a valid frame record; set to `0` on invalid geometry / enqueue conditions. | Functional validity flag. |
-| `current_skip` | factor | "Temporal" factor carried by the Camera frame that generated this Encoder record. | The workload controller may request a different value for subsequent source frames. |
-| `event` | state | One of "WARMUP", "IDLE", "SKIP+1", "SKIP-1", "RETRY", or "INVALID". | Makes controller state transitions explicit. |
-| `yaw` | degrees / reference | Current upstream yaw value; `0.0` in the validated run. | Static until the future "Pose" path is connected to Decoder-side reconstruction. |
-| `pitch` | degrees / reference | Current upstream pitch value; `0.0` in the validated run. | Static reference. |
-| `zoom` | factor | Current upstream zoom value; `1.0` in the validated run. | Static reference. |
-| `camera_send_timestamp` | seconds | Camera frame Tx-start timestamp propagated in `cam_hdr`. | Source timing anchor. |
-| `recv_start_timestamp` | seconds | First Encoder packet-arrival time for the frame. | Encoder node-entry anchor. |
-| `node_exit_timestamp` | seconds | Last compressed "DPDK" egress timestamp attributed to the frame. | Current Encoder node-exit anchor. |
-| `clock_offset_ms` | ms | For the first processed frame: `( first_encoder_arrival - first_camera_tx ) * 1000`; reused as a baseline. | Removes the initial shared-host path offset from Encoder Camera-relative latency fields. |
-| `original_points` | points | Point count declared by the Camera. | Input completeness denominator. |
-| `rx_points` | points | Unique point records reassembled by packet sequence. | Compared against `original_points`. |
-| `tx_points` | points represented | Set equal to the point population represented by the encoded frame. | Does **not** mean that raw point records are transmitted on Route 1. |
-| `rx_packets` | packets | Validated point packets contributing to the frame. | Input segmentation. |
-| `tx_packets` | packets | Compressed-media "UDP" packets accepted by the Encoder Tx path. | Output segmentation. |
-| `payload_bytes` | bytes | Sum of input point bytes only. | Excludes incoming `geo_agg_hdr` / `cam_hdr`. |
-| `data_integrity_pct` | % | `100 * rx_points / original_points`. | Raw point-population integrity before projection. |
-| `internal_throughput_mbs` | MB/s | `( payload_bytes + one cam_hdr ) / 1e6 / ( last_arrival - first_arrival )`. | Logical raw-input throughput over the pure receive span. |
-| `logical_bitrate_mbps` | Mbit/s | `( mpeg_bytes_generated + one cam_hdr + one enc_hdr ) * 8 * effective_fps / 1e6`. | Compressed logical-output bitrate; intentionally not the raw-input bitrate used by the reference application. |
-| `network_bitrate_mbps` | Mbit/s | `( mpeg_bytes_generated + tx_packets * ( "Eth" + IPv4 + "UDP" + cam_hdr + enc_hdr ) ) * 8 * effective_fps / 1e6`. | Compressed output including repeated packet headers. |
-| `conversion_ms` | ms | Accumulated per-packet network-to-host coordinate conversion & placement into the frame buffer. | Occurs incrementally as packets arrive. |
-| `geometry_aggregation_ms` | ms | Local centroid / extrema / bounding-box aggregation time when the `SFF1` offload cannot be used. | Exactly `0` for complete offloaded frames in the representative run. |
-| `max_r_ms` | ms | Local exact farthest-point radius pass when required. | Exactly `0` for complete offloaded frames; partial "EOS" recovery may still recompute it. |
-| `projection_ms` | ms | Wall-clock interval from projection submission start to completion, including cooperative "DPDK" polling while asynchronous "CUDA" work progresses. | Broader than the sum of pure device event times. |
-| `tx_duration_ms` | ms | Wall-clock interval of the dedicated writer while submitting one complete "I420" frame to the persistent "FFmpeg" stdin. | Includes blocking pipe behaviour; it is the reference-compatible render / "codec" handoff component. |
-| `active_process_ms` | ms | Current implementation: `conversion + geometry_aggregation + max_r + projection + tx_duration`. | Kept equal to `total_processing_ms` for reference-compatible node-efficiency semantics. |
-| `total_processing_ms` | ms | Same arithmetic sum as `active_process_ms` in the current snapshot. | Does not include asynchronous `encode_h265_ms` a second time. |
-| `total_residency_ms` | ms | `last_encoded_dpdk_egress - first_point_arrival`. | Includes frame assembly, queueing, projection, writer / "codec" exposure & compressed egress. |
-| `node_efficiency_pct` | % | `100 * active_process_ms / total_residency_ms`. | Processing fraction of the broader Encoder residence. |
-| `gpu_transfer_ms` | ms | "CUDA" event interval from projection start through asynchronous "H2D" point transfer. | Device-timeline transfer component. |
-| `gpu_kernel_ms` | ms | "CUDA" event interval from end of "H2D" transfer through fused 6-view "G-Buffer" projection. | Includes object-centric transform, "BT.601" conversion, projection & atomic depth selection. |
-| `gpu_packing_ms` | ms | "CUDA" event interval for atlas / "I420" packing after the projection kernel. | Device packing component. |
-| `gpu_copyback_ms` | ms | "CUDA" event interval for the final device-to-host "I420" copy. | Device-timeline "D2H" component. |
-| `host_overhead_ms` | ms | `max( 0, projection_ms - gpu_transfer_ms - gpu_kernel_ms - gpu_packing_ms - gpu_copyback_ms )`. | Residual wall time, including host orchestration & cooperative polling; **not** a pure "CPU"-compute probe. |
-| `camera_to_node_latency_ms` | ms | `first_arrival - camera_tx - clock_offset`. | Baseline-corrected Camera-to-Encoder-arrival variation; the first frame is intentionally near `0`. |
-| `end_to_end_latency_ms` | ms | `node_exit - camera_send_timestamp - clock_offset`. | Partial Camera-to-Encoder-compressed-egress latency, **not** final Camera-to-User E2E. |
-| `schedule_delay_ms` | ms | `( service_start - first_encoder_session_arrival ) - frame_offset / TARGET_FPS`. | Measures service-start deviation from the ideal source schedule. |
-| `network_jitter_ms` | ms | Absolute first-arrival spacing error relative to `( frame_id_gap / TARGET_FPS )`. | ID-gap-aware timing dispersion. |
-| `wait_raw_queue_ms` | ms | `service_start - frame_ready`; if the full frame is not complete at finalisation, the fallback reference is `last_arrival`. | Raw-frame waiting after readiness & before Encoder service begins. |
-| `wait_render_queue_ms` | ms | `ffmpeg_write_start - projection_end`. | Post-projection writer-queue wait only; pre-projection "I420" slot acquisition is deliberately excluded. |
-| `workload_ewma_ms` | ms | `E_n = alpha * service_n + ( 1 - alpha ) * E_(n-1)` with `alpha = 0.25`; reset to the current sample when warm-up becomes armed. | Smoothed Encoder worker-service signal used by temporal adaptation. |
-| `workload_ratio` | ratio | `workload_ewma_ms / ( current_skip * 1000 / TARGET_FPS )`. | Controller load relative to the active temporal budget. |
-| `frame_backlog` | frames | Number of other frame buffers pending after selecting the current frame (`frame_buffers.size() - 1`). | Direct raw-input backlog trigger; overload is true when this reaches at least `2`. |
-| `codec_backlog` | frames | `max( writer_pending_frames(), mpeg_frame_queue.size() )`. | Diagnostic "codec" / writer pressure. In the present controller implementation it is **observed but not directly used** in the overload / recovery boolean. |
-| `encode_h265_ms` | ms | Elapsed time from "FFmpeg" writer start for a real frame to detection of the first attributed video-"PES" boundary. | First observable encoded-output latency, not a pure "NVENC" kernel execution time. |
-| `mpeg_bytes_generated` | bytes | "MPEG-TS" bytes attributed by the parser to the source frame before network-packet allocation. | With zero `mbuf_starvation`, this equals the media-byte population received by `SFF2` Route 1 in the representative run. |
-| `ffmpeg_write_calls` | count | Number of `write()` system calls used to submit the frame to "FFmpeg" stdin. | Current run records one call per real frame. |
-| `ffmpeg_write_eagain` | count | Number of defensive `EAGAIN` / `EWOULDBLOCK` results encountered by the writer. | Expected to remain zero with the current blocking input pipe. |
-| `tx_zero_accepts` | count | Compressed-output Tx calls returning zero accepted packets. | Local "DPDK" backpressure. |
-| `tx_partial_accepts` | count | Compressed-output Tx calls with partial acceptance. | Local "DPDK" backpressure. |
-| `tx_resubmit_calls` | count | Compressed-output resubmission calls after incomplete acceptance. | Not a "UDP" retransmission count. |
-| `tx_resubmitted_packets` | packet-attempts | Packet requests made by those resubmission calls. | May recount a pending packet. |
-| `mbuf_starvation` | count | Compressed-output `mbuf` allocation / append failures. | If non-zero, `mpeg_bytes_generated` can exceed bytes actually transmitted. |
+| **Metric**                  | **Unit / Type**     | **Exact Definition**                                                                                                                                         | **Interpretation**                                                                                                                                                                       |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frame_id`                  | identifier          | Original Camera frame identifier.                                                                                                                            | Binds raw input, geometry, controller state, "codec" attribution, & compressed output.                                                                                                   |
+| `status`                    | boolean             | `1` designates a valid frame record; drops to `0` upon geometric / enqueue anomalies.                                                                        | Denotes functional validity.                                                                                                                                                             |
+| `current_skip`              | factor              | "Temporal" factor transmitted by the Camera frame instigating this Encoder record.                                                                           | The workload controller may stipulate divergent values for succeeding source frames.                                                                                                     |
+| `event`                     | state               | Adopts one of: "WARMUP", "IDLE", "SKIP+1", "SKIP-1", "RETRY", or "INVALID".                                                                                  | Renders controller state transitions definitively observable.                                                                                                                            |
+| `yaw`                       | degrees / reference | Extant upstream yaw value; precisely `0.0` within the validated scenario.                                                                                    | Remains static until the forthcoming "Pose" path integrates with Decoder-side reconstruction.                                                                                            |
+| `pitch`                     | degrees / reference | Extant upstream pitch value; precisely `0.0` within the validated scenario.                                                                                  | Represents a static reference.                                                                                                                                                           |
+| `zoom`                      | factor              | Extant upstream zoom value; precisely `1.0` within the validated scenario.                                                                                   | Represents a static reference.                                                                                                                                                           |
+| `camera_send_timestamp`     | seconds             | Camera frame Tx-start timestamp disseminated via `cam_hdr`.                                                                                                  | Establishes the core source timing anchor.                                                                                                                                               |
+| `recv_start_timestamp`      | seconds             | Primary Encoder packet-arrival point assigned to the frame.                                                                                                  | Denotes the initial Encoder node-entry anchor.                                                                                                                                           |
+| `node_exit_timestamp`       | seconds             | Conclusive compressed "DPDK" egress timestamp correlated with the frame.                                                                                     | Denotes the definitive Encoder node-exit anchor.                                                                                                                                         |
+| `clock_offset_ms`           | ms                  | Derived from the initial processed frame: `( first_encoder_arrival - first_camera_tx ) * 1000`; reapplied as a baseline.                                     | Eliminates the foundational shared-host path discrepancy from Encoder Camera-relative latency assessments.                                                                               |
+| `original_points`           | points              | Aggregate point tally declared by the Camera.                                                                                                                | Establishes the baseline input completeness denominator.                                                                                                                                 |
+| `rx_points`                 | points              | Verified unique point records collated by sequence.                                                                                                          | Benchmarked directly against `original_points`.                                                                                                                                          |
+| `tx_points`                 | points represented  | Configured to mirror the specific point population articulated by the encoded frame.                                                                         | Expressly does **not** signify that raw point records traverse Route 1.                                                                                                                  |
+| `rx_packets`                | packets             | Confirmed point packets advancing the frame.                                                                                                                 | Illustrates input segmentation granularity.                                                                                                                                              |
+| `tx_packets`                | packets             | Compressed-media "UDP" datagrams admitted by the Encoder Tx conduit.                                                                                         | Illustrates output segmentation granularity.                                                                                                                                             |
+| `payload_bytes`             | bytes               | Summarised calculation of input point bytes solely.                                                                                                          | Extrudes incoming `geo_agg_hdr` / `cam_hdr` parameters.                                                                                                                                  |
+| `data_integrity_pct`        | %                   | `100 * rx_points / original_points`.                                                                                                                         | Defines raw point-population fidelity prior to projection operations.                                                                                                                    |
+| `internal_throughput_mbs`   | MB/s                | `( payload_bytes + one cam_hdr ) / 1e6 / ( last_arrival - first_arrival )`.                                                                                  | Formulates logical raw-input velocity over the absolute receive span.                                                                                                                    |
+| `logical_bitrate_mbps`      | Mbit/s              | `( mpeg_bytes_generated + one cam_hdr + one enc_hdr ) * 8 * effective_fps / 1e6`.                                                                            | Calculates  compressed logical-output volume; distinctly separate from the  raw-input volume prevalent in the reference application.                                                     |
+| `network_bitrate_mbps`      | Mbit/s              | `( mpeg_bytes_generated + tx_packets * ( "Eth" + IPv4 + "UDP" + cam_hdr + enc_hdr ) ) * 8 * effective_fps / 1e6`.                                            | Portrays compressed egress factoring in repetitive packet header footprints.                                                                                                             |
+| `conversion_ms`             | ms                  | Accumulated per-packet transformation from network-to-host coordinates & alignment within the frame buffer.                                                  | Materialises incrementally concurrent with packet ingress.                                                                                                                               |
+| `geometry_aggregation_ms`   | ms                  | Time expended on local centroid / extrema / bounding-box calculations when `SFF1` offload proves unviable.                                                   | Yields `0` across complete offloaded frames under representative evaluations.                                                                                                            |
+| `max_r_ms`                  | ms                  | Local rigorous farthest-point radius sequence when demanded.                                                                                                 | Yields `0` across complete offloaded frames; however, partial "EOS" recoveries may necessitate recalculation.                                                                            |
+| `projection_ms`             | ms                  | Wall-clock  span bridging projection submission initiation to culmination,  inclusive of cooperative "DPDK" polling amidst asynchronous "CUDA"  progression. | Conceptually broader than the arithmetic sum of isolated device event durations.                                                                                                         |
+| `tx_duration_ms`            | ms                  | Wall-clock span of the designated writer actively feeding a unified "I420" frame into the persistent "FFmpeg" stdin.                                         | Incorporates blocking pipe intricacies; operates as the reference-compatible render / "codec" handover component.                                                                        |
+| `active_process_ms`         | ms                  | Within the extant implementation: `conversion + geometry_aggregation + max_r + projection + tx_duration`.                                                    | Retained uniformly identical to `total_processing_ms` ensuring reference-compatible node-efficiency parameters.                                                                          |
+| `total_processing_ms`       | ms                  | Mirrors the precise arithmetic sum composing `active_process_ms`.                                                                                            | Expressly prohibits recounting the asynchronous `encode_h265_ms` duration.                                                                                                               |
+| `total_residency_ms`        | ms                  | `last_encoded_dpdk_egress - first_point_arrival`.                                                                                                            | Spans frame assemblage, queueing, projection, writer / "codec" interfacing, & compressed egress phases.                                                                                  |
+| `node_efficiency_pct`       | %                   | `100 * active_process_ms / total_residency_ms`.                                                                                                              | Determines the processing quotient embedded within the overarching Encoder residence.                                                                                                    |
+| `gpu_transfer_ms`           | ms                  | "CUDA" event span stretching from projection initiation across asynchronous "H2D" point relocation.                                                          | Constitutes the device-timeline transfer stage.                                                                                                                                          |
+| `gpu_kernel_ms`             | ms                  | "CUDA" event span extending from the conclusion of "H2D" transfer throughout the fused 6-view "G-Buffer" projection.                                         | Absorbs object-centric transformations, "BT.601" calibrations, projection mechanisms, & atomic depth resolution.                                                                         |
+| `gpu_packing_ms`            | ms                  | "CUDA" event span dedicated to atlas / "I420" alignment post-projection.                                                                                     | Constitutes the device packaging stage.                                                                                                                                                  |
+| `gpu_copyback_ms`           | ms                  | "CUDA" event span allocated for the concluding device-to-host "I420" retrieval.                                                                              | Constitutes the device-timeline "D2H" component.                                                                                                                                         |
+| `host_overhead_ms`          | ms                  | `max( 0, projection_ms - gpu_transfer_ms - gpu_kernel_ms - gpu_packing_ms - gpu_copyback_ms )`.                                                              | Represents residual wall time inclusive of host orchestration & cooperative polling; decisively **not** a sterile "CPU"-compute indicator.                                               |
+| `camera_to_node_latency_ms` | ms                  | `first_arrival - camera_tx - clock_offset`.                                                                                                                  | Baseline-calibrated Camera-to-Encoder-arrival deviation; notably, the primary frame operates intentionally proximal to `0`.                                                              |
+| `end_to_end_latency_ms`     | ms                  | `node_exit - camera_send_timestamp - clock_offset`.                                                                                                          | Designates a partial Camera-to-Encoder-compressed-egress delay, decisively **not** the definitive Camera-to-User E2E metric.                                                             |
+| `schedule_delay_ms`         | ms                  | `( service_start - first_encoder_session_arrival ) - frame_offset / TARGET_FPS`.                                                                             | Records service-start deviation divergent from the prescribed source rhythm.                                                                                                             |
+| `network_jitter_ms`         | ms                  | Absolute first-arrival spacing discrepancy relative to `( frame_id_gap / TARGET_FPS )`.                                                                      | Articulates ID-gap-cognisant timing variability.                                                                                                                                         |
+| `wait_raw_queue_ms`         | ms                  | `service_start - frame_ready`; assuming the aggregate frame remains incomplete at finalisation, the fallback pivot is `last_arrival`.                        | Quantifies raw-frame detention post-readiness preceding the inception of Encoder service.                                                                                                |
+| `wait_render_queue_ms`      | ms                  | `ffmpeg_write_start - projection_end`.                                                                                                                       | Encapsulates  purely the post-projection writer-queue detention; pre-projection  "I420" slot procurement remains deliberately exempted.                                                  |
+| `workload_ewma_ms`          | ms                  | `E_n = alpha * service_n + ( 1 - alpha ) * E_(n-1)` incorporating `alpha = 0.25`; resets to the prevailing sample upon warm-up activation.                   | Represents the smoothed Encoder worker-service signal fuelling temporal adaptation frameworks.                                                                                           |
+| `workload_ratio`            | ratio               | `workload_ewma_ms / ( current_skip * 1000 / TARGET_FPS )`.                                                                                                   | Delineates controller load proportionate to the operative temporal budget.                                                                                                               |
+| `frame_backlog`             | frames              | Quantity of supplementary frame buffers queued following the election of the prevailing frame (`frame_buffers.size() - 1`).                                  | Functions as a direct raw-input backlog catalyst; an overload state materialises upon reaching a value of `2`.                                                                           |
+| `codec_backlog`             | frames              | `max( writer_pending_frames(), mpeg_frame_queue.size() )`.                                                                                                   | Provides a diagnostic of "codec" / writer strain. Within the extant controller topology, it remains **observed but not directly integrated** into the overload / recovery boolean logic. |
+| `encode_h265_ms`            | ms                  | Elapsed  chronology traversing the "FFmpeg" writer inception for a genuine frame  to the realisation of the premier attributed video-"PES" boundary.         | Designates the primary verifiable encoded-output lag, distinct from an isolated "NVENC" kernel execution duration.                                                                       |
+| `mpeg_bytes_generated`      | bytes               | "MPEG-TS" data attributed by the parser to the fundamental source frame preceding network-packet allocation.                                                 | Assuming a zero `mbuf_starvation` state, this value precisely matches the media-byte payload acquired by `SFF2` Route 1 in the representative execution.                                 |
+| `ffmpeg_write_calls`        | count               | Quantity of `write()` system commands commissioned to dispatch the frame to the "FFmpeg" stdin.                                                              | The extant run persistently records one command per genuine frame.                                                                                                                       |
+| `ffmpeg_write_eagain`       | count               | Quantity of defensive `EAGAIN` / `EWOULDBLOCK` resolutions intercepted by the writer.                                                                        | Anticipated to preserve a zero value given the existing blocking input pipe configuration.                                                                                               |
+| `tx_zero_accepts`           | count               | Compressed-output Tx commands eliciting zero accepted packets.                                                                                               | Identifies local "DPDK" backpressure situations.                                                                                                                                         |
+| `tx_partial_accepts`        | count               | Compressed-output Tx commands yielding fractional acceptance.                                                                                                | Identifies local "DPDK" backpressure situations.                                                                                                                                         |
+| `tx_resubmit_calls`         | count               | Compressed-output resubmission commands following an incomplete acceptance.                                                                                  | Categorically not a "UDP" retransmission parameter.                                                                                                                                      |
+| `tx_resubmitted_packets`    | packet-attempts     | Packet requests generated via said resubmission commands.                                                                                                    | Retains the capability to count a single pending packet redundantly.                                                                                                                     |
+| `mbuf_starvation`           | count               | Compressed-output `mbuf` allocation / linkage failures.                                                                                                      | Should this possess a non-zero value, `mpeg_bytes_generated` may inherently eclipse the volume of data factually transmitted.                                                            |
 
-The current processing & residency equations are:
+The present processing & residency formulae dictate:
 
 ```text
 total_processing_ms = conversion_ms + geometry_aggregation_ms + max_r_ms + projection_ms + tx_duration_ms
 
-active_process_ms = total_processing_ms
+active_process_ms   = total_processing_ms
 
 node_efficiency_pct = 100 * active_process_ms / total_residency_ms
 
-total_residency_ms = last_compressed_dpdk_egress - first_point_arrival
+total_residency_ms  = last_compressed_dpdk_egress - first_point_arrival
 ```
 
-When `OFFLOAD_MODE_ENABLED` receives a complete final `geo_agg_hdr` whose `active_point_count` matches the assembled point population:
+When `OFFLOAD_MODE_ENABLED` acquires a comprehensive final `geo_agg_hdr` whose `active_point_count` aligns accurately with the assembled point population:
 
 ```text
 geometry_aggregation_ms = 0
 max_r_ms                = 0
 ```
 
-because the `Encoder` consumes the centroid, extents, bounding-box centre, & final radius produced upstream. With offload disabled, or if metadata cannot be accepted, the same geometry is recomputed locally. This is the explicit control required to evaluate the computational-placement benefit rather than merely assuming it.
+This occurs because the `Encoder`  reliably consumes the centroid, extents, bounding-box centre, &  ultimate radius computed upstream. Provided offload remains disabled, or  should metadata prove unacceptable, identical geometry undergoes local  recomputation. This explicit toggle supplies the rigorous control  requisite to critically evaluate the computational-placement advantage,  rather than summarily presuming its efficacy.
 
-The workload controller uses:
+The workload controller relies on the subsequent formulations:
 
 ```text
-T_base          = 1000 / TARGET_FPS
+T_base           = 1000 / TARGET_FPS
 T_budget( skip ) = skip * T_base
-E_n             = EWMA_ALPHA * service_n + ( 1 - EWMA_ALPHA ) * E_( n - 1 )
-workload_ratio  = E_n / T_budget( skip )
+E_n              = EWMA_ALPHA * service_n + ( 1 - EWMA_ALPHA ) * E_( n - 1 )
+workload_ratio   = E_n / T_budget( skip )
 ```
 
-with the current constants:
+utilising the following constants:
 
 ```text
-EWMA_ALPHA       = 0.25
-OVERLOAD_RATIO   = 0.90
-RECOVERY_RATIO   = 0.75
+EWMA_ALPHA        = 0.25
+OVERLOAD_RATIO    = 0.90
+RECOVERY_RATIO    = 0.75
 OVERLOAD_FRACTION = 0.25
 RECOVERY_FRACTION = 0.10
-OVERLOAD_STREAK  = 2
-RECOVERY_STREAK  = 9
-MAX_SKIP         = 9
+OVERLOAD_STREAK   = 2
+RECOVERY_STREAK   = 9
+MAX_SKIP          = 9
 ```
 
-The implemented overload predicate is:
+The functional overload predicate equates to:
 
 ```text
 overloaded = workload_ratio >= 0.90 OR wait_raw_queue_ms > 0.25 * active_budget_ms OR frame_backlog >= 2
 ```
 
-`codec_backlog` is exported as an important diagnostic but does **not** currently enter this boolean directly. This distinction is relevant when interpreting future stress experiments.
+`codec_backlog` is logged as a critical diagnostic but decidedly does **not**  interface directly with this boolean. This segregation gains profound  relevance when interpreting subsequent forced-stress evaluations.
 
-Finally, `encode_h265_ms` must remain independent from `total_processing_ms`: the former reaches the first detected video-"PES" output after the frame enters the persistent "FFmpeg" writer, whereas `total_processing_ms` already counts the "I420" writer interval required by the original node-processing boundary. Adding the two would mix overlapping asynchronous stages.
+Conclusively, `encode_h265_ms` must preserve absolute independence from `total_processing_ms`:  the former culminates upon detecting the initial video-"PES" output  after the frame penetrates the persistent "FFmpeg" writer, whereas `total_processing_ms`  inherently amalgamates the "I420" writer interval defined by the  foundational node-processing boundary. Merging these values would  erroneously conflate disparate asynchronous stages.
 
 ### 9.16 Encoder "End-of-Stream" Handling
 
-When "EOS" arrives, the `Encoder` finalises any eligible residual frame, drains outstanding writer jobs & encoded output, closes "FFmpeg" input, completes the parser drain, flushes pending "DPDK" output, & only then writes the final telemetry.
+Upon detecting "EOS", the `Encoder`  initiates the finalisation of any eligible residual frame, drains  lingering writer commitments & encoded outputs, seals the "FFmpeg"  input channel, completes the parser exhaustion process, flushes residual  "DPDK" output, & solely thereafter records the terminal telemetry  data.
 
-This ordering is necessary because encoded bytes can remain in the "codec" / muxer pipeline after the last application frame has been submitted. The final frame can consequently display a larger residency or compressed-media delay than steady-state frames; it should be analysed as a tail-drain condition rather than silently discarded.
+This sequential ordering remains essential  because encoded bytes frequently linger within the "codec" / muxer  pipeline long after the concluding application frame submission.  Consequently, the terminal frame can routinely exhibit elevated  residency or compressed-media delays in contrast to steady-state frames;  thus, it demands analysis as an authentic tail-drain circumstance  rather than suffering unceremonious deletion.
 
 ---
 
 ## 🖥️ 10. "CPU", "GPU", & Core-Constrained Execution
 
-The launcher exposes an eight-logical-"CPU" execution model ( `0-7` ). Core placement is part of the experiment & must be preserved when results are compared.
+The launcher implements an eight-logical-"CPU" execution topology ( `0-7`  ). Core allocation remains an integral component of the overarching  experiment & must be rigorously preserved when attempting  comparative evaluations.
 
-| Logical "CPU" | Assignment in Current Launcher | Rationale |
-|---:|---|---|
-| `0` | "OVS" auxiliary "lcore" + Encoder "FFmpeg" affinity; also included in the future Decoder cpuset | Housekeeping / "codec" compromise on the constrained host |
-| `1` | "OVS"-"DPDK" "PMD" | Dedicated virtual-switch data-path processing |
-| `2` | Camera | Dedicated Camera "DPDK" worker |
-| `3` | `SFF1`; future `SFF3` container uses the same cpuset | Only `SFF1` is active in the validated upstream hot path |
-| `4` | `SFF2` | Dedicated four-port forwarder / proxy |
-| `5` | Encoder | Principal Encoder "DPDK" / C++ worker |
-| `6` | Decoder | Reserved for future Decoder processing; Decoder container also exposes Core `0` |
-| `7` | User | Reserved for rendering / client logic |
+| **Logical "CPU"** | **Assignment in Current Launcher**                                                                                   | **Rationale**                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `0`               | "OVS" auxiliary "lcore" + Encoder "FFmpeg" affinity; additionally incorporated within the forthcoming Decoder cpuset | Represents a pragmatic housekeeping / "codec" compromise upon the constrained host architecture            |
+| `1`               | "OVS"-"DPDK" "PMD"                                                                                                   | Furnishes dedicated virtual-switch data-path processing                                                    |
+| `2`               | Camera                                                                                                               | Constitutes a dedicated Camera "DPDK" worker                                                               |
+| `3`               | `SFF1`; the anticipated `SFF3` container adopts an identical cpuset                                                  | Exclusively `SFF1` maintains activity within the validated upstream hot path                               |
+| `4`               | `SFF2`                                                                                                               | Serves as a dedicated four-port forwarder / proxy unit                                                     |
+| `5`               | Encoder                                                                                                              | Acts as the primary Encoder "DPDK" / "C++" execution core                                                    |
+| `6`               | Decoder                                                                                                              | Safeguarded for future Decoder processing operations; the Decoder container concurrently accesses Core `0` |
+| `7`               | User                                                                                                                 | Safeguarded for subsequent rendering / client interaction tasks                                            |
 
-The current "OVS" configuration is:
+The extant "OVS" configuration specifies:
 
 ```text
 dpdk-"lcore"-mask = 0x1   -> Core 0
@@ -1644,7 +1641,7 @@ pmd-cpu-mask    = 0x2   -> Core 1
 dpdk-socket-mem = 1024 MiB
 ```
 
-The host launcher allocates:
+The host launcher designates:
 
 ```text
 2048 * 2 MiB HugePages = 4096 MiB ~= 4 GiB
@@ -1652,13 +1649,13 @@ The host launcher allocates:
 
 ### Core 0 Sharing
 
-Running "FFmpeg" on Core `0` is a deliberate compromise. It prevents the "codec" writer / child process from consuming the dedicated `Encoder` "DPDK" core, but it can contend with "OVS" auxiliary activity & host housekeeping.
+Anchoring "FFmpeg" upon Core `0`  constitutes a deliberate architectural concession. This manoeuvre  effectively prevents the "codec" writer / child process from  monopolising the exclusive `Encoder`  "DPDK" core, although it inevitably fosters contention involving "OVS"  auxiliary functions & broader host housekeeping activities.
 
-The current telemetry shows that this arrangement is sufficient for the validated upstream run, but it must be re-evaluated when the `Decoder` becomes active because its container also includes Core `0` & Core `6`.
+Existing  telemetry substantiates that this arrangement proves adequate for the  validated upstream execution, yet it undeniably warrants critical  reassessment upon `Decoder` activation, noting the `Decoder` container identically envelops Core `0` & Core `6`.
 
 ### Why the Current Constraint Is Manageable
 
-The implementation reduces pressure on the limited "CPU" set through:
+The present implementation mitigates pressure upon the restricted "CPU" cluster via:
 
 ```text
 dedicated "OVS"-"DPDK" "PMD" placement
@@ -1675,79 +1672,79 @@ cooperative "DPDK" polling during "CPU" / "GPU" waits
 workload-driven source temporal regulation
 ```
 
-The final complete chain will contain more simultaneous work than the current upstream subset. "CPU" placement therefore remains part of the experimental methodology rather than a permanently solved scaling problem.
+The  finalised holistic chain will encompass markedly greater simultaneous  activity compared to the current upstream subset. Consequently, "CPU"  placement inherently constitutes an element of the experimental  methodology rather than presenting an irrevocably resolved scaling  dynamic.
 
 ---
 
 ## 11. "HugePages" & Optional "CPU" Isolation
 
-The experiment configures "DPDK" memory explicitly before topology creation.
+The experiment prescribes explicit "DPDK" memory configuration antecedent to topology fabrication.
 
-The current `init_all.sh` allocates:
+The current `init_all.sh` dictates an allocation of:
 
 ```text
-nr_hugepages = 2048
+nr_hugepages  = 2048
 HugePage size = 2 MiB
 total         = 4 GiB
 ```
 
-It also drops filesystem caches before the environment is started. `WARM_MODE_ENABLED` is subsequently applied by the `Camera` itself, so host cache-reset policy & `Camera` warm-mode policy should both be recorded when reproducing a run.
+Simultaneously, it expunges filesystem caches prior to environment activation. `WARM_MODE_ENABLED` is sequentially instituted by the `Camera` itself; therefore, both the host cache-reset policy & the `Camera` warm-mode policy must be diligently documented during any attempt to replicate a given execution.
 
-The optional isolation scripts configure:
+The supplementary isolation scripts provision:
 
 ```text
 isolcpus=1-7
 ```
 
-leaving Core `0` as the principal non-isolated housekeeping "CPU".
+thereby isolating Core `0` as the singular non-isolated housekeeping "CPU".
 
-Typical usage from `src/` is:
+Standard execution from `src/` involves:
 
 ```bash
 sudo ./enable_isolcpus.sh
 sudo reboot
 ```
 
-After reboot:
+Following the reboot:
 
 ```bash
 cat /proc/cmdline
 ```
 
-and verify that `isolcpus=1-7` is present.
+must be executed to confirm the robust presence of `isolcpus=1-7`.
 
-To restore the default scheduler configuration:
+Reinstating the default scheduler paradigm necessitates:
 
 ```bash
 sudo ./disable_isolcpus.sh
 sudo reboot
 ```
 
-The ordinary `init_all.sh` / `stop_all.sh` lifecycle does not toggle the reboot-level `isolcpus` setting. "CPU" isolation, "Docker" cpusets, "OVS" "PMD" placement, & "codec" affinity must therefore be reported as separate experimental conditions.
+The customary `init_all.sh` / `stop_all.sh` lifecycle explicitly omits toggling the reboot-tier `isolcpus`  parameter. "CPU" isolation, "Docker" cpusets, "OVS" "PMD" designation,  & "codec" affinity must unconditionally be reported as wholly  independent experimental constraints.
 
 ---
 
 ## 12. Container & "OVS"-"DPDK" Environment
 
-The repository documentation retains the common build environment used by the project:
+The repository documentation strictly retains the universal build environment foundational to the project:
 
 ```text
 nvidia/cuda:12.2.0-devel-ubuntu22.04
 "DPDK" 22.11.4
 ```
 
-The image also provides GCC / G++, Meson, Ninja, NUMA development support, "FFmpeg", `tcpdump`, `ethtool`, & the utilities required by the current launch scripts. These version statements should be archived together with each benchmark if the base image changes in a later revision.
+This specific image additionally supplies "GCC" / "G++", "Meson", "Ninja", "NUMA" development dependencies, "FFmpeg", `tcpdump`, `ethtool`,  & the vital utilities prerequisite for the current launch scripts. These versioned parameters should be meticulously archived corresponding  to each benchmark, thereby safeguarding against subsequent base image  alterations.
 
-Native service functions are launched with:
+Native service functions initiate with the following directives:
 
 ```text
 --net none
 --privileged
 ```
 
-The nodes communicate through explicitly mounted "DPDK" "vhost-user" sockets rather than "Docker"'s ordinary network stack.
+The distinct nodes articulate exclusively through explicitly mounted "DPDK" "vhost-user" sockets, deliberately bypassing the conventional "Docker"  network stack.
 
-Each service container receives the relevant mounts for:
+Each corresponding service container assumes relevant mounts encompassing:
 
 ```text
 /dev/hugepages
@@ -1756,22 +1753,22 @@ Each service container receives the relevant mounts for:
 /app
 ```
 
-and an explicit `DPDK_CORE` value. The project source directory is mounted as `/app`, so node entrypoints execute the current repository source rather than a stale source tree embedded in a container image.
+alongside a discrete `DPDK_CORE` specification. The core project source directory mounts directly as `/app`,  guaranteeing that node entrypoints consistently execute the extant  repository source rather than languishing upon a stagnant source tree  entrenched within a historical container image.
 
-The launcher starts implemented nodes sequentially & waits for their required "vhost-user" sockets before advancing. This reduces topology-startup races & makes the active data-path bindings explicit.
+The launcher institutes implemented nodes sequentially, diligently awaiting  the manifestation of their indispensable "vhost-user" sockets preceding  progression. This methodical pace mitigates topology-startup collisions  & decisively exposes active data-path bindings.
 
 ### Build-Time Specialisation
 
-The `Encoder` build remains intentionally performance-oriented. The compilation profile documented by the repository snapshot is:
+The `Encoder` build definitively preserves a performance-oriented posture. The specific compilation profile ratified by the repository snapshot  entails:
 
 ```text
-C++   : -O3 -march=native -ffast-math -funroll-loops -std=c++14
-"CUDA": -O3 -arch=sm_61 -std=c++14
+"C++"  : -O3 -march=native -ffast-math -funroll-loops -std=c++14
+"CUDA" : -O3 -arch=sm_61 -std=c++14
 ```
 
-These flags are part of the experimental condition. `-march=native` specialises host object code for the build machine, `-ffast-math` permits non-conservative floating-point transformations, & `-arch=sm_61` fixes the generated device target. A benchmark rebuilt with another processor, compiler, or "GPU" architecture is therefore not automatically performance- or bit-equivalent.
+These explicit flags fundamentally construct the experimental condition. `-march=native` rigorously tailors host object code precisely to the build infrastructure, `-ffast-math` sanctions non-conservative floating-point permutations, & `-arch=sm_61`  rigidly locks the resultant device target. Consequently, any benchmark  reconstructed using a disparate processor, compiler, or "GPU"  architecture irrevocably relinquishes any presumptive claims to  performance or bit-level parity.
 
-Any benchmark intended for comparison should therefore retain:
+Any benchmark posturing for legitimate comparison must unequivocally archive:
 
 ```text
 compiler versions
@@ -1784,13 +1781,13 @@ host optimisation flags
 
 ### "OVS"-"DPDK" Topology
 
-The virtual switch creates one `netdev` bridge:
+The virtual switch engenders a singular `netdev` bridge:
 
 ```text
 br-sfc
 ```
 
-and explicit adjacent "vhost-user" links:
+& implements explicit adjacent "vhost-user" bindings:
 
 ```text
 Camera <-> SFF1 <-> SFF2 <-> Encoder
@@ -1799,17 +1796,17 @@ Camera <-> SFF1 <-> SFF2 <-> Encoder
                      +----> SFF3 <-> User
 ```
 
-"OpenFlow" rules only connect declared adjacent endpoints. A final default-deny rule drops unmatched traffic.
+"OpenFlow"  regulations meticulously connect singularly those declared adjacent  endpoints. A definitive default-deny mandate conclusively drops any  unmatched traffic.
 
-This separation is important: "OVS"-"DPDK" provides deterministic connectivity, while `SFF1` & `SFF2` implement application-aware service computation, service-path classification, & proxy semantics.
+This rigorous separation is critically imperative: "OVS"-"DPDK" guarantees deterministic connectivity, whereas `SFF1` & `SFF2` engineer application-cognisant service computation, profound service-path classification, & exact proxy semantics.
 
-The topology script can optionally enable internal mirror ports for `tcpdump` inspection. Debug mirroring changes the environment & should remain disabled in benchmark runs unless packet capture overhead is itself being studied.
+The topology script maintains an optional provision to activate internal mirror ports aimed at `tcpdump`  inspection. Debug mirroring decisively alters the operational  environment & should consistently remain dormant during benchmark  runs unless the specific intention is to study packet capture overhead  in isolation.
 
 ---
 
 ## 13. Repository Structure
 
-The current repository organisation is conceptually:
+The current repository organisation delineates as follows:
 
 ```text
 Thesis/
@@ -1870,9 +1867,9 @@ Thesis/
 
 ### 14.1 Research Dataset — 8i Voxelized Full Bodies ( "Loot" )
 
-The experimental point-cloud source is the **"Loot" sequence from the 8i Voxelized Full Bodies ( 8iVFB v2 ) dataset**, provided by 8i Labs & publicly documented through the JPEG Pleno database.
+The designated experimental point-cloud resource relies upon the **"Loot" sequence traversing the 8i Voxelized Full Bodies ( 8iVFB v2 ) dataset**, graciously provided by 8i Labs & exhaustively catalogued through the JPEG Pleno database.
 
-The original dataset defines four dynamic full-body sequences:
+The foundational dataset establishes four diverse dynamic full-body sequences:
 
 ```text
 longdress
@@ -1881,9 +1878,9 @@ redandblack
 soldier
 ```
 
-Each sequence contains a full human subject captured by 42 "RGB" cameras organised in 14 clusters, at 30 frames/s for approximately 10 s. The depth-10 representation uses a `1024 x 1024 x 1024` voxel grid, with "RGB" colour attributes associated with occupied voxels.
+Each  sequence presents a comprehensive human subject meticulously captured  via 42 "RGB" cameras systematically configured within 14 clusters,  capturing at 30 frames/s for an approximate duration of 10 s. The  depth-10 structure necessitates a `1024 x 1024 x 1024` voxel grid, wherein "RGB" colour attributes are rigorously assigned to occupied voxels.
 
-The current experiment uses the complete 300-frame depth-10 "Loot" sequence:
+The focal experiment employs the absolute 300-frame depth-10 "Loot" sequence:
 
 ```text
 loot_vox10_1000.ply
@@ -1891,43 +1888,43 @@ loot_vox10_1000.ply
 loot_vox10_1299.ply
 ```
 
-The prepared "Loot" dataset snapshot documented by this repository reports:
+The rigorously documented prepared "Loot" dataset snapshot confirms the following metrics:
 
-| Dataset quantity | Current "Loot" snapshot |
-|---|---:|
-| Frames | `300` |
-| Total points | `238,146,391` |
-| Mean points / frame | `793,821` |
-| Minimum points / frame | `770,822` |
-| Maximum points / frame | `835,458` |
-| Aggregate source PLY footprint | `5,144,378,340 B` ( `5.144 GB` ) |
-| Aggregate generated BIN footprint | `3,810,342,256 B` ( `3.810 GB` ) |
-| BIN footprint reduction vs. source PLY | `25.93 %` |
-| Mean offline conversion time | `6.310 s / frame` |
+| **Dataset quantity**                   | **Current "Loot" snapshot**      |
+| -------------------------------------- | -------------------------------- |
+| Frames                                 | `300`                            |
+| Total points                           | `238,146,391`                    |
+| Mean points / frame                    | `793,821`                        |
+| Minimum points / frame                 | `770,822`                        |
+| Maximum points / frame                 | `835,458`                        |
+| Aggregate source PLY footprint         | `5,144,378,340 B` ( `5.144 GB` ) |
+| Aggregate generated BIN footprint      | `3,810,342,256 B` ( `3.810 GB` ) |
+| BIN footprint reduction vs. source PLY | `25.93 %`                        |
+| Mean offline conversion time           | `6.310 s / frame`                |
 
-The dataset is available online from the JPEG Pleno database under the accompanying 8i license terms. The requested academic citation is:
+The  entire dataset remains publicly accessible via the JPEG Pleno database  compliant with the attached 8i license protocols. The formally required  academic citation demands:
 
 > E. d'Eon, B. Harrison, T. Myers, & P. A. Chou, *8i Voxelized Full Bodies — A Voxelized Point Cloud Dataset*, ISO/IEC JTC1/SC29 Joint WG11/WG1 input document WG11M40059/WG1M74006, Geneva, January 2017.
 
-Repository users should consult the dataset page & license directly before use or redistribution:
+Repository  stakeholders must imperatively consult the primary dataset portal &  corresponding license prior to any utilisation or subsequent  redistribution:
 
 ```text
-https://plenodb.jpeg.org/pc/8ilabs/
+[https://plenodb.jpeg.org/pc/8ilabs/](https://plenodb.jpeg.org/pc/8ilabs/)
 ```
 
 ### 14.2 Repository Data Policy
 
-Neither the original `.ply` frames nor the generated `.bin` frames are committed to this repository.
+Conspicuously, neither the authentic `.ply` frames nor the procedurally generated `.bin` frames hold presence within this repository's commit history.
 
-This is intentional: the complete "Loot" PLY sequence is approximately `5.14 GB` in the current local representation, & the converted binary sequence is still approximately `3.81 GB`. Keeping both variants outside Git avoids an unnecessarily large repository & prevents ordinary source-control operations from becoming dominated by experimental data.
+This outcome is strictly intentional: the exhaustive "Loot" PLY series scales to approximately `5.14 GB` locally, while the compact binary derivative persists at roughly `3.81 GB`.  Excluding both manifestations from Git rigorously guarantees a  streamlined repository architecture & actively prevents fundamental  source-control mechanisms from succumbing to immense experimental data  weights.
 
-The repository therefore contains the **code, data layout, conversion procedure, & telemetry**, while the large dataset artefacts are expected to be obtained / generated locally.
+Consequently, the repository securely houses the **code, data schematics, procedural conversion paradigms, & overarching telemetry**, operating on the presumption that voluminous dataset artefacts will be either independently procured or locally generated.
 
-This size-based repository policy is separate from the dataset licence. Any local copy or redistribution of 8i material must also respect the licence distributed with the dataset.
+This  capacity-driven repository policy strictly operates independent of the  official dataset licence. Any local replication or expansive  redistribution concerning 8i assets remains unequivocally bound by the  explicit licence appended to the original dataset.
 
 ### 14.3 Binary Representation Used by the Camera
 
-The offline converter transforms each PLY frame into a contiguous header-less sequence matching `point_tx`:
+The offline converter methodically transfigures every PLY frame into a seamless, header-less array congruent with `point_tx`:
 
 ```text
 float32 x
@@ -1939,15 +1936,15 @@ uint8   b
 uint8   padding
 ```
 
-Thus:
+Consequently:
 
 ```text
 bytes_per_point = 16
 ```
 
-The transformation removes PLY parsing & per-field conversion from the `Camera`'s streaming hot path. It is a **storage / parsing preparation step**, not a compression algorithm in the information-theoretic or rate-distortion sense.
+This robust transformation effectively isolates PLY interpretive parsing & distinct per-field numeric conversions from the `Camera`'s high-frequency streaming conduit. It definitively serves as a **storage / parsing preparatory sequence**,  unequivocally void of aspirations mimicking compression algorithms  grounded in rigorous information theory or explicit rate-distortion  frameworks.
 
-The current scale factor documented by the repository is:
+The prevalent scale factor anchored within the repository mandates:
 
 ```text
 SCALE_FACTOR = 1.0
@@ -1955,28 +1952,28 @@ SCALE_FACTOR = 1.0
 
 ### 14.4 "Python" Environment
 
-The root-level:
+The definitive root-level directory:
 
 ```text
 env/
 ```
 
-is the "Python" environment used by the current offline utilities, primarily the point-cloud converter.
+contains  the precise "Python" virtual configuration requisite for the current  offline utilities, most notably the point-cloud translation apparatus.
 
-Activate it from the repository root with:
+Activation from the repository root unfolds as:
 
 ```bash
 source env/bin/activate
 ```
 
-The README snapshot documents the converter dependencies as:
+The existing README snapshot asserts the requisite converter dependencies encompass:
 
 ```text
 numpy
 plyfile
 ```
 
-If the environment must be recreated:
+Should an environment reconstruction become necessary:
 
 ```bash
 python3 -m venv env
@@ -1985,11 +1982,11 @@ python -m pip install --upgrade pip
 python -m pip install numpy plyfile
 ```
 
-`pandas` & `matplotlib` are not required merely to execute the documented converter. They are appropriate for higher-level telemetry analysis but are not part of the native "DPDK" hot path.
+Libraries encompassing `pandas` & `matplotlib`  definitively lack prerequisite status regarding the execution of the  primary documented converter. Although exceptionally competent regarding  elevated telemetry analysis, they decisively remain extraneous to the  native "DPDK" operational pathway.
 
 ### 14.5 Offline Converter
 
-Typical execution is:
+The standard execution paradigm manifests as:
 
 ```bash
 source env/bin/activate
@@ -1997,24 +1994,24 @@ python3 src/shared/py/converter/converter.py
 deactivate
 ```
 
-The converter is an **offline preparation stage**. Its elapsed time, including PLY parsing & BIN writing, must not be merged with `Camera`, SFF, `Encoder`, "CUDA", or "codec" latency measurements.
+The converter operates exclusively as an **offline preparation stage**.  The resultant elapsed chronology, encompassing both PLY ingestion &  BIN extrusion, must definitively eschew amalgamation with `Camera`, SFF, `Encoder`, "CUDA", or explicit "codec" latency quantifications.
 
-The converter telemetry is nevertheless useful for reproducibility because it records the exact frame population & the source / generated data footprint used by the experiment. Its complete source-defined schema is:
+Nonetheless,  the converter telemetry presents substantial utility for replicability  parameters, flawlessly tracking the strict frame population &  precisely contrasting the source against the generated data footprint  prevalent throughout the experiment. The definitive source-configured  schema embodies:
 
-| Metric | Unit / Type | Exact Meaning |
-|---|---|---|
-| `filename` | string | Source `.ply` file processed by the offline stage. |
-| `status` | string | `success` when the complete conversion path terminates without exception; otherwise `error`. |
-| `num_points` | points | Number of vertices read from the PLY `vertex` element & written to the fixed-width binary representation. |
-| `read_ascii_ms` | ms | Wall-clock interval spent inside `PlyData.read( file_path )`. |
-| `write_bin_ms` | ms | Wall-clock interval spent writing the already constructed contiguous `network_array` to the `.bin` file. |
-| `conversion_ms` | ms | Whole-file interval from the beginning of file processing through parsing, coordinate / colour extraction, fixed-record construction, & output handling. |
-| `size_ascii_bytes` | bytes | Size of the source `.ply` artefact obtained from `os.path.getsize()`. |
-| `size_bin_bytes` | bytes | Size of the generated fixed-width `.bin` artefact obtained from `os.path.getsize()`. |
+| **Metric**         | **Unit / Type** | **Exact Meaning**                                                                                                                                                                      |
+| ------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filename`         | string          | Source `.ply` file subjected to offline processing operations.                                                                                                                         |
+| `status`           | string          | `success` dictates the successful culmination of the conversion path lacking exception; alternatively `error`.                                                                         |
+| `num_points`       | points          | Aggregate vertices extracted from the PLY `vertex` entity & transcribed to the designated fixed-width binary format.                                                                   |
+| `read_ascii_ms`    | ms              | Absolute wall-clock interval consumed exclusively within `PlyData.read( file_path )`.                                                                                                  |
+| `write_bin_ms`     | ms              | Absolute wall-clock interval committed to committing the already established contiguous `network_array` toward the `.bin` output.                                                      |
+| `conversion_ms`    | ms              | Comprehensive  file interval bridging initial processing steps, overarching parsing,  coordinate / colour abstraction, structural record formulation, &  subsequent output management. |
+| `size_ascii_bytes` | bytes           | Exact dimensions of the foundational `.ply` artefact, sourced through `os.path.getsize()`.                                                                                             |
+| `size_bin_bytes`   | bytes           | Exact dimensions of the synthetic fixed-width `.bin` artefact, similarly sourced through `os.path.getsize()`.                                                                          |
 
-`conversion_ms` is intentionally broader than `read_ascii_ms + write_bin_ms`. The difference includes the point-array extraction, `SCALE_FACTOR` application, numeric casting, explicit padding construction, & population of the 16-byte structured representation. Consequently, it must **not** be reconstructed as the sum of the two narrower I / O probes.
+`conversion_ms` is purposefully broader in scope compared to the strict calculation of `read_ascii_ms + write_bin_ms`. The deviation successfully accommodates point-array segregation, active `SCALE_FACTOR`  implementation, intrinsic numeric casting, meticulous padding  interpolation, & the comprehensive mapping of the 16-byte  architectured representation. Consequently, it must **never** be interpreted merely as the rudimentary summation of the two distinct I / O probes.
 
-The streaming results in Section 18 start from the prepared binary sequence. Offline Converter time is therefore excluded from `Camera` / `SFF1` / `SFF2` / `Encoder` latency & should be reported only together with the matching Converter telemetry of the dataset-preparation run.
+The  robust streaming outcomes explored within Section 18 inaugurate  exclusively from the synthesised binary array. Ergo, Offline Converter  chronologies are systematically expunged from all `Camera` / `SFF1` / `SFF2` / `Encoder`  latency metrics & hold relevance strictly parallel to the  correlative Converter telemetry tied to the dataset-preparation epoch.
 
 ---
 
@@ -2022,9 +2019,9 @@ The streaming results in Section 18 start from the prepared binary sequence. Off
 
 ### 15.1 Obtain & Prepare the Dataset
 
-1. Obtain the 8iVFB v2 dataset from the official / JPEG Pleno distribution & retain its licence information.
-2. Place the local "Loot" PLY frames in the repository's expected data directory.
-3. Run the offline converter from the repository root:
+1. Successfully  acquire the 8iVFB v2 dataset via the official / JPEG Pleno portal &  meticulously retain all associative licence directives.
+2. Manually situate the localised "Loot" PLY frames within the repository's dedicated data directory.
+3. Initiate the offline converter via the root directory:
 
 ```bash
 source env/bin/activate
@@ -2032,28 +2029,28 @@ python3 src/shared/py/converter/converter.py
 deactivate
 ```
 
-The `.ply` & generated `.bin` datasets are intentionally not versioned in Git because of their multi-gigabyte size.
+The authentic `.ply` & structurally generated `.bin` datasets actively bypass versioning paradigms within Git, directly respecting their multi-gigabyte scale.
 
 ### 15.2 Optional: Enable "CPU" Isolation
 
-From `src/`:
+Operating from `src/`:
 
 ```bash
 sudo ./enable_isolcpus.sh
 sudo reboot
 ```
 
-After reboot, return to the repository & verify `/proc/cmdline` before benchmarking.
+Following the reboot sequence, re-enter the repository & definitively verify `/proc/cmdline` preceding any benchmarking endeavours.
 
 ### 15.3 Start the Environment
 
-From `src/`:
+Operating from `src/`:
 
 ```bash
 sudo ./init_all.sh
 ```
 
-The launcher is responsible for the host-side "DPDK" preparation & for invoking the topology / container startup sequence. When `init_all.sh` is used, the infrastructure scripts should not be launched a second time unless the user intentionally tears down & reconstructs the topology.
+The  designated launcher assumes supreme responsibility concerning the  host-side "DPDK" preliminary preparations & executing the  interconnected topology / container start protocols. Provided `init_all.sh`  sustains active deployment, infrastructural scripts mandate abstention  from redundant initiations unless the user strategically dictates  comprehensive teardown & subsequent reconstruction of the topology.
 
 ### 15.4 Inspect the Active Nodes
 
@@ -2071,55 +2068,55 @@ sudo docker logs encoder
 sudo ./stop_all.sh
 ```
 
-"CPU" isolation is a reboot-level setting & remains independent of the ordinary container / "OVS" shutdown path.
+"CPU"  isolation acts intrinsically as a reboot-tier variable, preserving its  absolute independence relative to the conventional container / "OVS"  shutdown sequences.
 
 ---
 
 ## 16. Entrypoint Execution Model
 
-Each implemented native node is launched by an `entrypoint.sh` inside its container.
+Every manifested native node is explicitly driven by a dedicated `entrypoint.sh` stationed within its specific container.
 
-The entrypoint typically:
+The prevailing entrypoint sequence typically:
 
-1. compiles the current mounted source with optimisation enabled;
-2. links against the "DPDK" libraries available in the common image;
-3. launches the "EAL" on the logical core passed through `DPDK_CORE`;
-4. creates one or more `virtio_user` devices;
-5. binds them to the corresponding `/tmp/vh-*` "vhost-user" sockets;
-6. starts the node's run-to-completion loop.
+1. compiles the present mounted source enacting stringent optimisation parameters;
+2. formulates precise links against the "DPDK" frameworks embedded within the communal image;
+3. deploys the "EAL" upon the specific logical core delineated via `DPDK_CORE`;
+4. fabricates one or more `virtio_user` functional devices;
+5. rigidly binds them to the correlating `/tmp/vh-*` "vhost-user" sockets;
+6. triggers the node's central run-to-completion processing loop.
 
-For example, the `Camera` is compiled with an optimised GCC invocation linked through `pkg-config` & is launched directly against its "virtio-user" "vhost" socket.
+For illustrative purposes, the `Camera` compiles via a significantly optimised "GCC" command, interconnected using `pkg-config`, & immediately launches operating strictly against its "virtio-user" "vhost" endpoint.
 
-This runtime compilation approach is useful during thesis development because the mounted source remains the single authoritative implementation.
+This  dynamic runtime compilation methodology possesses immense utility  across the thesis developmental cycle, guaranteeing the mounted source  firmly retains its status as the exclusive, authoritative structural  manifestation.
 
 ---
 
 ## 📊 17. Native Telemetry Files
 
-The current snapshot exports native telemetry under:
+The immediate snapshot authoritatively disseminates native telemetry targeting:
 
 ```text
 src/shared/log/
 ```
 
-Principal files include:
+The preeminent documented files encompass:
 
-| Component | Telemetry |
-|---|---|
-| Converter | `log/converter/telemetry_converter.csv` |
-| Camera | `log/camera/telemetry_camera.csv` |
-| SFF1 / "GAC" | `log/sff1/telemetry_sff1.csv` |
-| SFF2 Route 0 | `log/sff2/telemetry_sff1_enc.csv` |
-| SFF2 Route 1 | `log/sff2/telemetry_enc_dec.csv` |
-| SFF2 Route 2 | `log/sff2/telemetry_dec_sff3.csv` ( path reserved; quantitative semantics deferred ) |
-| Encoder | `log/encoder/telemetry_encoder.csv` |
-| "FFmpeg" | `log/encoder/ffmpeg.txt` |
+| **Component** | **Telemetry**                                                                        |
+| ------------- | ------------------------------------------------------------------------------------ |
+| Converter     | `log/converter/telemetry_converter.csv`                                              |
+| Camera        | `log/camera/telemetry_camera.csv`                                                    |
+| SFF1 / "GAC"  | `log/sff1/telemetry_sff1.csv`                                                        |
+| SFF2 Route 0  | `log/sff2/telemetry_sff1_enc.csv`                                                    |
+| SFF2 Route 1  | `log/sff2/telemetry_enc_dec.csv`                                                     |
+| SFF2 Route 2  | `log/sff2/telemetry_dec_sff3.csv` ( path reserved; quantitative semantics deferred ) |
+| Encoder       | `log/encoder/telemetry_encoder.csv`                                                  |
+| "FFmpeg"      | `log/encoder/ffmpeg.txt`                                                             |
 
-The archived validation data contain 300 frame rows for `Camera`, `SFF1`, `SFF2` Route 0, `Encoder`, & `SFF2` Route 1. Their current schemas contain respectively **23**, **36**, **36**, **54**, & **36** columns. Those files are the authoritative quantitative basis for Section 18, while the `ffmpeg.txt` stream provides the independent "codec"-side `vstats` cross-check.
+The deeply archived validation arrays comprise 300 distinctive frame rows directed to `Camera`, `SFF1`, `SFF2` Route 0, `Encoder`, & `SFF2` Route 1. Their prevailing schematics present strictly **23**, **36**, **36**, **54**, & **36**  columns respectively. These comprehensive files command authoritative  quantitative foundational status pertinent to Section 18, whereas the  isolated `ffmpeg.txt` stream provides an independent "codec"-centric `vstats` verification dynamic.
 
 ### 17.1 Exact CSV Schema Reference
 
-The following lists reproduce the headers of the validated CSV files exactly. They are intentionally verbose: the README is meant to function as a measurement guide, so a field must not need to be inferred from source code before a trace can be interpreted. Detailed formulae & boundaries are given in Sections 6.6, 7.6, 8.7, & 9.15.
+The  subsequent lists meticulously replicate the precise headers inherent  within the validated CSV logs. They feature purposeful verbosity: the  README functions fundamentally as a rigorous measurement primer,  dictating that field intent must remain decisively unambiguous without  necessitating deeper source code interpolation. Elaborate computational  architectures & exact boundaries are presented across Sections 6.6,  7.6, 8.7, & 9.15.
 
 **Camera — 23 fields**
 
@@ -2331,94 +2328,94 @@ tx_resubmit_calls,
 tx_resubmitted_packets
 ```
 
-`SFF2` Route 2 retains a reserved output path, but its application-body contract & route-specific finalisation semantics are not stable. For that reason, the existence of `telemetry_dec_sff3.csv` is **not** treated as evidence of a validated 36-field Route-2 measurement stream.
+`SFF2`  Route 2 robustly sustains a designated projected conduit, yet its  overarching application-body pact & precise route-centric conclusive  parameters decidedly resist stabilisation. Consequently, the literal  creation of `telemetry_dec_sff3.csv` definitively does **not** signify the authentication of a fully fledged 36-field Route-2 quantitative data array.
 
 ### 17.2 "FFmpeg" `vstats` Field Semantics
 
-The persistent "FFmpeg" process writes an independent `vstats` record for every coded input frame, including the private pre-roll. The fields visible in `ffmpeg.txt` are interpreted as follows:
+The unyielding "FFmpeg" background instance generates an autonomous `vstats`  registry documenting each coded ingress frame, resolutely spanning the  private pre-roll elements. The variables articulated within `ffmpeg.txt` demand rigorous interpretation via the ensuing rubric:
 
-| Field | Unit / Type | Meaning |
-|---|---|---|
-| `out` | index | "FFmpeg" output-file index associated with the statistic. The current command has a single "MPEG-TS" output, therefore the value is `0`. |
-| `st` | index | Output stream index. The present video-only path reports stream `0`. |
-| `frame` | count | Sequential encoded-frame number in the persistent "FFmpeg" process, therefore including private pre-roll frames. |
-| `q` | encoder-reported quantiser indicator | Quantisation value reported by "FFmpeg" for the encoded frame. Under "NVENC" CBR control it is diagnostic rather than a user-selected constant-QP setting. |
-| `f_size` | bytes | Encoded video-frame size reported by `vstats`, before the repository's frame-attributed "MPEG-TS" byte accounting. |
-| `s_size` | bytes / displayed size | Cumulative coded size reported by "FFmpeg" up to the current frame. |
-| `time` | seconds | Encoded media timeline associated with the current frame. |
-| `br` | kbit/s | Frame-local bitrate statistic reported by "FFmpeg". |
-| `avg_br` | kbit/s | Cumulative average bitrate statistic reported by "FFmpeg" up to the current record. |
-| `type` | frame type | Coded picture class ( e.g., `I`, `P`, or `B` ). The present configuration disables B-frames. |
+| **Field** | **Unit / Type**                      | **Meaning**                                                                                                                                                                                                                                                 |
+| --------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `out`     | index                                | The  "FFmpeg" output-stream classification corresponding to the statistic.  Given the current framework processes singularly a solitary "MPEG-TS"  output, the factor fundamentally rests at `0`.                                                           |
+| `st`      | index                                | Defines the output stream catalogue marker. The active visual-centric channel consistently returns stream `0`.                                                                                                                                              |
+| `frame`   | count                                | Chronological  enumerated sequence parameter native to the resolute "FFmpeg" context,  therefore actively absorbing covert pre-roll integrations.                                                                                                           |
+| `q`       | encoder-reported quantiser indicator | Quantisation  integer explicitly conveyed via "FFmpeg" identifying the distinct  rendered frame. Operative underneath "NVENC" CBR orchestration, it  functions chiefly as a diagnostic instrument rather than a structurally  rigid constant-QP imposition. |
+| `f_size`  | bytes                                | Synthesised frame payload as documented precisely by `vstats`, antecedent to the repository’s overarching frame-ascribed "MPEG-TS" byte ledger dynamics.                                                                                                    |
+| `s_size`  | bytes / displayed size               | Incremental cumulative payload recorded via "FFmpeg" up through the contemporaneous boundary.                                                                                                                                                               |
+| `time`    | seconds                              | Chronological media timeline synchronised fundamentally alongside the prevailing frame component.                                                                                                                                                           |
+| `br`      | kbit/s                               | Strictly frame-focused bitrate marker formulated explicitly by the "FFmpeg" architecture.                                                                                                                                                                   |
+| `avg_br`  | kbit/s                               | Compounded mean bitrate diagnostic registered through "FFmpeg" spanning directly up to the operative metric boundary.                                                                                                                                       |
+| `type`    | frame type                           | Coded image specification ( e.g., `I`, `P`, or `B` ). The dominant architectural setup universally nullifies B-frame generation.                                                                                                                            |
 
-The 15 pre-roll records must be retained when analysing "codec" warm-up, but excluded when counting application frames. Conversely, `mpeg_bytes_generated` is the `Encoder`-side "MPEG-TS" byte quantity attributed to a real source frame, so it is expected to exceed `f_size` because transport-stream / muxing overhead is included.
+The  15 pre-roll documentation entries universally warrant retention whilst  interrogating "codec" acceleration dynamics, albeit demanding stringent  expulsion when quantifying fundamental application-frame boundaries.  Contrariwise, `mpeg_bytes_generated` strictly identifies the `Encoder`-ascribed  "MPEG-TS" data density expressly assigned back towards a genuine source  entity, hence generating a metric inherently surpassing `f_size` owing directly to the integration of obligatory transport-stream / muxing protocols.
 
 ### 17.3 Timing Quantities Must Not Be Added Indiscriminately
 
-The telemetry deliberately distinguishes wall-clock residence, active work, asynchronous "codec" output, "GPU" event intervals, & local Tx-ring activity.
+The  structural telemetry purposefully bifurcates parameters encompassing  pure wall-clock tenure, active execution cycles, asynchronous "codec"  emission delays, "GPU" hardware chronological variables, & strict  local Tx-ring engagement metrics.
 
-Common node residence is interpreted as:
+Standardised node tenure is derived fundamentally as:
 
 ```text
 residency = node_exit - node_entry
 ```
 
-but the exact entry / exit event depends on the function. In particular, current `Encoder` residency extends from first point arrival to the last encoded "DPDK" egress attributed to that frame.
+However,  the categorical entry / exit definitions depend inextricably upon the  designated functional entity. Distinctly, contemporary `Encoder`  tenure bridges the initial definitive point assimilation toward the  ultimate encoded "DPDK" egress actively registered back to that very  frame.
 
-Current active-process definitions are:
+Prevailing active-process paradigms definitively formulate as:
 
 ```text
-Camera active_process_ms = disk_io_ms + serialization_ms + tx_duration_ms
+Camera active_process_ms  = disk_io_ms + serialization_ms + tx_duration_ms
 
-SFF1 active_process_ms   = accumulated packet / geometry / Tx work
-SFF2 active_process_ms   = accumulated route processing / Tx work
+SFF1 active_process_ms    = accumulated packet / geometry / Tx work
+SFF2 active_process_ms    = accumulated route processing / Tx work
 
 Encoder active_process_ms = conversion_ms + geometry_aggregation_ms + max_r_ms + projection_ms + tx_duration_ms
 ```
 
-For all implemented nodes:
+Consistently targeting all functional components:
 
 ```text
 node_efficiency_pct = 100 * active_process_ms / total_residency_ms
 ```
 
-subject to the node-specific residence boundary above.
+while strictly tethered directly to the function-centric tenure constraints illuminated previously.
 
-Throughput also has a precise semantic domain. `Camera` throughput is calculated over its frame send interval. `SFF1` / `SFF2` / `Encoder` input throughput uses the first-to-last receive span for the corresponding logical frame payload. `logical_bitrate_mbps` excludes repeated transport headers, whereas `network_bitrate_mbps` includes the repeated output envelope relevant to that node.
+Throughput fundamentally entails an exacting semantic realm. `Camera` throughput exclusively leverages its distinct framing transmission corridor. `SFF1` / `SFF2` / `Encoder`  ingress throughput leverages the overarching first-to-terminal  ingestion window governing the correlative logical payload scope. `logical_bitrate_mbps` consciously shuns reiterative structural envelopes, whereas `network_bitrate_mbps` precisely embraces the repeated network superstructure intrinsically tethered to the functional node in question.
 
-Several values must remain separate:
+Several parameters definitively warrant rigorous separation:
 
 ```text
-active_tx_ms        -> time inside local rte_eth_tx_burst() calls
-tx_duration_ms      -> complete wall-clock transmission / writer interval
-encode_h265_ms      -> "FFmpeg" input start to first attributed video "PES"
-"GPU" event metrics   -> asynchronous device-stage intervals
+active_tx_ms        -> execution inside local rte_eth_tx_burst() invocations
+tx_duration_ms      -> extensive wall-clock transmission / distinct writer duration
+encode_h265_ms      -> "FFmpeg" source ingress spanning through primary identified video "PES" detection
+"GPU" event metrics -> comprehensively asynchronous device-stage demarcations
 ```
 
-For the `Encoder`:
+With specific regard to the `Encoder`:
 
 ```text
 total_processing_ms = active_process_ms
 ```
 
-in the current implementation, but:
+dictates the present framework, yet:
 
 ```text
 encode_h265_ms
 ```
 
-is asynchronous & must **not** be added to the processing sum.
+remains profoundly asynchronous & strictly must **not** be integrated sequentially within the processing composite calculation.
 
-Likewise, `wait_render_queue_ms` measures only the post-projection interval before the writer begins, while slot acquisition & raw-frame queue behaviour are represented elsewhere.
+Equally, `wait_render_queue_ms`  solely calibrates the post-projection stagnation preceding writer  commencement, while slot appropriation metrics & foundational  raw-frame queuing paradigms are purposefully illustrated within discrete  channels.
 
-Finally, `Encoder` `end_to_end_latency_ms` currently ends at `Encoder` compressed-media egress. It is a partial `Camera`-to-`Encoder`-output metric & must not be labelled as final `Camera`-to-`User` latency.
+Ultimately, `Encoder` `end_to_end_latency_ms` currently terminates abruptly at the `Encoder` compressed-media egress boundary. This definitively establishes a partial `Camera`-to-`Encoder`-output marker & unconditionally must not be arbitrarily mischaracterised as the definitive global `Camera`-to-`User` E2E chronological metric.
 
 ---
 
-## 🧪 18. Representative Results from the Current Validated Snapshot
+## 🧪 18. Relevant Outcomes from the Validated Snapshot
 
-The representative telemetry contains **300 frame records** for `Camera`, `SFF1`, `SFF2` Route 0, `Encoder`, & `SFF2` Route 1. The associated "FFmpeg" log contains the 15 private pre-roll frames plus the same 300 application frames.
+The quintessential representative telemetry explicitly houses **300 frame records** traversing `Camera`, `SFF1`, `SFF2` Route 0, `Encoder`, & `SFF2`  Route 1. The seamlessly corresponding "FFmpeg" ledger captures the 15 secluded pre-roll units coupled with the identical 300 primary  application targets.
 
-The validated upstream path is:
+The fully validated upstream structure maps precisely as:
 
 ```text
 prepared 8i "Loot" BIN
@@ -2429,29 +2426,29 @@ prepared 8i "Loot" BIN
 -> SFF2 ( Route 1 )
 ```
 
-The measurements below describe the exact snapshot represented by the source configuration stored in this snapshot:
+The underlying measurements definitively elucidate the precise repository  snapshot actively governed by the structural configuration housed inside  this release:
 
 ```text
-K_FRAMES                  = 300
-TARGET_FPS                = 30
-Camera CACHE_MODE         = CACHE_MODE_MIDDLE
-Camera WARM_MODE          = WARM_MODE_ENABLED
-POINTS_PER_PACKET         = 80
-Encoder OFFLOAD_MODE      = OFFLOAD_MODE_ENABLED
-TEMPORAL_ADAPTATION       = TEMPORAL_ADAPTATION_ENABLED
-H2D_CHUNK_POINTS          = 65536
-YUV_BUFFER_COUNT          = 3
-"NVENC" target bitrate    = 10M
-"NVENC" buffer size       = 20M
-"GOP"                     = 15
-pre-roll                  = 15 frames
+K_FRAMES               = 300
+TARGET_FPS             = 30
+Camera CACHE_MODE      = CACHE_MODE_MIDDLE
+Camera WARM_MODE       = WARM_MODE_ENABLED
+POINTS_PER_PACKET      = 80
+Encoder OFFLOAD_MODE   = OFFLOAD_MODE_ENABLED
+TEMPORAL_ADAPTATION    = TEMPORAL_ADAPTATION_ENABLED
+H2D_CHUNK_POINTS       = 65536
+YUV_BUFFER_COUNT       = 3
+"NVENC" target bitrate = 10M
+"NVENC" buffer size    = 20M
+"GOP"                  = 15
+pre-roll               = 15 frames
 ```
 
-All 300 frame records are successful in every validated native node. No frame-integrity loss is observed across the implemented upstream path.
+Absolutely  all 300 procedural frame markers successfully complete processing  across every ratified native unit. No detectable frame-integrity  attenuation presents across the established overarching upstream  trajectory.
 
 ### 18.1 Dataset & Streaming Population
 
-The current `Camera` / SFF / `Encoder` telemetry independently agrees on:
+The prevailing `Camera` / SFF / `Encoder` telemetry synchronously attests to:
 
 ```text
 total source points      = 238,146,391
@@ -2462,15 +2459,15 @@ Camera point packets     = 2,976,979
 mean packets / frame     = 9,923.3
 ```
 
-The source-point total & binary payload therefore match the prepared 16-byte "Loot" representation documented in the dataset section.
+Consequently,  the foundational source-point ledger & the core binary density  fundamentally correspond entirely alongside the prepared 16-byte "Loot"  representation precisely detailed throughout the primary dataset  segment.
 
-The previously documented source PLY / BIN footprint comparison remains an **offline representation property**, not a streaming compression result. The current streaming validation begins from the prepared binary sequence & does not include converter time in any real-time latency figure.
+The previously referenced source PLY / BIN proportional correlation definitively constitutes an **offline representation property**,  strictly disconnected from any actionable streaming compression  validation parameters. The contemporary live verification paradigm  initiates exclusively via the pre-processed binary continuity &  meticulously abstains from integrating conversion durations within any  operational real-time latency formulation.
 
 ### 18.2 Camera — Nominal 30-fps Source Operation & Local Backpressure
 
-The current warm-mode `Camera` sustains the configured source cadence.
+The extant warm-mode `Camera` infrastructure flawlessly sustains the designated source frequency.
 
-From consecutive `timestamp_start_tx` values:
+Derived via sequential `timestamp_start_tx` intervals:
 
 ```text
 mean start-to-start interval = 33.330 ms
@@ -2479,19 +2476,19 @@ median interval              = 33.324 ms
 observed source rate         = 30.003 frames/s
 ```
 
-Principal `Camera` timings are:
+Primary `Camera` chronologies manifest as:
 
-| Metric | Mean | Median | 95th percentile |
-|---|---:|---:|---:|
-| `disk_io_ms` | `1.966 ms` | `1.907 ms` | `2.467 ms` |
-| `serialization_ms` | `1.714 ms` | `1.783 ms` | `1.929 ms` |
-| `tx_duration_ms` | `11.930 ms` | `11.918 ms` | `12.967 ms` |
-| `active_tx_ms` | `2.169 ms` | `2.175 ms` | `2.372 ms` |
-| `active_process_ms` | `15.609 ms` | `15.543 ms` | `16.464 ms` |
-| `total_residency_ms` | `15.610 ms` | `15.544 ms` | `16.465 ms` |
-| `node_efficiency_pct` | `99.992 %` | `99.992 %` | `99.995 %` |
+| **Metric**            | **Mean**    | **Median**  | **95th percentile** |
+| --------------------- | ----------- | ----------- | ------------------- |
+| `disk_io_ms`          | `1.966 ms`  | `1.907 ms`  | `2.467 ms`          |
+| `serialization_ms`    | `1.714 ms`  | `1.783 ms`  | `1.929 ms`          |
+| `tx_duration_ms`      | `11.930 ms` | `11.918 ms` | `12.967 ms`         |
+| `active_tx_ms`        | `2.169 ms`  | `2.175 ms`  | `2.372 ms`          |
+| `active_process_ms`   | `15.609 ms` | `15.543 ms` | `16.464 ms`         |
+| `total_residency_ms`  | `15.610 ms` | `15.544 ms` | `16.465 ms`         |
+| `node_efficiency_pct` | `99.992 %`  | `99.992 %`  | `99.995 %`          |
 
-The logical & network-rate indicators average:
+The foundational logical & definitive network-rate metrics consolidate toward:
 
 ```text
 internal_throughput_mbs ~= 1067.247 MB/s
@@ -2499,16 +2496,16 @@ logical_bitrate_mbps    ~= 3048.283 Mbit/s
 network_bitrate_mbps    ~= 3243.564 Mbit/s
 ```
 
-`CACHE_MODE_MIDDLE` still performs a timed `fread()` for every frame, but `WARM_MODE_ENABLED` has already made the source files resident before the measured sequence. The result must therefore be interpreted as a **warm file-backed source**, not as cold-storage performance.
+`CACHE_MODE_MIDDLE` decisively imposes a rigorous, timed `fread()` encompassing every distinct frame target, yet the overarching `WARM_MODE_ENABLED`  inherently locks the vital source assets effectively beforehand. The  subsequent quantification must therefore be critically reviewed solely  as a **warmed, directly buffered source configuration**, distinctly rejecting implications suggesting an unaided cold-storage benchmark.
 
-The `Camera` observes substantial local Tx-ring pressure:
+The `Camera` registers pronounced local Tx-ring strain metrics:
 
 ```text
 mean tx_zero_accepts        = 12,379.96 / frame
 mean tx_resubmitted_packets = 394,831.16 / frame
 ```
 
-yet:
+yet unequivocally dictates:
 
 ```text
 tx_partial_accepts = 0
@@ -2516,34 +2513,34 @@ mbuf_starvation    = 0
 status             = 1 for all 300 frames
 ```
 
-and every expected point reaches the next stages. This is strong evidence that the bounded local resubmission strategy absorbs the measured producer / consumer mismatch without converting it into upstream application loss. It remains a local "DPDK" queue phenomenon & must not be described as "UDP" retransmission.
+ultimately  guaranteeing every formulated data point conclusively navigates toward  the successive operational tier. This definitively substantiates the  premise that the strictly managed local retry heuristic effectively  defuses the fundamental producer / consumer disequilibrium bereft of  inciting overarching upstream application attrition. It definitively  asserts a fundamentally "DPDK" queue-centric anomaly & absolutely  must not be inaccurately described via the terminology of conventional  "UDP" retransmission metrics.
 
 ### 18.3 SFF1 / "GAC" — Cost of Moving Geometry into the Data Path
 
-The validated run keeps `current_skip = 1`, so every source frame is admitted.
+The ratified verification configuration dictates `current_skip = 1`, thereby validating the integration of every distinct source unit.
 
-`SFF1` reports:
+`SFF1` explicitly outputs:
 
-| Metric | Mean | Median | 95th percentile |
-|---|---:|---:|---:|
-| `geometry_aggregation_ms` | `2.084 ms` | `2.077 ms` | `2.147 ms` |
-| `max_r_ms` | `1.067 ms` | `1.063 ms` | `1.101 ms` |
-| `active_process_ms` | `4.066 ms` | `4.057 ms` | `4.289 ms` |
-| `tx_duration_ms` | `19.908 ms` | `19.933 ms` | `21.140 ms` |
-| `total_residency_ms` | `19.922 ms` | `19.947 ms` | `21.153 ms` |
-| `node_efficiency_pct` | `20.420 %` | `20.415 %` | `21.128 %` |
-| `camera_to_node_latency_ms` | `0.345 ms` | `0.366 ms` | `0.380 ms` |
-| `network_jitter_ms` | `0.222 ms` | `0.080 ms` | `1.032 ms` |
+| **Metric**                  | **Mean**    | **Median**  | **95th percentile** |
+| --------------------------- | ----------- | ----------- | ------------------- |
+| `geometry_aggregation_ms`   | `2.084 ms`  | `2.077 ms`  | `2.147 ms`          |
+| `max_r_ms`                  | `1.067 ms`  | `1.063 ms`  | `1.101 ms`          |
+| `active_process_ms`         | `4.066 ms`  | `4.057 ms`  | `4.289 ms`          |
+| `tx_duration_ms`            | `19.908 ms` | `19.933 ms` | `21.140 ms`         |
+| `total_residency_ms`        | `19.922 ms` | `19.947 ms` | `21.153 ms`         |
+| `node_efficiency_pct`       | `20.420 %`  | `20.415 %`  | `21.128 %`          |
+| `camera_to_node_latency_ms` | `0.345 ms`  | `0.366 ms`  | `0.380 ms`          |
+| `network_jitter_ms`         | `0.222 ms`  | `0.080 ms`  | `1.032 ms`          |
 
-The mean explicit geometric cost is therefore approximately:
+The aggregated primary spatial derivation burden intrinsically approaches:
 
 ```text
 geometry_aggregation_ms + max_r_ms ~= 3.151 ms / frame
 ```
 
-and it is now paid in the "GAC", where the information is generated while the point stream is already crossing the service path.
+subsequently  assumed conclusively by the "GAC" subsystem, formulating essential  calculations concurrently as the foundational data stream accurately  navigates the established network vector.
 
-Integrity is exact in the measured run:
+Complete integrity manifests universally throughout the validated procedure:
 
 ```text
 Camera Tx points
@@ -2552,7 +2549,7 @@ Camera Tx points
 = 238,146,391 points
 ```
 
-with:
+simultaneously confirming:
 
 ```text
 data_integrity_pct = 100 % for all frames
@@ -2563,24 +2560,24 @@ nsh_errors         = 0
 Tx resubmissions   = 0
 ```
 
-The mean input throughput is approximately `674.766 MB/s`. The higher `SFF1` active cost relative to the preceding repository snapshot is intentional: exact radius work has been relocated from the `Encoder` into the "GAC" rather than eliminated from the system.
+Mean data ingress capacity nominally measures around `674.766 MB/s`. The decidedly more robust `SFF1`  processing burden measured against historically documented iterations  is stringently deliberate: the essential exacting radius evaluations  have successfully migrated directly from the `Encoder` framework straight into the operative "GAC", precluding their outright elimination entirely from the systemic architecture.
 
 ### 18.4 SFF2 Route 0 — Stateful Proxy Cost
 
-For `SFF1 -> Encoder`, `SFF2` now performs service-header validation, proxy-state capture, decapsulation, plain-"UDP" reconstruction, route accounting, & forwarding.
+Directly addressing `SFF1 -> Encoder`, `SFF2`  currently manages definitive service-header validation, fundamental  proxy-state assimilation, meticulous decapsulation, unembellished-"UDP"  reconstruction operations, dedicated route logging, & subsequent  packet progression.
 
-Measured values are:
+Quantifiable results demonstrate:
 
-| Metric | Mean | Median | 95th percentile |
-|---|---:|---:|---:|
-| `active_process_ms` | `0.956 ms` | `0.908 ms` | `1.440 ms` |
-| `tx_duration_ms` | `19.841 ms` | `19.875 ms` | `21.064 ms` |
-| `total_residency_ms` | `19.847 ms` | `19.881 ms` | `21.071 ms` |
-| `node_efficiency_pct` | `4.806 %` | `4.506 %` | `7.042 %` |
-| `camera_to_node_latency_ms` | `0.434 ms` | `0.454 ms` | `0.477 ms` |
-| `network_jitter_ms` | `0.226 ms` | `0.086 ms` | `1.021 ms` |
+| **Metric**                  | **Mean**    | **Median**  | **95th percentile** |
+| --------------------------- | ----------- | ----------- | ------------------- |
+| `active_process_ms`         | `0.956 ms`  | `0.908 ms`  | `1.440 ms`          |
+| `tx_duration_ms`            | `19.841 ms` | `19.875 ms` | `21.064 ms`         |
+| `total_residency_ms`        | `19.847 ms` | `19.881 ms` | `21.071 ms`         |
+| `node_efficiency_pct`       | `4.806 %`   | `4.506 %`   | `7.042 %`           |
+| `camera_to_node_latency_ms` | `0.434 ms`  | `0.454 ms`  | `0.477 ms`          |
+| `network_jitter_ms`         | `0.226 ms`  | `0.086 ms`  | `1.021 ms`          |
 
-The route preserves all point data:
+The route strictly safeguards complete point fidelity:
 
 ```text
 SFF1 Tx points
@@ -2589,57 +2586,57 @@ SFF1 Tx points
 = Encoder Rx points
 ```
 
-for all 300 frames, with no reported protocol errors or Tx resubmissions.
+extending  uniformly throughout all 300 instances, conspicuously devoid of any  registered communication defects or associated Tx resubmission  imperatives.
 
-The proxy therefore adds less than `1 ms` of mean measured active processing while removing the requirement for the `Encoder` to parse or maintain service-chain state.
+Conclusively, the designated proxy structure introduces scarcely less than `1 ms` of aggregated measured functional processing delay, concurrently unburdening the subsequent `Encoder` apparatus from processing or stewarding intrinsic service-chain data states.
 
 ### 18.5 Encoder — Geometry Offload, "GPU" Work, "Temporal" Controller, & "H.265"
 
-The `Encoder` receives every expected point:
+The operational `Encoder` faithfully intercepts every defined data point:
 
 ```text
-data_integrity_pct = 100 % for all 300 frames
-mbuf_starvation    = 0
-Tx resubmissions   = 0
+data_integrity_pct  = 100 % for all 300 frames
+mbuf_starvation     = 0
+Tx resubmissions    = 0
 ffmpeg_write_eagain = 0
 ```
 
-Because `OFFLOAD_MODE_ENABLED` is active & every frame receives a complete valid "GAC" snapshot:
+Benefiting from an active `OFFLOAD_MODE_ENABLED` configuration & the concurrent arrival of an irreproachable, complete "GAC" projection matrix:
 
 ```text
 geometry_aggregation_ms = 0.000 ms for all 300 frames
-max_r_ms                 = 0.000 ms for all 300 frames
+max_r_ms                = 0.000 ms for all 300 frames
 ```
 
-This is the clearest telemetry evidence that geometry offload is operational: the corresponding exact geometric work is visible upstream in `SFF1` & absent from the `Encoder`'s complete-frame path.
+This  phenomenon unambiguously yields the most compelling telemetry evidence  validating geometry offload efficacy: the corresponding exacting spatial  formulations surface transparently upstream inside `SFF1` & deliberately vanish entirely out of the `Encoder`'s comprehensive procedural flow.
 
-Principal `Encoder` timings are:
+Principal `Encoder` timing parameters reflect:
 
-| Metric | Mean | Median | 95th percentile |
-|---|---:|---:|---:|
-| `conversion_ms` | `3.350 ms` | `3.309 ms` | `3.462 ms` |
-| `geometry_aggregation_ms` | `0.000 ms` | `0.000 ms` | `0.000 ms` |
-| `max_r_ms` | `0.000 ms` | `0.000 ms` | `0.000 ms` |
-| `projection_ms` | `4.122 ms` | `4.083 ms` | `4.204 ms` |
-| `tx_duration_ms` | `8.635 ms` | `6.377 ms` | `15.504 ms` |
-| `active_process_ms` | `16.108 ms` | `13.890 ms` | `29.815 ms` |
-| `total_residency_ms` | `80.947 ms` | `81.388 ms` | `98.326 ms` |
-| `node_efficiency_pct` | `20.269 %` | `17.066 %` | `32.812 %` |
-| `encode_h265_ms` | `26.081 ms` | `24.270 ms` | `39.165 ms` |
+| **Metric**                | **Mean**    | **Median**  | **95th percentile** |
+| ------------------------- | ----------- | ----------- | ------------------- |
+| `conversion_ms`           | `3.350 ms`  | `3.309 ms`  | `3.462 ms`          |
+| `geometry_aggregation_ms` | `0.000 ms`  | `0.000 ms`  | `0.000 ms`          |
+| `max_r_ms`                | `0.000 ms`  | `0.000 ms`  | `0.000 ms`          |
+| `projection_ms`           | `4.122 ms`  | `4.083 ms`  | `4.204 ms`          |
+| `tx_duration_ms`          | `8.635 ms`  | `6.377 ms`  | `15.504 ms`         |
+| `active_process_ms`       | `16.108 ms` | `13.890 ms` | `29.815 ms`         |
+| `total_residency_ms`      | `80.947 ms` | `81.388 ms` | `98.326 ms`         |
+| `node_efficiency_pct`     | `20.269 %`  | `17.066 %`  | `32.812 %`          |
+| `encode_h265_ms`          | `26.081 ms` | `24.270 ms` | `39.165 ms`         |
 
-"CUDA"-event decomposition is:
+"CUDA"-event stratification fundamentally encompasses:
 
-| Projection component | Mean |
-|---|---:|
-| `gpu_transfer_ms` | `1.468 ms` |
-| `gpu_kernel_ms` | `0.768 ms` |
-| `gpu_packing_ms` | `0.447 ms` |
-| `gpu_copyback_ms` | `1.390 ms` |
-| `host_overhead_ms` | `0.049 ms` |
+| **Projection component** | **Mean**   |
+| ------------------------ | ---------- |
+| `gpu_transfer_ms`        | `1.468 ms` |
+| `gpu_kernel_ms`          | `0.768 ms` |
+| `gpu_packing_ms`         | `0.447 ms` |
+| `gpu_copyback_ms`        | `1.390 ms` |
+| `host_overhead_ms`       | `0.049 ms` |
 
-The measured projection interval is therefore no longer dominated by host-to-device transfer to the extent observed in the preceding repository snapshot. Persistent buffers, larger "H2D" chunks, pinned output slots, static-pose analytic bounds, & fused "GPU" work all contribute to the current result.
+Consequently,  the gauged projection window undeniably relinquishes the overwhelming  host-to-device transport dominance pervasive throughout historically  documented framework derivations. Pre-committed buffers, elevated "H2D"  structural chunks, securely pinned exit vectors, static-pose  mathematically explicit confines, & fully assimilated "GPU"  workflows categorically underpin the observed outcome.
 
-The workload controller remains deliberately inactive under this load:
+The workload administration structure decisively preserves an inactive status amidst the current payload dynamics:
 
 ```text
 "WARMUP" events         = 5
@@ -2654,9 +2651,9 @@ mean codec_backlog      = 1.107 frames
 mean wait_raw_queue_ms  = 0.003 ms
 ```
 
-This is a useful negative result: the controller is integrated & observable, but the current run does not artificially trigger temporal degradation when the measured processing condition is healthy. A separate overload experiment is required to validate `SKIP+1` / recovery dynamics.
+This  represents an exceptionally instructive null revelation: the overarching  controller mechanism fundamentally exists, exports reliable metrics,  & yet steadfastly declines to trigger spurious temporal attenuations  when evaluating undeniably proficient processing throughput  capabilities. An exclusive overloading stress regimen intrinsically  remains prerequisite to legitimately confirm subsequent `SKIP+1` / restoration dynamics.
 
-The current partial `Camera`-to-`Encoder`-egress latency is:
+The established isolated `Camera`-to-`Encoder`-egress systemic latency measures at:
 
 ```text
 end_to_end_latency_ms
@@ -2665,34 +2662,34 @@ median = 81.412 ms
 p95    = 98.221 ms
 ```
 
-Frame 300 reaches a larger tail value during final "codec" drain. Because current residency ends at encoded "DPDK" egress, these figures are intentionally broader than the `Encoder` residency values reported by the earlier repository snapshot & must not be compared directly with an "FFmpeg"-input-only boundary.
+Notably,  sequence frame 300 hits an amplified peak tail threshold correlating  precisely alongside the concluding "codec" systematic extraction phase.  Because contemporary residency distinctly ceases strictly contiguous to  the generated "DPDK" egress point, these measurements characteristically  demonstrate an enlarged magnitude contrasting heavily with preceding  abbreviated "FFmpeg"-centric residency indices & thus intrinsically  prohibit a direct 1:1 comparison evaluating purely an "FFmpeg"-input  restriction parameter.
 
 ### 18.6 Encoder -> SFF2 Route 1 — Compressed-Media Integrity
 
-The `Encoder` produces:
+The core `Encoder` outputs exactly:
 
 ```text
 "MPEG-TS" bytes = 10,345,640 B
-media packets = 7,992
+media packets   = 7,992
 ```
 
-and Route 1 reports exactly:
+Simultaneously, Route 1 consistently validates identically:
 
 ```text
 Rx media bytes = Tx media bytes = 10,345,640 B
 Rx packets     = Tx packets     = 7,992
 ```
 
-with `data_integrity_pct = 100 %` for every frame & zero protocol / Tx errors.
+pairing resolutely with `data_integrity_pct = 100 %`  representing comprehensively every single data frame completely absent  fundamental networking translation deviations or transmission  malfunctions.
 
-The compressed output-rate indicators agree between `Encoder` & Route 1:
+The resulting compressed broadcast-rate variables display stringent congruity binding the `Encoder` explicitly alongside Route 1:
 
 ```text
 mean logical_bitrate_mbps ~= 8.298 Mbit/s
 mean network_bitrate_mbps ~= 9.108 Mbit/s
 ```
 
-The first compressed-media arrival at `SFF2` is observed at:
+The maiden compressed-media reception traversing `SFF2` triggers exactly at:
 
 ```text
 camera_to_node_latency_ms
@@ -2701,17 +2698,17 @@ median = 48.903 ms
 p95    = 65.138 ms
 ```
 
-The Route-1 relay itself performs extremely little active "CPU" work:
+The underlying Route-1 relay system performs microscopically trivial structural "CPU" expenditures:
 
 ```text
 mean active_process_ms ~= 0.0038 ms
 ```
 
-Its frame residency & throughput distributions are burst-dependent because encoded "MPEG-TS" bytes are emitted asynchronously rather than as a uniform point-packet train. In particular, the last frame is affected by "codec" drain. For this route, byte equality & first-media timing are more informative than treating the mean instantaneous receive throughput as a stationary link-capacity estimate.
+Its  fundamental processing latency parameters alongside capacity throughput  spectra inevitably become inherently burst-centric given encoded  "MPEG-TS" arrays consistently trigger asynchronous emissions diverging  sharply from any uniform consistent sequential distribution matrix.  Principally, the concluding data frame intrinsically experiences  undeniable "codec" drain implications. Relating toward this specific  systemic route, data equality validations & primary-media  transmission timelines represent infinitely greater instructional depth  versus simply portraying the mean point-to-point instantaneous ingestion  speed strictly representing a persistent rigid connection bandwidth  ceiling.
 
 ### 18.7 "FFmpeg" / "NVENC" Stream Characteristics & Pre-Roll
 
-The representative `ffmpeg.txt` contains:
+The explicit definitive `ffmpeg.txt` incorporates uniformly:
 
 ```text
 315 coded entries total
@@ -2719,7 +2716,7 @@ The representative `ffmpeg.txt` contains:
 300 application frames
 ```
 
-Across all 315 entries:
+Embracing entirely the comprehensive 315-frame aggregate:
 
 ```text
 I frames = 21
@@ -2727,7 +2724,7 @@ P frames = 294
 B frames = 0
 ```
 
-Removing the single pre-roll I-frame & 14 pre-roll P-frames, the 300 real frames contain:
+Eliminating  purely the singular inaugural pre-roll I-frame alongside strictly the  14 associated pre-roll P-frames, the 300 verifiable primary units  maintain precisely:
 
 ```text
 I frames = 20
@@ -2735,47 +2732,47 @@ P frames = 280
 B frames = 0
 ```
 
-which is consistent with the configured 15-frame "GOP".
+aligning fundamentally harmoniously against the formally established 15-frame overarching "GOP" architecture.
 
-The real application coded-frame payload reported by "FFmpeg" is:
+The verifiable application coded-frame data bulk expressly chronicled via "FFmpeg" comprises:
 
 ```text
 10,051,241 B
 ```
 
-while the `Encoder` emits:
+conversely, the definitive `Encoder` formally ejects:
 
 ```text
 10,345,640 B "MPEG-TS"
 ```
 
-The difference is:
+The quantitative deviation rests solidly upon:
 
 ```text
 294,399 B ~= 2.93 % of the coded-frame bytes
 ```
 
-and reflects transport-stream / muxing overhead rather than an application data-integrity mismatch.
+resolutely  reflecting the pure transport-stream / multiplexer systematic burden  completely disconnected from any genuine overarching application  data-integrity dissonance implications.
 
-The final "FFmpeg" cumulative statistic is approximately:
+The terminal "FFmpeg" cascading systemic average intrinsically mirrors:
 
 ```text
 avg_br ~= 7.688 Mbit/s
 ```
 
-across the complete 315-frame timeline including the tiny blank pre-roll frames. The configured `10M` value remains a rate-control target, not a guarantee that the measured complete sequence will equal exactly `10 Mbit/s`.
+encompassing  transparently the fully documented 315-frame sequential breadth  expressly retaining strictly the microscopic unpopulated pre-roll  frames. The structurally delineated `10M`  value functions definitively as a fundamental throughput steering  trajectory parameter, decidedly refraining from constituting any strict  mathematical certainty promising the ultimate sequence universally  hitting precisely the `10 Mbit/s` baseline.
 
-The ratio between raw point payload delivered by the `Camera` & emitted "MPEG-TS" bytes is approximately:
+The  proportionate dimensional scale contrasting natively untransformed  basic point payload distributions discharged actively by the initial `Camera` opposed to the eventual extruded "MPEG-TS" capacity intrinsically equates approximately:
 
 ```text
 3,810,342,256 / 10,345,640 ~= 368.3 : 1
 ```
 
-This is a **system data-volume ratio** across two different representations. It is not presented as a formal point-cloud "codec" compression ratio or a rate-distortion result.
+This functions strictly as a fundamental **systemic data-capacity proportion parameter** bridging two distinctly separate format methodologies. It is categorically **not**  positioned to impersonate an official point-cloud "codec" algorithm  volumetric ratio benchmark or masquerade as a strictly formalised  rate-distortion experimental determination.
 
-### 18.8 Current Strengths & Current Limitations
+### 18.8 Current Strengths & Limitations
 
-The present upstream snapshot demonstrates simultaneously:
+The immediate upstream snapshot simultaneously demonstrates definitively:
 
 ```text
 30-fps Camera source cadence under the warm middle-cache condition
@@ -2791,7 +2788,7 @@ workload-driven temporal control integrated through SFF2 / SFF1 to Camera
 zero measured frame backlog under the validated load
 ```
 
-The snapshot does **not** yet establish:
+The snapshot precisely does **not** yet establish:
 
 ```text
 complete Decoder reconstruction
@@ -2806,234 +2803,234 @@ multi-host or generic RFC-8300 interoperability
 
 ### 18.9 Improvement over the Preceding Validated Repository Snapshot
 
-The current redesign produces a substantial improvement over the preceding repository snapshot on metrics whose semantic boundary remains sufficiently comparable.
+The  contemporaneous architectural revision manifests an undeniably  substantial elevation over the strictly preceding historical repository  structure concerning exclusively criteria wherein the underlying  definitional scope reasonably permits comparative validity.
 
-| Comparable Quantity | Preceding Snapshot | Current Snapshot | Change |
-|---|---:|---:|---:|
-| Observed Camera rate | `~8.08 fps` | `~30.003 fps` | `3.71 x` ( `+271.3 %` ) |
-| Camera `disk_io_ms` | `114.279 ms` | `1.966 ms` | `-98.3 %` |
-| Camera `total_residency_ms` | `123.778 ms` | `15.610 ms` | `-87.4 %` |
-| Encoder `conversion_ms` | `7.748 ms` | `3.350 ms` | `-56.8 %` |
-| Encoder `projection_ms` | `15.661 ms` | `4.122 ms` | `-73.7 %` |
-| Encoder "FFmpeg"-input `tx_duration_ms` | `11.330 ms` | `8.635 ms` | `-23.8 %` |
-| Encoder `active_process_ms` | `34.738 ms` | `16.108 ms` | `-53.6 %` |
-| Encoder `encode_h265_ms` | `259.894 ms` | `26.081 ms` | `-90.0 %` |
-| Route-1 `camera_to_node_latency_ms` | `407.272 ms` | `51.835 ms` | `-87.3 %` |
+| **Comparable Quantity**                 | **Preceding Snapshot** | **Current Snapshot** | **Change**              |
+| --------------------------------------- | ---------------------- | -------------------- | ----------------------- |
+| Observed Camera rate                    | `~8.08 fps`            | `~30.003 fps`        | `3.71 x` ( `+271.3 %` ) |
+| Camera `disk_io_ms`                     | `114.279 ms`           | `1.966 ms`           | `-98.3 %`               |
+| Camera `total_residency_ms`             | `123.778 ms`           | `15.610 ms`          | `-87.4 %`               |
+| Encoder `conversion_ms`                 | `7.748 ms`             | `3.350 ms`           | `-56.8 %`               |
+| Encoder `projection_ms`                 | `15.661 ms`            | `4.122 ms`           | `-73.7 %`               |
+| Encoder "FFmpeg"-input `tx_duration_ms` | `11.330 ms`            | `8.635 ms`           | `-23.8 %`               |
+| Encoder `active_process_ms`             | `34.738 ms`            | `16.108 ms`          | `-53.6 %`               |
+| Encoder `encode_h265_ms`                | `259.894 ms`           | `26.081 ms`          | `-90.0 %`               |
+| Route-1 `camera_to_node_latency_ms`     | `407.272 ms`           | `51.835 ms`          | `-87.3 %`               |
 
-Two increases must be interpreted as deliberate architectural work relocation rather than as unexplained regressions:
+Two  isolated increases strictly demand accurate interpretation firmly  defined as an inherently purposeful architectural task redistribution  explicitly eschewing mischaracterisation as unintended or inexplicable  performance degradations:
 
 ```text
 SFF1 active_process_ms : 2.255 -> 4.066 ms
 SFF2 R0 active_process : 0.841 -> 0.956 ms
 ```
 
-`SFF1` now performs the geometry aggregation & exact `max_r` work that the architecture intentionally removes from the `Encoder`. `SFF2` Route 0 now performs stateful proxy capture / decapsulation rather than simple forwarding. The additional cost is therefore associated with new functionality.
+`SFF1` definitively commands current responsibility managing primary geometry aggregations encompassing rigorous exact `max_r` parameters seamlessly excised from previous `Encoder` routines. Concurrently, `SFF2`  Route 0 definitively tackles exacting stateful proxy preservation  configurations fundamentally displacing simplistic direct-routing  models. Thus, corresponding processing expansions remain structurally  interconnected with unambiguously novel functionality additions.
 
-The `Encoder` telemetry provides a direct offload marker:
+The fundamental `Encoder` telemetry outputs unambiguously proffer definitive evidence confirming verifiable spatial structural offload efficiency:
 
 ```text
 SFF1 geometry + max_r ~= 3.151 ms / frame
-Encoder geometry      = 0.000 ms / frame
-Encoder max_r         = 0.000 ms / frame
+Encoder geometry       = 0.000 ms / frame
+Encoder max_r          = 0.000 ms / frame
 ```
 
-However, the full `Encoder` speed-up must **not** be attributed solely to this relocation. The current snapshot also introduces persistent "CUDA" resources, `H2D_CHUNK_POINTS = 65536`, static-pose analytic bounds, a fused projection path, three registered "I420" slots, a dedicated writer, "codec" pre-roll, & lower-latency "FFmpeg" / "NVENC" operation.
+Nonetheless, the expansive `Encoder` performance acceleration parameter categorically must **not**  be accredited solely to this isolated functional relocation. The extant  framework concurrently leverages deeply persistent "CUDA" components,  extensive `H2D_CHUNK_POINTS = 65536`  configurations, rigidly static analytical boundaries, a strictly  coalesced projection network, distinctly threefold active "I420"  buffering reserves, a uniquely assigned structural writing vector,  precise "codec" preliminary warming protocols, & inherently  accelerated "FFmpeg" / "NVENC" operational calibrations.
 
-The current implementation therefore demonstrates a clear engineering advantage over the repository's preceding validated design & reaches a substantially more favourable operating point than the application-level architecture that motivated the redesign. Cross-work comparisons remain **indicative rather than controlled benchmarks** unless hardware, transport semantics, frame boundaries, & measurement definitions are matched explicitly.
+The  present framework implementation therefore showcases definitively  verified substantial engineering acceleration profoundly eclipsing  strictly previous iterations & undeniably arriving at a  significantly elevated operational equilibrium firmly surpassing  fundamentally pure application-stratum topologies initially prompting  rigorous comprehensive revision processes. Any broad macro-scale  operational juxtaposing categorically demands an explicitly **indicative versus strictly controlled systematic benchmark**  framing strictly unless underlying algorithmic configurations, baseline  transport structural guidelines, fundamental framing horizons, &  exacting measurement prerequisites remain thoroughly & definitively  mirrored.
 
-A particularly important methodological point is that the current `Encoder` residency is **not** included in the comparison table. Its endpoint has moved from an earlier "FFmpeg"-input-oriented boundary to the last encoded "DPDK" egress, so a raw before / after percentage would be misleading.
+An inherently indispensable methodological parameter dictates the explicit understanding that prevailing `Encoder` aggregate residency distinctly remains **strictly absent**  across the comparison matrix. The terminating baseline metric  exclusively repositioned completely from a strictly legacy  "FFmpeg"-ingress-specific baseline entirely out toward definitive final  compressed "DPDK" datagram emission point, definitively rendering any  simplistic raw percentage comparative formulation inherently distorted.
 
 ### 18.10 Complete Statistical View of the Representative Telemetry
 
-The following tables are generated directly from the representative 300-row CSV files. They are included deliberately so that the repository can be used as a measurement guide rather than exposing only a hand-picked subset of favourable indicators.
+The  ensuing exhaustive matrices are directly tabulated employing rigorously  compiled representative 300-row CSV metrics. They maintain their  explicit integral inclusion purely to guarantee the overarching  repository explicitly functions consistently as an unconditionally  robust measurement directory decisively shunning solely curating  distinct hyper-favourable singular data slices.
 
-> **Interpretation rule:** cumulative protocol-error snapshots are reported using their final / maximum observed value rather than row sums. Tx resubmission & writer counters are genuinely frame-local & can therefore be summed. Absolute timer timestamps are documented in the telemetry dictionaries above but are not statistically averaged because their magnitude has no standalone performance meaning.
+> **Interpretation rule:**  The systematically aggregated overarching protocol-error configurations  consistently project solely incorporating ultimate maximum thresholds  definitively sidestepping linear basic mathematical row compilation  procedures. Specific local Tx transmission parameters & writer  enumerations persistently retain fundamental frame-centric locality  & logically permit mathematically sound linear combination  structures. Precise fixed timestamp indices securely delineated across  preceding telemetry definitions intrinsically resist mathematical  standardisation derivations solely because an absolute timestamp's  intrinsic dimensional amplitude decisively refuses to portray any  standalone inherent throughput performance narrative.
 
 #### Camera
 
 `status = 1`: **300 / 300**; `current_skip`: **1 -> 300 frames**.
 
-| Metric | Mean | Median / Final | P95 / Max | Maximum / Total |
-|---|---|---|---|---|
-| `tx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `tx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `payload_bytes` | 12,701,140.853 | 12,638,032.000 | 13,080,028.000 | 13,367,328.000 |
-| `internal_throughput_mbs` | 1,067.247 | 1,064.210 | 1,144.624 | 1,197.250 |
-| `logical_bitrate_mbps` | 3,048.283 | 3,033.137 | 3,139.217 | 3,208.168 |
-| `network_bitrate_mbps` | 3,243.564 | 3,227.448 | 3,340.318 | 3,413.697 |
-| `disk_io_ms` | 1.966 | 1.906 | 2.467 | 2.575 |
-| `serialization_ms` | 1.714 | 1.783 | 1.929 | 1.983 |
-| `tx_duration_ms` | 11.930 | 11.918 | 12.967 | 13.498 |
-| `active_tx_ms` | 2.169 | 2.175 | 2.372 | 2.452 |
-| `active_process_ms` | 15.609 | 15.543 | 16.464 | 16.973 |
-| `total_residency_ms` | 15.610 | 15.544 | 16.465 | 16.974 |
-| `node_efficiency_pct` | 99.992 | 99.992 | 99.995 | 99.997 |
-| `tx_zero_accepts` | 12,379.960 | 12,218.000 | 14,255.000 | sum = 3,713,988 |
-| `tx_partial_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmit_calls` | 12,379.960 | 12,218.000 | 14,255.000 | sum = 3,713,988 |
-| `tx_resubmitted_packets` | 394,831.157 | 389,248.500 | 454,915.000 | sum = 118,449,347 |
-| `mbuf_starvation` | 0.000 | 0.000 | 0.000 | sum = 0 |
+| **Metric**                | **Mean**       | **Median / Final** | **P95 / Max**  | **Maximum / Total** |
+| ------------------------- | -------------- | ------------------ | -------------- | ------------------- |
+| `tx_points`               | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `tx_packets`              | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `payload_bytes`           | 12,701,140.853 | 12,638,032.000     | 13,080,028.000 | 13,367,328.000      |
+| `internal_throughput_mbs` | 1,067.247      | 1,064.210          | 1,144.624      | 1,197.250           |
+| `logical_bitrate_mbps`    | 3,048.283      | 3,033.137          | 3,139.217      | 3,208.168           |
+| `network_bitrate_mbps`    | 3,243.564      | 3,227.448          | 3,340.318      | 3,413.697           |
+| `disk_io_ms`              | 1.966          | 1.906              | 2.467          | 2.575               |
+| `serialization_ms`        | 1.714          | 1.783              | 1.929          | 1.983               |
+| `tx_duration_ms`          | 11.930         | 11.918             | 12.967         | 13.498              |
+| `active_tx_ms`            | 2.169          | 2.175              | 2.372          | 2.452               |
+| `active_process_ms`       | 15.609         | 15.543             | 16.464         | 16.973              |
+| `total_residency_ms`      | 15.610         | 15.544             | 16.465         | 16.974              |
+| `node_efficiency_pct`     | 99.992         | 99.992             | 99.995         | 99.997              |
+| `tx_zero_accepts`         | 12,379.960     | 12,218.000         | 14,255.000     | sum = 3,713,988     |
+| `tx_partial_accepts`      | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmit_calls`       | 12,379.960     | 12,218.000         | 14,255.000     | sum = 3,713,988     |
+| `tx_resubmitted_packets`  | 394,831.157    | 389,248.500        | 454,915.000    | sum = 118,449,347   |
+| `mbuf_starvation`         | 0.000          | 0.000              | 0.000          | sum = 0             |
 
 #### SFF1 / "GAC"
 
 `status = 1`: **300 / 300**; `current_skip`: **1 -> 300 frames**.
 
-| Metric | Mean | Median / Final | P95 / Max | Maximum / Total |
-|---|---|---|---|---|
-| `original_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `tx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `tx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `payload_bytes` | 12,701,140.853 | 12,638,032.000 | 13,080,028.000 | 13,367,328.000 |
-| `data_integrity_pct` | 100.000 | 100.000 | 100.000 | 100.000 |
-| `internal_throughput_mbs` | 674.766 | 672.360 | 707.873 | 743.697 |
-| `logical_bitrate_mbps` | 3,048.283 | 3,033.137 | 3,139.217 | 3,208.168 |
-| `network_bitrate_mbps` | 3,376.932 | 3,360.155 | 3,477.661 | 3,554.064 |
-| `tx_duration_ms` | 19.908 | 19.933 | 21.140 | 21.552 |
-| `active_tx_ms` | 0.656 | 0.648 | 0.784 | 0.810 |
-| `active_process_ms` | 4.066 | 4.056 | 4.289 | 4.402 |
-| `geometry_aggregation_ms` | 2.084 | 2.077 | 2.147 | 2.196 |
-| `max_r_ms` | 1.067 | 1.063 | 1.101 | 1.278 |
-| `cycle_ms` | 33.290 | 33.347 | 33.599 | 34.733 |
-| `header_wait_ms` | 13.368 | 13.373 | 14.664 | 14.984 |
-| `total_residency_ms` | 19.922 | 19.947 | 21.153 | 21.566 |
-| `node_efficiency_pct` | 20.420 | 20.415 | 21.128 | 22.605 |
-| `camera_to_node_latency_ms` | 0.345 | 0.366 | 0.380 | 0.475 |
-| `schedule_delay_ms` | -0.346 | -0.236 | 0.027 | 0.090 |
-| `network_jitter_ms` | 0.222 | 0.080 | 1.032 | 1.282 |
-| `eth_errors` | cumulative | 0 | 0 | final / max |
-| `ipv4_errors` | cumulative | 0 | 0 | final / max |
-| `udp_errors` | cumulative | 0 | 0 | final / max |
-| `nsh_errors` | cumulative | 0 | 0 | final / max |
-| `tx_zero_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_partial_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmit_calls` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmitted_packets` | 0.000 | 0.000 | 0.000 | sum = 0 |
+| **Metric**                  | **Mean**       | **Median / Final** | **P95 / Max**  | **Maximum / Total** |
+| --------------------------- | -------------- | ------------------ | -------------- | ------------------- |
+| `original_points`           | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `tx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_packets`                | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `tx_packets`                | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `payload_bytes`             | 12,701,140.853 | 12,638,032.000     | 13,080,028.000 | 13,367,328.000      |
+| `data_integrity_pct`        | 100.000        | 100.000            | 100.000        | 100.000             |
+| `internal_throughput_mbs`   | 674.766        | 672.360            | 707.873        | 743.697             |
+| `logical_bitrate_mbps`      | 3,048.283      | 3,033.137          | 3,139.217      | 3,208.168           |
+| `network_bitrate_mbps`      | 3,376.932      | 3,360.155          | 3,477.661      | 3,554.064           |
+| `tx_duration_ms`            | 19.908         | 19.933             | 21.140         | 21.552              |
+| `active_tx_ms`              | 0.656          | 0.648              | 0.784          | 0.810               |
+| `active_process_ms`         | 4.066          | 4.056              | 4.289          | 4.402               |
+| `geometry_aggregation_ms`   | 2.084          | 2.077              | 2.147          | 2.196               |
+| `max_r_ms`                  | 1.067          | 1.063              | 1.101          | 1.278               |
+| `cycle_ms`                  | 33.290         | 33.347             | 33.599         | 34.733              |
+| `header_wait_ms`            | 13.368         | 13.373             | 14.664         | 14.984              |
+| `total_residency_ms`        | 19.922         | 19.947             | 21.153         | 21.566              |
+| `node_efficiency_pct`       | 20.420         | 20.415             | 21.128         | 22.605              |
+| `camera_to_node_latency_ms` | 0.345          | 0.366              | 0.380          | 0.475               |
+| `schedule_delay_ms`         | -0.346         | -0.236             | 0.027          | 0.090               |
+| `network_jitter_ms`         | 0.222          | 0.080              | 1.032          | 1.282               |
+| `eth_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `ipv4_errors`               | cumulative     | 0                  | 0              | final / max         |
+| `udp_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `nsh_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `tx_zero_accepts`           | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_partial_accepts`        | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmit_calls`         | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmitted_packets`    | 0.000          | 0.000              | 0.000          | sum = 0             |
 
 #### SFF2 Route 0
 
 `status = 1`: **300 / 300**; `current_skip`: **1 -> 300 frames**.
 
-| Metric | Mean | Median / Final | P95 / Max | Maximum / Total |
-|---|---|---|---|---|
-| `original_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `tx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_media_bytes` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `tx_media_bytes` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `rx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `tx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `payload_bytes` | 12,701,140.853 | 12,638,032.000 | 13,080,028.000 | 13,367,328.000 |
-| `data_integrity_pct` | 100.000 | 100.000 | 100.000 | 100.000 |
-| `internal_throughput_mbs` | 640.645 | 638.266 | 670.649 | 702.078 |
-| `logical_bitrate_mbps` | 3,048.283 | 3,033.137 | 3,139.217 | 3,208.168 |
-| `network_bitrate_mbps` | 3,348.353 | 3,331.717 | 3,448.231 | 3,523.985 |
-| `tx_duration_ms` | 19.841 | 19.875 | 21.064 | 21.471 |
-| `active_tx_ms` | 0.732 | 0.696 | 1.095 | 1.340 |
-| `active_process_ms` | 0.956 | 0.908 | 1.440 | 1.705 |
-| `cycle_ms` | 33.290 | 33.347 | 33.599 | 34.744 |
-| `header_wait_ms` | 13.442 | 13.462 | 14.733 | 15.044 |
-| `total_residency_ms` | 19.847 | 19.881 | 21.071 | 21.478 |
-| `node_efficiency_pct` | 4.806 | 4.505 | 7.042 | 8.014 |
-| `camera_to_node_latency_ms` | 0.434 | 0.454 | 0.477 | 0.580 |
-| `schedule_delay_ms` | -0.368 | -0.262 | 0.000 | 0.056 |
-| `network_jitter_ms` | 0.226 | 0.085 | 1.021 | 1.297 |
-| `eth_errors` | cumulative | 0 | 0 | final / max |
-| `ipv4_errors` | cumulative | 0 | 0 | final / max |
-| `udp_errors` | cumulative | 0 | 0 | final / max |
-| `nsh_errors` | cumulative | 0 | 0 | final / max |
-| `tx_zero_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_partial_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmit_calls` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmitted_packets` | 0.000 | 0.000 | 0.000 | sum = 0 |
+| **Metric**                  | **Mean**       | **Median / Final** | **P95 / Max**  | **Maximum / Total** |
+| --------------------------- | -------------- | ------------------ | -------------- | ------------------- |
+| `original_points`           | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `tx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_media_bytes`            | 0.000          | 0.000              | 0.000          | 0.000               |
+| `tx_media_bytes`            | 0.000          | 0.000              | 0.000          | 0.000               |
+| `rx_packets`                | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `tx_packets`                | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `payload_bytes`             | 12,701,140.853 | 12,638,032.000     | 13,080,028.000 | 13,367,328.000      |
+| `data_integrity_pct`        | 100.000        | 100.000            | 100.000        | 100.000             |
+| `internal_throughput_mbs`   | 640.645        | 638.266            | 670.649        | 702.078             |
+| `logical_bitrate_mbps`      | 3,048.283      | 3,033.137          | 3,139.217      | 3,208.168           |
+| `network_bitrate_mbps`      | 3,348.353      | 3,331.717          | 3,448.231      | 3,523.985           |
+| `tx_duration_ms`            | 19.841         | 19.875             | 21.064         | 21.471              |
+| `active_tx_ms`              | 0.732          | 0.696              | 1.095          | 1.340               |
+| `active_process_ms`         | 0.956          | 0.908              | 1.440          | 1.705               |
+| `cycle_ms`                  | 33.290         | 33.347             | 33.599         | 34.744              |
+| `header_wait_ms`            | 13.442         | 13.462             | 14.733         | 15.044              |
+| `total_residency_ms`        | 19.847         | 19.881             | 21.071         | 21.478              |
+| `node_efficiency_pct`       | 4.806          | 4.505              | 7.042          | 8.014               |
+| `camera_to_node_latency_ms` | 0.434          | 0.454              | 0.477          | 0.580               |
+| `schedule_delay_ms`         | -0.368         | -0.262             | 0.000          | 0.056               |
+| `network_jitter_ms`         | 0.226          | 0.085              | 1.021          | 1.297               |
+| `eth_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `ipv4_errors`               | cumulative     | 0                  | 0              | final / max         |
+| `udp_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `nsh_errors`                | cumulative     | 0                  | 0              | final / max         |
+| `tx_zero_accepts`           | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_partial_accepts`        | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmit_calls`         | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmitted_packets`    | 0.000          | 0.000              | 0.000          | sum = 0             |
 
 #### Encoder
 
 `status = 1`: **300 / 300**; `current_skip`: **1 -> 300 frames**; `event`: **IDLE -> 295, WARMUP -> 5**.
 
-| Metric | Mean | Median / Final | P95 / Max | Maximum / Total |
-|---|---|---|---|---|
-| `original_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `tx_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_packets` | 9,923.263 | 9,874.000 | 10,219.050 | 10,444.000 |
-| `tx_packets` | 26.640 | 22.000 | 103.050 | 111.000 |
-| `payload_bytes` | 12,701,140.853 | 12,638,032.000 | 13,080,028.000 | 13,367,328.000 |
-| `data_integrity_pct` | 100.000 | 100.000 | 100.000 | 100.000 |
-| `internal_throughput_mbs` | 643.671 | 640.953 | 674.371 | 706.136 |
-| `logical_bitrate_mbps` | 8.298 | 6.699 | 32.513 | 35.079 |
-| `network_bitrate_mbps` | 9.108 | 7.364 | 35.706 | 38.521 |
-| `conversion_ms` | 3.350 | 3.308 | 3.462 | 11.756 |
-| `geometry_aggregation_ms` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `max_r_ms` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `projection_ms` | 4.122 | 4.083 | 4.204 | 11.761 |
-| `tx_duration_ms` | 8.635 | 6.377 | 15.504 | 39.221 |
-| `active_process_ms` | 16.108 | 13.889 | 29.815 | 46.829 |
-| `total_processing_ms` | 16.108 | 13.889 | 29.815 | 46.829 |
-| `total_residency_ms` | 80.947 | 81.388 | 98.326 | 340.138 |
-| `node_efficiency_pct` | 20.269 | 17.066 | 32.812 | 51.899 |
-| `gpu_transfer_ms` | 1.468 | 1.465 | 1.525 | 1.999 |
-| `gpu_kernel_ms` | 0.768 | 0.765 | 0.790 | 0.911 |
-| `gpu_packing_ms` | 0.447 | 0.444 | 0.463 | 0.520 |
-| `gpu_copyback_ms` | 1.390 | 1.390 | 1.393 | 1.550 |
-| `host_overhead_ms` | 0.049 | 0.024 | 0.025 | 7.436 |
-| `camera_to_node_latency_ms` | 0.011 | 0.029 | 0.072 | 0.175 |
-| `end_to_end_latency_ms` | 80.958 | 81.412 | 98.221 | 340.074 |
-| `schedule_delay_ms` | 19.381 | 19.334 | 20.359 | 20.856 |
-| `network_jitter_ms` | 0.228 | 0.085 | 1.061 | 1.316 |
-| `wait_raw_queue_ms` | 0.003 | 0.002 | 0.012 | 0.018 |
-| `wait_render_queue_ms` | 0.299 | 0.019 | 0.335 | 17.105 |
-| `workload_ewma_ms` | 4.177 | 4.101 | 4.217 | 11.777 |
-| `workload_ratio` | 0.125 | 0.123 | 0.127 | 0.353 |
-| `frame_backlog` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `codec_backlog` | 1.107 | 1.000 | 2.000 | 3.000 |
-| `encode_h265_ms` | 26.081 | 24.270 | 39.165 | 62.008 |
-| `mpeg_bytes_generated` | 34,485.467 | 27,824.000 | 135,378.800 | 146,076.000 |
-| `ffmpeg_write_calls` | 1.000 | 1.000 | 1.000 | sum = 300 |
-| `ffmpeg_write_eagain` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_zero_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_partial_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmit_calls` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmitted_packets` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `mbuf_starvation` | 0.000 | 0.000 | 0.000 | sum = 0 |
+| **Metric**                  | **Mean**       | **Median / Final** | **P95 / Max**  | **Maximum / Total** |
+| --------------------------- | -------------- | ------------------ | -------------- | ------------------- |
+| `original_points`           | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `tx_points`                 | 793,821.303    | 789,877.000        | 817,501.750    | 835,458.000         |
+| `rx_packets`                | 9,923.263      | 9,874.000          | 10,219.050     | 10,444.000          |
+| `tx_packets`                | 26.640         | 22.000             | 103.050        | 111.000             |
+| `payload_bytes`             | 12,701,140.853 | 12,638,032.000     | 13,080,028.000 | 13,367,328.000      |
+| `data_integrity_pct`        | 100.000        | 100.000            | 100.000        | 100.000             |
+| `internal_throughput_mbs`   | 643.671        | 640.953            | 674.371        | 706.136             |
+| `logical_bitrate_mbps`      | 8.298          | 6.699              | 32.513         | 35.079              |
+| `network_bitrate_mbps`      | 9.108          | 7.364              | 35.706         | 38.521              |
+| `conversion_ms`             | 3.350          | 3.308              | 3.462          | 11.756              |
+| `geometry_aggregation_ms`   | 0.000          | 0.000              | 0.000          | 0.000               |
+| `max_r_ms`                  | 0.000          | 0.000              | 0.000          | 0.000               |
+| `projection_ms`             | 4.122          | 4.083              | 4.204          | 11.761              |
+| `tx_duration_ms`            | 8.635          | 6.377              | 15.504         | 39.221              |
+| `active_process_ms`         | 16.108         | 13.889             | 29.815         | 46.829              |
+| `total_processing_ms`       | 16.108         | 13.889             | 29.815         | 46.829              |
+| `total_residency_ms`        | 80.947         | 81.388             | 98.326         | 340.138             |
+| `node_efficiency_pct`       | 20.269         | 17.066             | 32.812         | 51.899              |
+| `gpu_transfer_ms`           | 1.468          | 1.465              | 1.525          | 1.999               |
+| `gpu_kernel_ms`             | 0.768          | 0.765              | 0.790          | 0.911               |
+| `gpu_packing_ms`            | 0.447          | 0.444              | 0.463          | 0.520               |
+| `gpu_copyback_ms`           | 1.390          | 1.390              | 1.393          | 1.550               |
+| `host_overhead_ms`          | 0.049          | 0.024              | 0.025          | 7.436               |
+| `camera_to_node_latency_ms` | 0.011          | 0.029              | 0.072          | 0.175               |
+| `end_to_end_latency_ms`     | 80.958         | 81.412             | 98.221         | 340.074             |
+| `schedule_delay_ms`         | 19.381         | 19.334             | 20.359         | 20.856              |
+| `network_jitter_ms`         | 0.228          | 0.085              | 1.061          | 1.316               |
+| `wait_raw_queue_ms`         | 0.003          | 0.002              | 0.012          | 0.018               |
+| `wait_render_queue_ms`      | 0.299          | 0.019              | 0.335          | 17.105              |
+| `workload_ewma_ms`          | 4.177          | 4.101              | 4.217          | 11.777              |
+| `workload_ratio`            | 0.125          | 0.123              | 0.127          | 0.353               |
+| `frame_backlog`             | 0.000          | 0.000              | 0.000          | 0.000               |
+| `codec_backlog`             | 1.107          | 1.000              | 2.000          | 3.000               |
+| `encode_h265_ms`            | 26.081         | 24.270             | 39.165         | 62.008              |
+| `mpeg_bytes_generated`      | 34,485.467     | 27,824.000         | 135,378.800    | 146,076.000         |
+| `ffmpeg_write_calls`        | 1.000          | 1.000              | 1.000          | sum = 300           |
+| `ffmpeg_write_eagain`       | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_zero_accepts`           | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_partial_accepts`        | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmit_calls`         | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `tx_resubmitted_packets`    | 0.000          | 0.000              | 0.000          | sum = 0             |
+| `mbuf_starvation`           | 0.000          | 0.000              | 0.000          | sum = 0             |
 
 #### SFF2 Route 1
 
 `status = 1`: **300 / 300**; `current_skip`: **1 -> 300 frames**.
 
-| Metric | Mean | Median / Final | P95 / Max | Maximum / Total |
-|---|---|---|---|---|
-| `original_points` | 793,821.303 | 789,877.000 | 817,501.750 | 835,458.000 |
-| `rx_points` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `tx_points` | 0.000 | 0.000 | 0.000 | 0.000 |
-| `rx_media_bytes` | 34,485.467 | 27,824.000 | 135,378.800 | 146,076.000 |
-| `tx_media_bytes` | 34,485.467 | 27,824.000 | 135,378.800 | 146,076.000 |
-| `rx_packets` | 26.640 | 22.000 | 103.050 | 111.000 |
-| `tx_packets` | 26.640 | 22.000 | 103.050 | 111.000 |
-| `payload_bytes` | 34,485.467 | 27,824.000 | 135,378.800 | 146,076.000 |
-| `data_integrity_pct` | 100.000 | 100.000 | 100.000 | 100.000 |
-| `internal_throughput_mbs` | 1,030.174 | 0.842 | 10,241.371 | 15,456.481 |
-| `logical_bitrate_mbps` | 8.298 | 6.699 | 32.513 | 35.079 |
-| `network_bitrate_mbps` | 9.108 | 7.364 | 35.706 | 38.521 |
-| `tx_duration_ms` | 29.694 | 33.255 | 36.052 | 55.581 |
-| `active_tx_ms` | 0.003 | 0.002 | 0.008 | 0.018 |
-| `active_process_ms` | 0.004 | 0.003 | 0.011 | 0.023 |
-| `cycle_ms` | 34.156 | 33.321 | 66.690 | 322.060 |
-| `header_wait_ms` | 4.460 | 0.000 | 33.456 | 322.052 |
-| `total_residency_ms` | 29.697 | 33.256 | 36.055 | 55.583 |
-| `node_efficiency_pct` | 4.820 | 0.010 | 46.716 | 65.556 |
-| `camera_to_node_latency_ms` | 51.835 | 48.903 | 65.138 | 340.635 |
-| `schedule_delay_ms` | -7.950 | -10.877 | 4.651 | 280.257 |
-| `network_jitter_ms` | 2.489 | 0.384 | 8.725 | 288.723 |
-| `eth_errors` | cumulative | 0 | 0 | final / max |
-| `ipv4_errors` | cumulative | 0 | 0 | final / max |
-| `udp_errors` | cumulative | 0 | 0 | final / max |
-| `nsh_errors` | cumulative | 0 | 0 | final / max |
-| `tx_zero_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_partial_accepts` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmit_calls` | 0.000 | 0.000 | 0.000 | sum = 0 |
-| `tx_resubmitted_packets` | 0.000 | 0.000 | 0.000 | sum = 0 |
+| **Metric**                  | **Mean**    | **Median / Final** | **P95 / Max** | **Maximum / Total** |
+| --------------------------- | ----------- | ------------------ | ------------- | ------------------- |
+| `original_points`           | 793,821.303 | 789,877.000        | 817,501.750   | 835,458.000         |
+| `rx_points`                 | 0.000       | 0.000              | 0.000         | 0.000               |
+| `tx_points`                 | 0.000       | 0.000              | 0.000         | 0.000               |
+| `rx_media_bytes`            | 34,485.467  | 27,824.000         | 135,378.800   | 146,076.000         |
+| `tx_media_bytes`            | 34,485.467  | 27,824.000         | 135,378.800   | 146,076.000         |
+| `rx_packets`                | 26.640      | 22.000             | 103.050       | 111.000             |
+| `tx_packets`                | 26.640      | 22.000             | 103.050       | 111.000             |
+| `payload_bytes`             | 34,485.467  | 27,824.000         | 135,378.800   | 146,076.000         |
+| `data_integrity_pct`        | 100.000     | 100.000            | 100.000       | 100.000             |
+| `internal_throughput_mbs`   | 1,030.174   | 0.842              | 10,241.371    | 15,456.481          |
+| `logical_bitrate_mbps`      | 8.298       | 6.699              | 32.513        | 35.079              |
+| `network_bitrate_mbps`      | 9.108       | 7.364              | 35.706        | 38.521              |
+| `tx_duration_ms`            | 29.694      | 33.255             | 36.052        | 55.581              |
+| `active_tx_ms`              | 0.003       | 0.002              | 0.008         | 0.018               |
+| `active_process_ms`         | 0.004       | 0.003              | 0.011         | 0.023               |
+| `cycle_ms`                  | 34.156      | 33.321             | 66.690        | 322.060             |
+| `header_wait_ms`            | 4.460       | 0.000              | 33.456        | 322.052             |
+| `total_residency_ms`        | 29.697      | 33.256             | 36.055        | 55.583              |
+| `node_efficiency_pct`       | 4.820       | 0.010              | 46.716        | 65.556              |
+| `camera_to_node_latency_ms` | 51.835      | 48.903             | 65.138        | 340.635             |
+| `schedule_delay_ms`         | -7.950      | -10.877            | 4.651         | 280.257             |
+| `network_jitter_ms`         | 2.489       | 0.384              | 8.725         | 288.723             |
+| `eth_errors`                | cumulative  | 0                  | 0             | final / max         |
+| `ipv4_errors`               | cumulative  | 0                  | 0             | final / max         |
+| `udp_errors`                | cumulative  | 0                  | 0             | final / max         |
+| `nsh_errors`                | cumulative  | 0                  | 0             | final / max         |
+| `tx_zero_accepts`           | 0.000       | 0.000              | 0.000         | sum = 0             |
+| `tx_partial_accepts`        | 0.000       | 0.000              | 0.000         | sum = 0             |
+| `tx_resubmit_calls`         | 0.000       | 0.000              | 0.000         | sum = 0             |
+| `tx_resubmitted_packets`    | 0.000       | 0.000              | 0.000         | sum = 0             |
 
 #### Cross-File Integrity & Source-Cadence Checks
 
@@ -3043,12 +3040,12 @@ Observed Camera source rate         = 30.002949 frames/s
 Total source points                 = 238,146,391
 Total point payload                 = 3,810,342,256 B
 Point integrity Camera -> SFF1 -> SFF2 Route 0 -> Encoder = 100 % for all 300 frames
-Compressed media integrity Encoder -> SFF2 Route 1          = 100 % for all 300 frames
+Compressed media integrity Encoder -> SFF2 Route 1        = 100 % for all 300 frames
 ```
 
 #### "FFmpeg" / "NVENC" `vstats` Cross-Check
 
-The representative `ffmpeg.txt` contains **315 output statistics rows**: the private 15-frame pre-roll followed by 300 real application frames. The log therefore confirms that pre-roll is excluded from native application telemetry while still warming the persistent "codec" state.
+The explicitly referenced `ffmpeg.txt` comprehensively contains **315 output statistics rows**:  the private 15-frame pre-roll directly succeeded by 300 genuine  application frames. Consequently, the log rigorously confirms that the  pre-roll methodology is effectively secluded from native application  telemetry, all whilst genuinely warming the persistent "codec" state.
 
 ```text
 pre-roll rows                = 15
@@ -3062,50 +3059,48 @@ mean P-frame size            = 26270.643 B
 final reported average rate  = 7687.8 kbit/s
 ```
 
-
 ---
-
 
 ## ⚠️ 19. Experimental Interpretation & Known Boundaries
 
 ### 19.1 Logical Bytes vs. Wire Bytes
 
-`logical_bitrate_mbps` & `network_bitrate_mbps` describe different accounting domains. Logical bitrate includes application data & one frame-level metadata instance as defined by the node; network bitrate accounts for the repeated output envelope on every packet.
+`logical_bitrate_mbps` & `network_bitrate_mbps`  delineate distinctly separate accounting paradigms. The logical bitrate  fundamentally encapsulates application data parallel to a singular  frame-level metadata iteration as explicitly defined by the given node;  conversely, network bitrate comprehensively accounts for the repetitive  overarching output envelope situated on each individual packet.
 
-They should not be merged into one generic "bitrate" value without stating the byte model.
+These  separate frameworks should absolutely not be amalgamated into an  ambiguous generic "bitrate" variable whilst neglecting explicit  clarification concerning the exact byte model in use.
 
 ### 19.2 `CACHE_MODE` & `WARM_MODE` Are Part of the Experimental Condition
 
-The current source condition is:
+The strictly enforced current source configuration defines as:
 
 ```text
 CACHE_MODE_MIDDLE
 WARM_MODE_ENABLED
 ```
 
-The `Camera` still executes per-frame `fread()`, but the source files are pre-mapped / locked for the run. The observed `~1.97 ms` `disk_io_ms` is consequently a warm file-backed measurement. A cold-cache or `CACHE_MODE_WORST` experiment is a different system condition & should not be compared without labelling it explicitly.
+The `Camera` persistently executes targeted per-frame `fread()`  commands, yet the designated source files are comprehensively  pre-mapped / securely locked universally for the run's duration. The  consequent observed `~1.97 ms` `disk_io_ms` essentially establishes a definitively warm file-backed observation. Implementing a fundamentally cold-cache or outright `CACHE_MODE_WORST`  experiment fundamentally generates a distinctly unique systemic  baseline condition & consequently must decidedly abstain from  comparison prior to receiving explicit categorical labelling.
 
 ### 19.3 The Current Run Establishes the Upstream 30-fps Source Point, Not Final Real-Time "QoE"
 
-The measured `Camera` cadence is approximately:
+The rigorously measured `Camera` source cadence operates steadily near:
 
 ```text
 30.003 frames/s
 ```
 
-and the complete point path to the `Encoder` remains loss-free in the representative trace.
+while the comprehensive data-point pathway concluding toward the `Encoder` resolutely persists fundamentally loss-free across the thoroughly representative procedural trace.
 
-This is materially stronger than the preceding snapshot, but the final chain is still incomplete. A complete real-time claim requires `Decoder`, `SFF3`, `User`, rendering, & final latency / quality measurements.
+This  unequivocally signals a materially stronger architecture juxtaposed  against preceding iterations, though the conclusive downstream chain  persistently maintains an incomplete status. Formulating an unequivocal  overarching real-time declaration definitively necessitates the  activation & integration encompassing the `Decoder`, `SFF3`, `User`, explicit rendering operations, alongside the finalization concerning latency / quality metrics.
 
 ### 19.4 Source Scheduling, Descriptor Depth, & Backpressure Are Joint Variables
 
-The current `Camera` uses an absolute frame schedule rather than a separate pacing mode. Descriptor depth & bounded zero-accept resubmission determine how a selected frame's packet train interacts with local "vhost" / "OVS" queues.
+The active `Camera`  directly governs an uncompromising absolute frame timetable  emphatically rejecting a disconnected autonomous pacing setting. The  fundamental descriptor array depth, parallel to rigidly bounded  zero-accept systematic resubmissions, directly orchestrates how  fundamentally a uniquely selected frame's explicit packet cluster  interacts dynamically alongside localised "vhost" / "OVS" systematic  queues.
 
-The large `Camera` zero-accept counter is therefore an experimental observation about local queue pressure at the selected 30-fps point. Changing descriptor depth, "OVS" placement, retry bounds, or source cache condition defines a new experiment.
+Consequently, the substantial `Camera`  zero-accept volume explicitly serves as a distinct operational  observation explicitly defining localised queue saturation pressures  consistently operating adjacent to the rigidly selected 30-fps  parameter. Arbitrarily altering any existing descriptor limitations,  "OVS" operational placements, established retry parameter boundaries, or  the underlying source-cache parameters unavoidably defines an entirely  novel experimental model.
 
 ### 19.5 Core Affinity Is Part of the Experiment
 
-Changing any of the following changes the execution environment:
+Altering definitively any of the succeeding elements fundamentally mutates the fundamental execution topology:
 
 ```text
 isolcpus state
@@ -3116,33 +3111,33 @@ isolcpus state
 "CUDA" device / architecture target
 ```
 
-The current results are inseparable from their "CPU" / "GPU" placement.
+The  expressly tabulated contemporary results persist inherently inseparable  from their unequivocally defined specific "CPU" / "GPU" structured  placement maps.
 
 ### 19.6 Route 2 Has Proxy Scaffolding but Undefined Application Semantics
 
-`SFF2` already reserves Route 2 & contains the primary-path proxy step needed to re-impose base service metadata toward `SFF3` after a future `Decoder` return.
+`SFF2`  undeniably procures adequate systemic reservations acknowledging Route 2  & thoroughly encompasses the required primary-path stateful proxy  phase explicitly needed to subsequently re-establish operational base  service metadata steering ultimately toward `SFF3` precisely following a prospective `Decoder` loop.
 
-What is intentionally **not defined** is the `Decoder`'s final application packet format, frame-completion rule, payload-byte accounting, & corresponding Route-2 telemetry finalisation.
+However, deliberately what decisively remains **not defined** constitutes the exact eventual `Decoder`  terminal application packet architecture, its rigid frame-completion  parameters, definitive exact payload-byte accounting systems, alongside  the precisely corresponding accurate Route-2 telemetry finalisation  mechanics.
 
-No correctness or performance claim is therefore made for:
+Consequently, no overarching systemic correctness nor formal performance declarations are currently purported encompassing:
 
 ```text
 Decoder -> SFF2 Route 2 -> SFF3
 ```
 
-until that contract is fixed.
+explicitly awaiting the firm rigid standardisation confirming that exact communication contract.
 
 ### 19.7 Final E2E / "QoE" Is Not Yet Available
 
-The `Encoder` metric named `end_to_end_latency_ms` currently reaches the last encoded "DPDK" egress attributed to the frame:
+The uniquely specific `Encoder` parameter explicitly titled `end_to_end_latency_ms`  simultaneously concludes precisely aligning alongside the absolute  final encoded "DPDK" egress specifically designated mapping directly  toward the respective frame:
 
 ```text
 Camera Tx -> Encoder compressed-media egress
 ```
 
-This is broader than the earlier "FFmpeg"-input boundary but remains incomplete.
+This  represents an intrinsically broader parameter juxtaposed against  strictly earlier rigidly "FFmpeg"-ingress-bounded markers, though it  fundamentally remains conclusively partial.
 
-Final evaluation still requires:
+An eventual overarching definitive evaluation resolutely awaits:
 
 ```text
 Decoder latency
@@ -3157,25 +3152,25 @@ user-perceived "QoE"
 
 ### 19.8 "NSH" Interoperability Is Not Claimed
 
-The repository now implements a more explicit `nsh_hdr` + context model & a stateful proxy around unaware functions, but it remains a closed experimental protocol. Generic "RFC 8300" interoperability is not claimed.
+The extant repository strictly activates a decidedly more profoundly explicit `nsh_hdr`  + context systematic paradigm coupled securely to an exacting stateful  proxy configuration encircling structurally unaware systemic functions.  Regardless, it inherently preserves its foundational identity strictly  operating as an inherently closed uniquely experimental conceptual  protocol. Universal exhaustive generic "RFC 8300" overarching  interoperability is formally disclaimed.
 
 ### 19.9 The "Temporal" Controller Was Not Stress-Activated in This Run
 
-The controller is enabled, emits telemetry, & the reverse temporal chain is implemented, but all 300 source frames use `skip = 1` & no `SKIP+1` / `SKIP-1` event occurs.
+The  dedicated temporal controller definitely remains completely integrated,  accurately emitting vital corresponding telemetry, alongside the  undeniably fully established functional reverse temporal interaction  network. However, every singular one of the 300 dedicated source array  elements unequivocally functions applying rigidly `skip = 1` wherein categorically zero isolated `SKIP+1` / `SKIP-1` event actuations ever transpire.
 
-The present trace validates **non-intrusive steady-state behaviour**, not overload adaptation. A separate controlled stress run is required to evaluate response delay, stability, oscillation resistance, & recovery hysteresis.
+Therefore, the extant diagnostic trace strictly evaluates robust fundamentally **non-intrusive steady-state equilibrium operations**,  expressly distinct from forced overload adaptive response profiles.  Executing a categorically distinct isolated rigidly controlled stress  implementation clearly represents an absolute prerequisite accurately  capable of measuring genuine precise operational response latency  intervals, systemic stability patterns, absolute oscillation resiliency  boundaries, alongside exact dedicated recovery hysteresis profiles.
 
 ### 19.10 Binary Portability Has Two Separate Domains
 
-The offline `.bin` file uses the converter's little-endian `float32` layout. The live "DPDK" path serialises implemented numeric network fields explicitly, including point-coordinate floating-point bit patterns.
+The fundamentally offline isolated `.bin` explicit dataset array stringently applies the precise strictly little-endian `float32`  dimensional converter structural model. Conversely, the exact live  actively functioning "DPDK" network vector explicitly serialises purely  precisely implemented specific numeric systemic communication field  parameters strictly incorporating explicit point-coordinate dedicated  floating-point unique bit signatures.
 
-A heterogeneous deployment must therefore standardise both the offline artefact format & any remaining application structures before assuming cross-machine binary compatibility.
+A substantially  heterogeneous cross-platform structural deployment categorically  demands rigorously standardising essentially both the exact  fundamentally isolated offline specific structural artefact blueprint  seamlessly coupled with any surviving remaining application specific  architectural constructs categorically before presumptively positing  valid explicit inherent comprehensive cross-machine definitive binary  interchangeability.
 
 ### 19.11 Dataset Artefacts Are External to Git
 
-The source PLY sequence & generated BIN sequence are not committed because each is multi-gigabyte.
+The  precisely isolated explicitly originating PLY structured sequence  concurrently with the categorically synthesised exclusive BIN resulting  array unconditionally eschew versioning commits inherently because each  structurally reflects an unconditionally massive definitive  multi-gigabyte presence.
 
-Reproducibility therefore requires recording the dataset release, sequence, frame range, licence, scale factor, converter revision, & exact streaming source revision together with the telemetry.
+Reproducibility definitively  commands rigorously maintaining meticulous documentation isolating  securely the precise originating dataset release parameters,  corresponding specific operational array sequence markers, precise  inclusive sequential boundary ranges, precise overarching restrictive  license parameters, designated strictly scaling coefficient bounds,  precise exact dedicated converter revision tracking markers, alongside  the exactly correlative strict fundamental streaming native source  definitive tracking revision absolutely tightly bound alongside  fundamentally all generated resulting exported telemetry strings.
 
 ---
 
@@ -3183,69 +3178,69 @@ Reproducibility therefore requires recording the dataset release, sequence, fram
 
 ### Limited Logical Cores
 
-**Challenge:** the complete target chain contains more concurrent roles than can be assigned fully independent "CPU" resources on the present eight-logical-core host.
+**Challenge:** The comprehensive target chain encompasses more concurrent roles than can be allocated strictly independent "CPU" resources on the existing eight-logical-core host.
 
-**Current approach:** one dedicated "OVS"-"DPDK" "PMD", explicit native-node affinity, "GPU" / "NVENC" offload, controlled sharing for inactive / auxiliary roles, & cooperative network servicing inside the `Encoder`.
+**Current approach:** Dedicating a singular "OVS"-"DPDK" "PMD", enforcing explicit native-node affinity, leveraging "GPU" / "NVENC" offload, controlling resource sharing for inactive or auxiliary roles, & executing cooperative network servicing within the `Encoder`.
 
 ### "DPDK" Backpressure at the Source
 
-**Challenge:** one point-cloud frame contains approximately ten thousand application packets, so even a 30-fps source can temporarily exceed the acceptance rate of a local Tx ring.
+**Challenge:** A single point-cloud frame encompasses approximately ten thousand application packets; consequently, even a 30-fps source can transiently exceed the acceptance capacity of a local Tx ring.
 
-**Current approach:** absolute source scheduling, large source / `Encoder` descriptor queues, bounded zero-accept resubmission, short pause backoff, & explicit per-frame backpressure counters. The current run retains full point integrity despite substantial `Camera` zero-accept activity.
+**Current approach:** Absolute source scheduling, expansive source & `Encoder` descriptor queues, bounded zero-accept resubmission, abbreviated pause backoffs, & explicit per-frame backpressure metrics. The extant run successfully preserves absolute point integrity despite substantial `Camera` zero-accept activity.
 
 ### Sustaining the Nominal 30-fps Operating Point
 
-**Challenge:** the preceding repository snapshot was source-I/O limited & operated near `8.08 fps`.
+**Challenge:** The antecedent repository snapshot was inherently source-I/O constrained, operating near `8.08 fps`.
 
-**Current approach:** `WARM_MODE_ENABLED` with the middle file-read strategy reduces timed source acquisition sufficiently for the `Camera` to maintain approximately `30.003 fps` in the current run. The next challenge is no longer merely reaching the source cadence; it is preserving the same operating point once `Decoder`, `SFF3`, `User`, dynamic pose, & forced temporal-controller stress are active simultaneously.
+**Current approach:** `WARM_MODE_ENABLED` coupled with the middle file-read strategy mitigates timed source acquisition sufficiently for the `Camera` to sustain approximately `30.003 fps` within the current run. The ensuing challenge shifts from merely achieving the source cadence to preserving this operational equilibrium once `Decoder`, `SFF3`, `User`, dynamic pose, & forced temporal-controller stress operate concurrently.
 
 ### Performing Useful Work In-Network
 
-**Challenge:** not every geometric quantity is packet-local. Progressive sums / extrema are composable, but exact radius depends on the final centroid.
+**Challenge:** Not every geometric parameter is packet-local. Progressive sums & extrema exhibit composability, whereas the exact radius relies upon the finalised centroid.
 
-**Current approach:** `SFF1` performs the progressive pass during forwarding, stores only the frame-local `XYZ` needed for the unavoidable exact radius pass, & exports final geometry to the `Encoder`. This preserves the in-path objective without pretending that a mathematically frame-global quantity is available from the first packet.
+**Current approach:** `SFF1` executes the progressive pass during active forwarding, caches solely the frame-local `XYZ` requisite for the unavoidable exact radius pass, & exports final geometry to the `Encoder`. This sustains the in-path objective without erroneously presuming a mathematically frame-global quantity is accessible from the initial packet.
 
 ### Avoiding Preprocessing That Would Invalidate the Data-Plane Question
 
-**Challenge:** exact final geometry could be sent immediately only if another element computed it before the "GAC" observed the stream.
+**Challenge:** Exact final geometry could be transmitted immediately only if an alternate element computed it prior to the "GAC" observing the stream.
 
-**Current approach:** reject that shortcut for the main experiment. `Camera` / offline preprocessing is limited to representation & transport preparation; the geometric service function remains the location where the geometric result is derived. The design therefore measures the cost of in-path computation rather than hiding it upstream.
+**Current approach:** Rejecting this circumvention for the primary experiment. `Camera` or offline preprocessing remains strictly confined to representation & transport preparation; the geometric service function fundamentally remains the locus where the geometric outcome is derived. Thus, the architecture evaluates the true cost of in-path computation rather than obscuring it upstream.
 
 ### Protecting Rx While Computing
 
-**Challenge:** a frame-aware `Encoder` can otherwise remain away from its "DPDK" Rx queue while performing local geometry, "H2D" transfer, "CUDA" work, or "codec" handoff.
+**Challenge:** A frame-aware `Encoder` might otherwise abandon its "DPDK" Rx queue whilst conducting local geometry, "H2D" transfers, "CUDA" computations, or "codec" handoffs.
 
-**Current approach:** packet-arrival conversion, polling inside local fallback loops, `H2D_CHUNK_POINTS = 65536`, a "CUDA" polling callback while the stream is incomplete, three "I420" slots, & a dedicated writer thread. The current telemetry reports zero raw-frame backlog.
+**Current approach:** Implementing packet-arrival conversion, cooperative polling within local fallback loops, `H2D_CHUNK_POINTS = 65536`, a "CUDA" polling callback active during incomplete streams, three "I420" slots, & a dedicated writer thread. The extant telemetry reports a raw-frame backlog of explicitly zero.
 
 ### Maintaining Service State Around Unaware Applications
 
-**Challenge:** forcing every application to parse experimental "NSH" would couple service-chain research to `Encoder` / `Decoder` implementation details.
+**Challenge:** Compelling every application to parse experimental "NSH" would inextricably link service-chain research to `Encoder` / `Decoder` implementation specifics.
 
-**Current approach:** `SFF2` captures primary state, removes service encapsulation before unaware functions, advances "SI" in proxy state, & re-imposes service metadata only when traffic returns to an aware boundary.
+**Current approach:** `SFF2` intercepts primary state, removes service encapsulation preceding unaware functions, advances "SI" within the proxy state, & re-establishes service metadata exclusively when traffic returns to an aware boundary.
 
 ### Preserving "MTU" Across Different Traffic Types
 
-**Challenge:** raw point packets, geometric service metadata, compressed media, temporal commands, & pose commands carry different envelopes.
+**Challenge:** Raw point packets, geometric service metadata, compressed media, temporal commands, & pose commands command divergent envelopes.
 
-**Current approach:** derive the payload constants from each complete packet format: `80 * 16 B` points upstream & `7 * 188 B` TS packets downstream, while keeping control packets compact.
+**Current approach:** Deriving payload constants strictly from each complete packet architecture: `80 * 16 B` points upstream & `7 * 188 B` TS packets downstream, whilst ensuring control packets remain intentionally compact.
 
 ### Correctly Attributing Asynchronous "Codec" Output
 
-**Challenge:** "FFmpeg" pipe reads do not preserve video-frame boundaries & "codec" output is asynchronous relative to input submission.
+**Challenge:** "FFmpeg" pipe reads inherently fail to preserve video-frame boundaries, & "codec" output operates asynchronously relative to input submission.
 
-**Current approach:** pre-roll one "GOP", reconstruct fixed TS packets, detect video "PES" starts, associate starts with the oldest submitted real frame, keep pre-roll private, & drain the "codec" before final telemetry is written.
+**Current approach:** Pre-rolling one "GOP", reconstructing fixed TS packets, detecting video "PES" commencements, associating these commencements with the oldest submitted authentic frame, maintaining pre-roll privacy, & draining the "codec" strictly prior to documenting final telemetry.
 
 ---
 
 ## ✅ 21. Reproducibility Checklist
 
-Every archived benchmark should preserve at least:
+Every archived benchmark must unequivocally preserve at least the following parameters:
 
 ```text
 source revision
 README revision
 host kernel
-"CPU" model and logical "CPU" count
+"CPU" model & logical "CPU" count
 "GPU" model
 NVIDIA driver
 "CUDA" version
@@ -3254,7 +3249,7 @@ NVIDIA driver
 "Docker" version
 "FFmpeg" version
 
-HugePage count and size
+HugePage count & size
 "OVS" "lcore" placement
 "OVS" "PMD" placement
 "OVS" socket memory
@@ -3313,7 +3308,7 @@ all native telemetry CSV files
 "FFmpeg" statistics / stderr logs
 ```
 
-For the current representative run, the defining source / `Encoder` conditions are:
+For the current representative run, the defining source & `Encoder` conditions are documented as:
 
 ```text
 CACHE_MODE           = CACHE_MODE_MIDDLE
@@ -3326,20 +3321,20 @@ H2D_CHUNK_POINTS     = 65536
 YUV_BUFFER_COUNT     = 3
 ```
 
-A benchmark is reproducible only when the result files & the configuration that produced them are archived together.
+A benchmark attains reproducibility exclusively when the empirical result files & the exact configuration generating them are archived concurrently.
 
 ---
 
 ## 🚧 22. Ongoing Work
 
-The next work should remain divided into **functional completion**, **performance validation**, & **quality / end-to-end validation**.
+Forthcoming efforts should remain categorised into **functional completion**, **performance validation**, & **quality / end-to-end validation**.
 
 ### Functional Completion
 
 ```text
 1. define the Decoder input / output application contract
-2. implement "H.265" decoding and geometric reconstruction
-3. finalise SFF2 Route-2 payload accounting and telemetry
+2. implement "H.265" decoding & geometric reconstruction
+3. finalise SFF2 Route-2 payload accounting & telemetry
 4. implement SFF3 processing
 5. implement User rendering / interaction
 6. complete User -> SFF3 -> SFF2 -> Decoder "Pose" validation
@@ -3352,15 +3347,15 @@ The next work should remain divided into **functional completion**, **performanc
 ```text
 1. perform OFFLOAD_MODE_ENABLED vs OFFLOAD_MODE_DISABLED A/B runs
 2. force controlled Encoder overload to validate SKIP+1 / RETRY / SKIP-1 dynamics
-3. quantify temporal-controller response time, hysteresis, and oscillation behaviour
+3. quantify temporal-controller response time, hysteresis, & oscillation behaviour
 4. compare CACHE_MODE / WARM_MODE combinations as separate source conditions
-5. study descriptor depth and Camera zero-accept backpressure sensitivity
-6. repeat validated runs and report confidence intervals / dispersion
+5. study descriptor depth & Camera zero-accept backpressure sensitivity
+6. repeat validated runs & report confidence intervals / dispersion
 7. re-evaluate Core 0 sharing once Decoder "codec" work is active
 8. measure complete-chain sustained 30-fps behaviour
 9. evaluate static-pose "CUDA" assumptions once dynamic pose is introduced
 10. isolate the contribution of geometry offload from the other Encoder optimisations
-11. evaluate "FFmpeg" / "NVENC" rate-control and latency sensitivity
+11. evaluate "FFmpeg" / "NVENC" rate-control & latency sensitivity
 ```
 
 ### Quality & End-to-End Validation
@@ -3377,32 +3372,32 @@ The next work should remain divided into **functional completion**, **performanc
 9. final user-facing "QoE" evaluation
 ```
 
-The immediate architectural dependency is the `Decoder` packet contract. Until that representation is fixed, Route-2 telemetry should remain intentionally incomplete rather than being populated with speculative byte semantics.
+The most immediate architectural dependency resides in the `Decoder` packet contract. Until said representation is irrevocably fixed, Route-2 telemetry should deliberately remain incomplete rather than being artificially populated with speculative byte semantics.
 
 ---
 
 ## 📚 23. References
 
 1. J. Halpern & C. Pignataro, **"Service Function Chaining" ( "SFC" ) Architecture**, "RFC 7665", IETF, 2015.
-2. P. Quinn, U. Elzur, & C. Pignataro, **"Network Service Header" ( "NSH" )**, "RFC 8300", IETF, 2018. The present project uses its "SPI" / "SI" terminology & architectural concepts but does not claim full "MD-Type-2" wire-format compliance.
+2. P. Quinn, U. Elzur, & C. Pignataro, **"Network Service Header" ( "NSH" )**, "RFC 8300", IETF, 2018. The present project adopts its "SPI" / "SI" terminology & architectural concepts but refrains from claiming full "MD-Type-2" wire-format compliance.
 3. E. d'Eon, B. Harrison, T. Myers, & P. A. Chou, **8i Voxelized Full Bodies — A Voxelized Point Cloud Dataset**, ISO/IEC JTC1/SC29 Joint WG11/WG1 input document WG11M40059/WG1M74006, Geneva, January 2017.
-4. **JPEG Pleno Database**, *8i Voxelized Full Bodies ( 8iVFB v2 ) — A Dynamic Voxelized Point Cloud Dataset*. Dataset page: `https://plenodb.jpeg.org/pc/8ilabs/`.
-5. **"DPDK" Project**, "Data Plane Development Kit" documentation, including Ethdev Rx / Tx queue APIs & "virtio-user" configuration.
-6. **"Open vSwitch" Project**, "Open vSwitch" & "OVS"-"DPDK" documentation, including "DPDK" "vhost-user"-client ports.
+4. **JPEG Pleno Database**, *8i Voxelized Full Bodies ( 8iVFB v2 ) — A Dynamic Voxelized Point Cloud Dataset*. Dataset repository: `https://plenodb.jpeg.org/pc/8ilabs/`.
+5. **"DPDK" Project**, "Data Plane Development Kit" documentation, comprising Ethdev Rx / Tx queue APIs & "virtio-user" configurations.
+6. **"Open vSwitch" Project**, "Open vSwitch" & "OVS"-"DPDK" documentation, encompassing "DPDK" "vhost-user"-client ports.
 7. **NVIDIA**, "CUDA" Toolkit documentation & NVIDIA Video "Codec" / "NVENC" documentation.
-8. **"FFmpeg" Project**, "FFmpeg" documentation.
-9. Maria Giovanna Lacaria, **Point Cloud Coding for Extended Reality Services**, Master's Thesis, Sapienza University of Rome, Academic Year 2025/2026. This reference is retained as the application-level comparison baseline documented by the project.
+8. **"FFmpeg" Project**, "FFmpeg" exhaustive documentation.
+9. Maria Giovanna Lacaria, **Point Cloud Coding for Extended Reality Services**, Master's Thesis, Sapienza University of Rome, Academic Year 2025/2026. This reference serves as the application-level comparison baseline explicitly documented within the project.
 
 ---
 
 ## Final Note
 
-The principal contribution of this repository is the **co-design of packet transport, service steering, & computation**.
+The preeminent scholarly contribution of this repository resides in the **holistic co-design of packet transport, service steering, & computation**.
 
-The point cloud is not merely carried between isolated applications. The `Camera` admits frames according to an `Encoder`-derived workload signal, the "GAC" performs geometry while packets are already traversing the data path, `SFF2` preserves experimental "NSH" state around unaware applications, & the `Encoder` combines packet-progressive reception with frame-level "CUDA" / "codec" processing.
+The point cloud is not merely relayed between isolated applications. Instead, the `Camera` regulates frame admission according to an `Encoder`-derived workload signal; the "GAC" evaluates geometry whilst packets actively traverse the data path; `SFF2` preserves experimental "NSH" state encompassing unaware applications; & the `Encoder` systematically merges packet-progressive reception with intensive frame-level "CUDA" / "codec" execution.
 
-The current 300-frame "Loot" snapshot materially advances the preceding repository design: the warm middle-cache source sustains approximately `30.003 fps`, point & compressed-media integrity remain complete across the validated path, `Encoder`-local geometry work is eliminated when "GAC" offload is valid, projection & first-"PES" latency are substantially reduced, & the workload-driven "Temporal" chain is integrated through to `Camera`-side admission.
+The extant 300-frame "Loot" snapshot materially supersedes the antecedent repository design: the warm middle-cache source successfully sustains approximately `30.003 fps`, absolute point & compressed-media integrity endure across the validated path, `Encoder`-local geometric operations are fundamentally excised when "GAC" offload parameters validate, projection & initial-"PES" latency witness substantial reduction, & the workload-driven "Temporal" chain is effectively integrated straight to `Camera`-side admission.
 
-The resulting platform is therefore best interpreted as an experimental study of **which volumetric-streaming operations can be executed in place on a software data plane, which frame-global dependencies must remain explicit, & how an application-aware processing bottleneck can regulate the source without relying on transport-level retransmission or user-driven quality control**.
+Consequently, the resulting platform operates optimally as an empirical study investigating **which volumetric-streaming operations are suitable for in-place execution on a software data plane, which frame-global mathematical dependencies must remain inherently explicit, & how an application-aware processing bottleneck can systematically regulate the source without invoking transport-level retransmissions or relying on user-driven quality interventions**.
 
-The repository intentionally stops short of claiming full `Camera`-to-`User` real-time "QoE", a validated `Decoder`-to-`SFF3` application format, generic "RFC 8300" interoperability, or a controlled superiority result over heterogeneous reference platforms. Those claims require the downstream implementation & the additional validation stages listed above.
+The repository deliberately pauses prior to asserting full `Camera`-to-`User` real-time "QoE", a finalised `Decoder`-to-`SFF3` application configuration, generic "RFC 8300" interoperability, or a controlled superiority metric over heterogeneous reference architectures. Such declarations inherently demand the operational downstream implementation & the supplementary validation phases delineated above.

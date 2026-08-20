@@ -36,7 +36,7 @@ static cudaEvent_t d2h_done_event = nullptr;
 
 extern "C" void cuda_memory_init( uint32_t max_pts ) {
 
-    // Purpose: It preallocates all components requisite for the fixed-resolution projection pipeline, circumventing possible distribution overhead
+    // Purpose: It preallocates all requisite components for the fixed-resolution projection pipeline, circumventing distribution system burden
 
     CHECK_CUDA( cudaMalloc( ( void ** )&d_points, max_pts * sizeof( struct host_point ) ) );
     CHECK_CUDA( cudaMalloc( ( void ** )&d_out, TOTAL_YUV_SIZE ) );
@@ -110,7 +110,7 @@ extern "C" void cuda_memory_free() {
 
 extern "C" void cuda_memory_warmup() {
 
-    // Purpose: It executes an untimed projection pipeline iteration to initialize the forthcoming scenario, kernel paths & buffer residency prior to measurement
+    // Purpose: It executes an untimed projection pipeline iteration to initialize the forthcoming scenario, kernel paths, & buffer residency prior to measurement
 
     const uint32_t n_pts = 100;
     struct host_point dummy_points[ n_pts ];
@@ -155,7 +155,7 @@ extern "C" void cuda_memory_unleash( void *ptr ) {
 __global__ void generate_gbuffer_cuda_kernel( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float final_scale, float cam_dist, float bbox_center_x, float bbox_center_y, float bbox_center_z, float global_scale, int32_t *z_buffer, uint8_t *geo_y, uint8_t *occ_y, uint8_t *tex_y, uint8_t *tex_u, uint8_t *tex_v ) {
 
     // Purpose: It fuses object-centric scaling, normalized coordinate construction, "BT.601" colour conversion, orthographic projection & z-buffer visibility mapping into a unified point-parallel kernel.
-    //          For point "p", "t = ( p - C ) * final_scale + ( 0, 0, camera_distance )"
+    //          For element "p", "t = ( p - C ) * final_scale + ( 0, 0, camera_distance )"
 
     uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -293,7 +293,7 @@ __global__ void pack_i420_stream_cuda( const uint8_t *geo_y, const uint8_t *occ_
 extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_bbox_center_x, float raw_bbox_center_y, float raw_bbox_center_z, float final_scale, float cam_dist, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_bbox_center_x, float *out_bbox_center_y, float *out_bbox_center_z, uint64_t *out_projection_end_cycles, dpdk_poll_callback_t dpdk_poll_callback ) {
 
     // Purpose: It orchestrates asynchronous "H2D" transfer, "G-Buffer" projection, "Atlas" packing & "D2H" copies, exploiting the static pose data to optimize transformations
-    //          Since "yaw" = "pitch" = 0 & "zoom" = 1, transformed bounds are exact affine images of the raw bounds, therefore no point-wise box reduction is necessary
+    //          Since "yaw" = "pitch" = 0 & "zoom" = 1, transformed bounds are exact affine images of the raw frontiers, therefore no point-wise box reduction is necessary
 
     if ( num_pts == 0 ) {
         if ( out_global_scale )

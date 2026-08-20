@@ -151,6 +151,7 @@ struct worker_context {
 
 struct temporal_payload {
     uint32_t frame_id; 
+    uint64_t timestamp; 
     uint16_t skip; 
     uint16_t padding;
 } __attribute__((__packed__));
@@ -453,7 +454,7 @@ static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, uint32_t *tx_point
 
 static inline void forward_temporal_control( struct rte_mbuf *m ) {
 
-    // Purpose: It terminates the "SPI 200" path by validating its state, stripping the "NSH" encapsulation, & forwarding the native 8-byte payload to Camera
+    // Purpose: It terminates the "SPI 200" path by validating its state, stripping the "NSH" encapsulation, & forwarding the native 16-byte payload to Camera
 
     size_t outer_net_len = sizeof( struct rte_ether_hdr ) + sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr );
     size_t min_packet_len = outer_net_len + sizeof( struct nsh_hdr ) + sizeof( struct temporal_payload );

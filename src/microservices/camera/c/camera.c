@@ -99,8 +99,9 @@ struct point_tx {
 
 struct temporal_payload {
     uint32_t frame_id; // source frame associated with the control decision
+    uint64_t timestamp; // Encoder-side delivery reference, preserved across local "DPDK" resubmissions
     uint16_t skip; // requested temporal adjustment
-    uint16_t padding; // guarantees a native 8-byte format
+    uint16_t padding; // guarantees a native 16-byte format
 } __attribute__((__packed__));
 
 // Frame & diagnostic content abstractions
@@ -117,6 +118,7 @@ struct telemetry_csv {
     uint8_t status;
     uint16_t current_skip;
     uint32_t last_control_frame;
+    double temporal_control_latency_ms;
 
     double timestamp_start_tx;
 
@@ -321,21 +323,23 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;status;current_skip;last_control_frame;timestamp_start_tx;tx_points;tx_packets;payload_bytes;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
+    fprintf( f, "frame_id;status;current_skip;last_control_frame;temporal_control_latency_ms;timestamp_start_tx;tx_points;tx_packets;payload_bytes;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
 
     for ( int i = 0; i < loaded_frames; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
-        fprintf( f, "%u;%u;%u;%u;%.6f;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> status, t -> current_skip, t -> last_control_frame, t -> timestamp_start_tx, t -> tx_points, t -> tx_packets, t -> payload_bytes, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
+        fprintf( f, "%u;%u;%u;%u;%.3f;%.6f;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> status, t -> current_skip, t -> last_control_frame, t -> temporal_control_latency_ms, t -> timestamp_start_tx, t -> tx_points, t -> tx_packets, t -> payload_bytes, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
     }
 
     fclose( f );
     printf( "[SYSTEM] Metrics successfully exported to: \"%s\".\n", TELEMETRY_PATH );
 }
 
-static inline void poll_temporal_control() {
+static inline double poll_temporal_control( uint64_t timer_hz ) {
 
-    // Purpose: It validates plain 8-byte control datagrams received from SFF1 on the reverse primary flow link.
+    // Purpose: It validates plain 16-byte control datagrams received from SFF1 on the reverse primary flow link.
     //          The latest admissible request updates the temporal skip coefficient before the next frame selection, guaranteeing an invariant sampling state per transmitted component
+
+    double applied_latency_ms = 0.0;
 
     struct rte_mbuf *control_bufs[ BURST_SIZE ];
 
@@ -375,6 +379,7 @@ static inline void poll_temporal_control() {
 
         uint16_t udp_length = rte_be_to_cpu_16( udp -> dgram_len );
         uint16_t ipv4_length = rte_be_to_cpu_16( ipv4 -> total_length );
+        
         uint16_t expected_udp_length = sizeof( struct rte_udp_hdr ) + sizeof( struct temporal_payload );
 
         if ( unlikely( udp_length != expected_udp_length || ipv4_length != sizeof( struct rte_ipv4_hdr ) + udp_length ) ) {
@@ -390,6 +395,7 @@ static inline void poll_temporal_control() {
         struct temporal_payload *temporal = ( struct temporal_payload * )( udp + 1 );
 
         uint32_t source_frame = rte_be_to_cpu_32( temporal -> frame_id );
+        uint64_t control_send_timestamp = rte_be_to_cpu_64( temporal -> timestamp );
         uint16_t requested_skip = rte_be_to_cpu_16( temporal -> skip );
 
         if ( requested_skip == 0 )
@@ -400,17 +406,25 @@ static inline void poll_temporal_control() {
 
             if ( requested_skip != current_temporal_skip ) {
                 uint16_t previous_skip = current_temporal_skip;
+                
+                uint64_t t_control_apply = rte_get_timer_cycles();
+                
                 current_temporal_skip = requested_skip;
 
+                if ( control_send_timestamp > 0 && t_control_apply >= control_send_timestamp ) 
+                    applied_latency_ms = ( ( double )( t_control_apply - control_send_timestamp ) / timer_hz ) * 1000.0;
+                
                 const char *event = ( current_temporal_skip > previous_skip ) ? "increased" : "decreased";
 
-                printf( "[SYSTEM] Temporal controller %s skip at frame %u: %u -> %u ( %.1f FPS ).\n", event, last_control_frame, previous_skip, current_temporal_skip, TARGET_FPS / current_temporal_skip );
+                printf( "[SYSTEM] Temporal controller %s skip at frame %u: %u -> %u ( Latency: %.2f ms, Rate: %.1f FPS ).\n", event, last_control_frame, previous_skip, current_temporal_skip, applied_latency_ms, TARGET_FPS / current_temporal_skip );
                 temporal_notification_printed = true;
             }
         }
 
         rte_pktmbuf_free( m );
     }
+
+    return applied_latency_ms;
 }
 
 static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, uint16_t *tx_points_buf, int *burst_idx, uint32_t *frame_tx_packets, uint32_t *frame_tx_points, uint32_t *frame_tx_zero_accepts, uint32_t *frame_tx_partial_accepts, uint32_t *frame_tx_resubmit_calls, uint32_t *frame_tx_resubmitted_packets, uint64_t *frame_active_tx_cycles ) {
@@ -510,7 +524,7 @@ static int worker_loop( __rte_unused void *arg ) {
 
             uint64_t expected_time = start_time + ( ( frame + 1 ) * frame_cycles );
             
-            poll_temporal_control();
+            double frame_temporal_control_latency_ms = poll_temporal_control( timer_hz );
 
             uint16_t frame_temporal_skip = current_temporal_skip;
             uint32_t frame_control_source = last_control_frame;
@@ -526,6 +540,7 @@ static int worker_loop( __rte_unused void *arg ) {
                     telemetry_log[ frame ].status = 0;
                     telemetry_log[ frame ].current_skip = frame_temporal_skip;
                     telemetry_log[ frame ].last_control_frame = frame_control_source;
+                    telemetry_log[ frame ].temporal_control_latency_ms = frame_temporal_control_latency_ms;
                 }
 
                 if ( CACHE_MODE == CACHE_MODE_BEST && frames[ frame ].buffer != NULL ) {
@@ -690,6 +705,7 @@ static int worker_loop( __rte_unused void *arg ) {
                 telemetry_log[ frame ].status = ( frame_tx_points == total_points && frame_mbuf_drops == 0 ) ? 1 : 0;
                 telemetry_log[ frame ].current_skip = frame_temporal_skip;
                 telemetry_log[ frame ].last_control_frame = frame_control_source;
+                telemetry_log[ frame ].temporal_control_latency_ms = frame_temporal_control_latency_ms;
                 telemetry_log[ frame ].timestamp_start_tx = ( double )t_send_start / timer_hz;
                 telemetry_log[ frame ].tx_duration_ms = send_duration_sec * 1000.0;
                 telemetry_log[ frame ].payload_bytes = transmitted_payload_bytes;
