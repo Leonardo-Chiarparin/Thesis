@@ -34,7 +34,7 @@
 // Loading strategies for I / O sensitivity analysis 
 #define CACHE_MODE_BEST 0 // application-resident dataset. Pre-transmission "malloc" + "fread" + "mlock"
 #define CACHE_MODE_MIDDLE 1 // reusable staging allocation. Per-frame reads kept within the isochronous source path
-#define CACHE_MODE_WORST  2 // no a-priori "malloc". Element-wise allocation & "fread", followed by post-streaming release ( "free" )
+#define CACHE_MODE_WORST 2 // no a-priori "malloc". Element-wise allocation & "fread", followed by post-streaming release ( "free" )
 
 #define CACHE_MODE CACHE_MODE_MIDDLE
 
@@ -53,10 +53,10 @@
 
 // Sending bonds & networking parameters
 #define PORT_SFF1 0
-#define CAMERA_IP RTE_IPV4( 10, 0, 0, 2 )
-#define SFF1_CAMERA_IP RTE_IPV4( 10, 0, 1, 254 ) // Camera-facing endpoint of SFF1, functioning as the "Geometry-Aware Classifier" ( "GAC" )
-#define CAMERA_PORT 49432
-#define SFF1_CAMERA_PORT 5001
+#define CAMERA_IP RTE_IPV4( 10, 0, 1, 1 )
+#define SFF1_CAMERA_IP RTE_IPV4( 10, 0, 1, 254 ) // Camera-facing endpoint of SFF1, operating as the "Geometry-Aware Classifier" ( "GAC" )
+#define CAMERA_PORT 5001
+#define SFF1_CAMERA_PORT 6633
 
 // Packetization & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80 // a 16-byte point representation yields 1280 payload bytes for 80 points
@@ -115,20 +115,33 @@ struct frame_data {
 
 struct telemetry_csv {
     uint32_t frame_id;
-    uint8_t status;
+
+    uint8_t selected;
+    uint8_t tx_complete;
+
     uint16_t current_skip;
     uint32_t last_control_frame;
-    double temporal_control_latency_ms;
+    double temporal_control_ms;
 
-    double timestamp_start_tx;
+    double camera_send_timestamp;
+
+    double tx_start_timestamp;
 
     uint32_t tx_points;
     uint32_t tx_packets;
+
     uint32_t payload_bytes;
+
+    uint64_t reference_size_bytes;
+
     double internal_throughput_mbs;
+
+    double reference_throughput_mbs;
 
     double logical_bitrate_mbps;
     double network_bitrate_mbps;
+
+    double reference_bitrate_mbps;
 
     double disk_io_ms;
     double serialization_ms;
@@ -137,7 +150,9 @@ struct telemetry_csv {
     double active_process_ms;
     double total_residency_ms;
     double node_efficiency_pct;
-    
+
+    double reference_efficiency_pct;
+
     uint32_t tx_zero_accepts; 
     uint32_t tx_partial_accepts;
     uint32_t tx_resubmit_calls;
@@ -150,11 +165,13 @@ struct telemetry_csv {
 struct frame_data frames[ K_FRAMES ];
 struct telemetry_csv telemetry_log[ K_FRAMES ];
 int loaded_frames = 0;
-bool csv_written = false;
 bool temporal_notification_printed = false;
 
 struct rte_mempool *mbuf_pool;
 struct main_hdr template_hdr;
+
+static const struct rte_ether_addr camera_mac = { { 0x00, 0x00, 0x00, 0x00, 0x01, 0x01 } };
+static const struct rte_ether_addr sff1_camera_mac = { { 0x00, 0x00, 0x00, 0x00, 0x01, 0x02 } };
 
 uint16_t current_temporal_skip = 1;
 uint32_t last_control_frame = 0;
@@ -163,7 +180,7 @@ uint8_t *staging_buffer = NULL;
 size_t staging_buffer_size = 0;
 
 // Data path & support routines
-static inline uint32_t float_to_be_32( float value ) {
+static inline uint32_t float_to_be( float value ) {
 
     // Purpose: It reinterprets an "IEEE-754" single-precision float as a 32-bit integer, converting it to network byte order without altering the underlying bit pattern
 
@@ -181,15 +198,9 @@ static inline void serialize_points( uint8_t *buffer, uint32_t point_count ) {
     struct point_tx *points = ( struct point_tx * )buffer;
 
     for ( uint32_t i = 0; i < point_count; i++ ) {
-        float x, y, z;
-
-        memcpy( &x, &points[ i ].x, sizeof( float ) );
-        memcpy( &y, &points[ i ].y, sizeof( float ) );
-        memcpy( &z, &points[ i ].z, sizeof( float ) );
-
-        points[ i ].x = float_to_be_32( x );
-        points[ i ].y = float_to_be_32( y );
-        points[ i ].z = float_to_be_32( z );
+        points[ i ].x = rte_cpu_to_be_32( points[ i ].x );
+        points[ i ].y = rte_cpu_to_be_32( points[ i ].y );
+        points[ i ].z = rte_cpu_to_be_32( points[ i ].z );
     }
 }
 
@@ -273,17 +284,14 @@ static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
     return 0;
 }
 
-static void header_init( struct main_hdr *hdr ) {
+static void main_header_init( struct main_hdr *hdr ) {
 
     // Purpose: It initializes the reusable Camera-to-SFF1 network template ( "Eth" / "IPv4" / "UDP" ) alongside static pose values & default temporal sampling factor
 
     memset( hdr, 0, sizeof( struct main_hdr ) );
     
-    struct rte_ether_addr src_mac = { { 0x00, 0x00, 0x00, 0x00, 0x01, 0x01 } };
-    struct rte_ether_addr dst_mac = { { 0x00, 0x00, 0x00, 0x00, 0x01, 0x02 } };
-    
-    rte_memcpy( &hdr -> net.ethernet.src_addr, &src_mac, RTE_ETHER_ADDR_LEN );
-    rte_memcpy( &hdr -> net.ethernet.dst_addr, &dst_mac, RTE_ETHER_ADDR_LEN );
+    rte_memcpy( &hdr -> net.ethernet.src_addr, &camera_mac, RTE_ETHER_ADDR_LEN );
+    rte_memcpy( &hdr -> net.ethernet.dst_addr, &sff1_camera_mac, RTE_ETHER_ADDR_LEN );
     
     hdr -> net.ethernet.ether_type = rte_cpu_to_be_16( RTE_ETHER_TYPE_IPV4 );
 
@@ -297,16 +305,16 @@ static void header_init( struct main_hdr *hdr ) {
     hdr -> net.udp.dst_port = rte_cpu_to_be_16( SFF1_CAMERA_PORT );
     hdr -> net.udp.dgram_cksum = 0;
 
-    hdr -> cam.yaw = float_to_be_32( 0.0f );
-    hdr -> cam.pitch = float_to_be_32( 0.0f );
-    hdr -> cam.zoom = float_to_be_32( 1.0f );
+    hdr -> cam.yaw = float_to_be( 0.0f );
+    hdr -> cam.pitch = float_to_be( 0.0f );
+    hdr -> cam.zoom = float_to_be( 1.0f );
     hdr -> cam.temporal_skip = htons( 1 );
     hdr -> cam.padding = 0;
 }
 
 static void telemetry_to_csv() {
 
-    // Purpose: It serializes buffered per-frame telemetry after sequence ended, thereby isolating file I / O operations from the timing-sensitive source data path
+    // Purpose: It serializes buffered per-frame telemetry after sequence completion, thereby isolating file I / O operations from the timing-sensitive source data path
 
     struct stat st = { 0 };
 
@@ -323,18 +331,18 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;status;current_skip;last_control_frame;temporal_control_latency_ms;timestamp_start_tx;tx_points;tx_packets;payload_bytes;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
+    fprintf( f, "frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
 
     for ( int i = 0; i < loaded_frames; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
-        fprintf( f, "%u;%u;%u;%u;%.3f;%.6f;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> status, t -> current_skip, t -> last_control_frame, t -> temporal_control_latency_ms, t -> timestamp_start_tx, t -> tx_points, t -> tx_packets, t -> payload_bytes, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
+        fprintf( f, "%u;%u;%u;%u;%u;%.3f;%.6f;%.6f;%u;%u;%u;%llu;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> selected, t -> tx_complete, t -> current_skip, t -> last_control_frame, t -> temporal_control_ms, t -> camera_send_timestamp, t -> tx_start_timestamp, t -> tx_points, t -> tx_packets, t -> payload_bytes, ( unsigned long long )t -> reference_size_bytes, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
     }
 
     fclose( f );
     printf( "[SYSTEM] Metrics successfully exported to: \"%s\".\n", TELEMETRY_PATH );
 }
 
-static inline double poll_temporal_control( uint64_t timer_hz ) {
+static inline double process_temporal_control( uint64_t timer_hz ) {
 
     // Purpose: It validates plain 16-byte control datagrams received from SFF1 on the reverse primary flow link.
     //          The latest admissible request updates the temporal skip coefficient before the next frame selection, guaranteeing an invariant sampling state per transmitted component
@@ -350,13 +358,17 @@ static inline double poll_temporal_control( uint64_t timer_hz ) {
 
         size_t min_packet_len = sizeof( struct rte_ether_hdr ) + sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct temporal_payload );
 
-        if ( unlikely( rte_pktmbuf_pkt_len( m ) < min_packet_len ) ) {
+        if ( unlikely( !rte_pktmbuf_is_contiguous( m ) || rte_pktmbuf_pkt_len( m ) < min_packet_len ) ) {
             rte_pktmbuf_free( m );
-
             continue;
         }
 
         struct rte_ether_hdr *eth = rte_pktmbuf_mtod( m, struct rte_ether_hdr * );
+
+        if ( unlikely( !rte_is_same_ether_addr( &eth -> src_addr, &sff1_camera_mac ) || !rte_is_same_ether_addr( &eth -> dst_addr, &camera_mac ) ) ) {
+            rte_pktmbuf_free( m );
+            continue;
+        }
 
         if ( unlikely( eth -> ether_type != rte_cpu_to_be_16( RTE_ETHER_TYPE_IPV4 ) ) ) {
             rte_pktmbuf_free( m );
@@ -438,9 +450,9 @@ static inline void flush_tx_burst( struct rte_mbuf **tx_bufs, uint16_t *tx_point
     uint16_t sent = 0;
     uint16_t retries = 0;
 
-    bool is_resubmission = false;
-
     const uint16_t pause_window = BURST_SIZE * 0.5;
+
+    bool is_resubmission = false;
 
     while ( sent < *burst_idx ) {
         uint16_t requested_packets = *burst_idx - sent;
@@ -507,174 +519,35 @@ static int worker_loop( __rte_unused void *arg ) {
     uint16_t burst_points[ BURST_SIZE ];
 
     uint16_t standard_payload_size = POINTS_PER_PACKET * POINT_SIZE_BYTES;
-    template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
-    template_hdr.net.ipv4.hdr_checksum = 0;
-    template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
-    template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
 
     const size_t outer_len = sizeof( struct main_hdr );
 
     printf( "[SYSTEM] Streaming is about to begin at %.1f FPS...\n\n", TARGET_FPS );
     
-    while ( 1 ) {   
-        uint64_t start_time = rte_get_timer_cycles();
+    uint64_t start_time = rte_get_timer_cycles();
 
-        for ( int frame = 0; frame < loaded_frames; frame++ ) {
-            uint32_t frame_id = frame + 1;
+    for ( int frame = 0; frame < loaded_frames; frame++ ) {
+        uint32_t frame_id = frame + 1;
 
-            uint64_t expected_time = start_time + ( ( frame + 1 ) * frame_cycles );
-            
-            double frame_temporal_control_latency_ms = poll_temporal_control( timer_hz );
+        uint64_t expected_time = start_time + ( ( frame + 1 ) * frame_cycles );
+        
+        double frame_temporal_control_ms = process_temporal_control( timer_hz );
 
-            uint16_t frame_temporal_skip = current_temporal_skip;
-            uint32_t frame_control_source = last_control_frame;
+        uint16_t frame_temporal_skip = current_temporal_skip;
+        uint32_t frame_control_source = last_control_frame;
 
-            if ( unlikely( frame_temporal_skip == 0 ) )
-                frame_temporal_skip = 1;
+        if ( unlikely( frame_temporal_skip == 0 ) )
+            frame_temporal_skip = 1;
 
-            bool frame_selected = ( ( ( frame_id - 1 ) % frame_temporal_skip ) == 0 );
+        bool frame_selected = ( ( ( frame_id - 1 ) % frame_temporal_skip ) == 0 );
 
-            if ( unlikely( !frame_selected ) ) {
-                if ( !csv_written ) {
-                    telemetry_log[ frame ].frame_id = frame_id;
-                    telemetry_log[ frame ].status = 0;
-                    telemetry_log[ frame ].current_skip = frame_temporal_skip;
-                    telemetry_log[ frame ].last_control_frame = frame_control_source;
-                    telemetry_log[ frame ].temporal_control_latency_ms = frame_temporal_control_latency_ms;
-                }
-
-                if ( CACHE_MODE == CACHE_MODE_BEST && frames[ frame ].buffer != NULL ) {
-                    munlock( frames[ frame ].buffer, frames[ frame ].size );
-                    free( frames[ frame ].buffer );
-                    
-                    frames[ frame ].buffer = NULL;
-                }
-
-                while ( rte_get_timer_cycles() < expected_time )
-                    rte_pause();
-
-                continue;
-            }
-
-            uint64_t t_start_residency = rte_get_timer_cycles();
-
-            double current_disk_io_ms = 0.0;
-            double serialization_sec = 0.0;
-
-            uint8_t *frame_buffer = NULL;
-
-            if ( CACHE_MODE == CACHE_MODE_BEST )
-                frame_buffer = frames[ frame ].buffer;
-            else if ( CACHE_MODE == CACHE_MODE_MIDDLE )
-                frame_buffer = staging_buffer;
-
-            if ( CACHE_MODE != CACHE_MODE_BEST ) {
-                uint64_t t_start_io = rte_get_timer_cycles();
-                
-                if ( CACHE_MODE == CACHE_MODE_WORST ) {
-                    frame_buffer = malloc( frames[ frame ].size );
-                    
-                    if ( frame_buffer == NULL ) 
-                        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Buffer allocation failed...\n" );
-                }
-
-                FILE *fp = fopen( frames[ frame ].file_path, "rb" );
-
-                if ( fp ) {
-                    if ( fread( frame_buffer, 1, frames[ frame ].size, fp ) != frames[ frame ].size )
-                        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: I / O anomaly while reading file \"%s\"...\n", frames[ frame ].file_path );
-                    
-                    fclose( fp );
-                }
-                else
-                    rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Unable to open file \"%s\"...\n", frames[ frame ].file_path );
-                
-                uint64_t t_end_io = rte_get_timer_cycles();
-                current_disk_io_ms = ( double )( t_end_io - t_start_io ) * 1000.0 / timer_hz;
-                
-                uint64_t t_start_serialization = rte_get_timer_cycles();
-
-                serialize_points( frame_buffer, frames[ frame ].point_count );
-                
-                uint64_t t_end_serialization = rte_get_timer_cycles();
-                serialization_sec = ( double )( t_end_serialization - t_start_serialization ) / timer_hz;
-            }
-
-            uint32_t total_points = frames[ frame ].point_count;
-            uint32_t points_sent = 0;
-            uint32_t sequence_number = 0;
-            int burst_idx = 0;
-
-            uint32_t frame_tx_zero_accepts = 0;
-            uint32_t frame_tx_partial_accepts = 0;
-            uint32_t frame_tx_resubmit_calls = 0;
-            uint32_t frame_tx_resubmitted_packets = 0;
-
-            uint32_t frame_mbuf_drops = 0;
-
-            uint32_t frame_tx_packets = 0;
-            uint32_t frame_tx_points = 0;
-
-            uint64_t frame_active_tx_cycles = 0;
-
-            uint8_t *raw_points_ptr = frame_buffer;
-
-            template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
-            template_hdr.net.ipv4.hdr_checksum = 0;
-            template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
-            template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
-
-            template_hdr.cam.temporal_skip = rte_cpu_to_be_16( frame_temporal_skip );
-            
-            uint64_t t_send_start = rte_get_timer_cycles();
-            
-            while ( points_sent < total_points ) {
-                uint32_t batch = ( total_points - points_sent > POINTS_PER_PACKET ) ? POINTS_PER_PACKET : ( total_points - points_sent );
-                uint16_t payload_size = batch * POINT_SIZE_BYTES;
-
-                struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
-                if ( likely( m != NULL ) ) {
-                    uint16_t pkt_len = outer_len + payload_size;
-                    uint8_t *pkt_data = ( uint8_t * )rte_pktmbuf_append( m, pkt_len );
-
-                    if ( unlikely( pkt_data == NULL ) ) {
-                        rte_pktmbuf_free( m );
-                        break;
-                    }
-
-                    template_hdr.cam.frame_id = htonl( frame_id );
-                    template_hdr.cam.sequence_number = htonl( sequence_number );
-                    template_hdr.cam.timestamp = rte_cpu_to_be_64( t_send_start );
-                    template_hdr.cam.original_points = htonl( total_points );
-                    template_hdr.cam.points_in_packet = htonl( batch );
-
-                    if ( unlikely( batch != POINTS_PER_PACKET ) ) {
-                        template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + payload_size );
-                        template_hdr.net.ipv4.hdr_checksum = 0;
-                        template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
-                        template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + payload_size );
-                    }
-
-                    rte_memcpy( pkt_data, &template_hdr, outer_len );
-                    rte_memcpy( pkt_data + outer_len, raw_points_ptr + ( points_sent * POINT_SIZE_BYTES ), payload_size );
-
-                    burst_buffer[ burst_idx ] = m;
-                    burst_points[ burst_idx ] = batch;
-                    burst_idx++;
-                }
-                else {
-                    frame_mbuf_drops++;
-                    break;
-                }
-
-                points_sent += batch;
-                sequence_number++;
-
-                if ( burst_idx == BURST_SIZE || points_sent == total_points )
-                    flush_tx_burst( burst_buffer, burst_points, &burst_idx, &frame_tx_packets, &frame_tx_points, &frame_tx_zero_accepts, &frame_tx_partial_accepts, &frame_tx_resubmit_calls, &frame_tx_resubmitted_packets, &frame_active_tx_cycles );
-            }
-
-            uint64_t t_send_end = rte_get_timer_cycles();
+        if ( unlikely( !frame_selected ) ) {
+            telemetry_log[ frame ].frame_id = frame_id;
+            telemetry_log[ frame ].selected = 0;
+            telemetry_log[ frame ].tx_complete = 0;
+            telemetry_log[ frame ].current_skip = frame_temporal_skip;
+            telemetry_log[ frame ].last_control_frame = frame_control_source;
+            telemetry_log[ frame ].temporal_control_ms = frame_temporal_control_ms;
 
             if ( CACHE_MODE == CACHE_MODE_BEST && frames[ frame ].buffer != NULL ) {
                 munlock( frames[ frame ].buffer, frames[ frame ].size );
@@ -682,133 +555,280 @@ static int worker_loop( __rte_unused void *arg ) {
                 
                 frames[ frame ].buffer = NULL;
             }
-            else if ( CACHE_MODE == CACHE_MODE_WORST && frame_buffer != NULL ) {
-                free( frame_buffer );
-                frame_buffer = NULL;
-            }
 
-            if ( !csv_written ) {
-                uint64_t send_cycles = t_send_end - t_send_start;
-
-                double send_duration_sec = ( double )send_cycles / timer_hz;
-                double residency_sec = ( double )( t_send_end - t_start_residency ) / timer_hz;
-
-                double active_tx_sec = ( double )frame_active_tx_cycles / timer_hz;
-
-                uint64_t transmitted_payload_bytes = ( uint64_t )frame_tx_points * POINT_SIZE_BYTES;
-                uint64_t logical_frame_bytes = transmitted_payload_bytes + ( frame_tx_packets > 0 ? sizeof( struct cam_hdr ) : 0 );
-                uint64_t network_frame_bytes = transmitted_payload_bytes + ( ( uint64_t )frame_tx_packets * sizeof( struct main_hdr ) ) ;
-
-                double effective_fps = TARGET_FPS / frame_temporal_skip;
-
-                telemetry_log[ frame ].frame_id = frame_id;
-                telemetry_log[ frame ].status = ( frame_tx_points == total_points && frame_mbuf_drops == 0 ) ? 1 : 0;
-                telemetry_log[ frame ].current_skip = frame_temporal_skip;
-                telemetry_log[ frame ].last_control_frame = frame_control_source;
-                telemetry_log[ frame ].temporal_control_latency_ms = frame_temporal_control_latency_ms;
-                telemetry_log[ frame ].timestamp_start_tx = ( double )t_send_start / timer_hz;
-                telemetry_log[ frame ].tx_duration_ms = send_duration_sec * 1000.0;
-                telemetry_log[ frame ].payload_bytes = transmitted_payload_bytes;
-                telemetry_log[ frame ].disk_io_ms = current_disk_io_ms;
-                telemetry_log[ frame ].serialization_ms = serialization_sec * 1000.0;
-                telemetry_log[ frame ].internal_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )logical_frame_bytes / 1000000.0 ) / send_duration_sec : 0.0;
-                telemetry_log[ frame ].logical_bitrate_mbps = ( logical_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
-                telemetry_log[ frame ].network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
-                telemetry_log[ frame ].total_residency_ms = residency_sec * 1000.0;
-                telemetry_log[ frame ].tx_packets = frame_tx_packets;
-                telemetry_log[ frame ].tx_points = frame_tx_points;
-
-                telemetry_log[ frame ].tx_zero_accepts = frame_tx_zero_accepts;
-                telemetry_log[ frame ].tx_partial_accepts = frame_tx_partial_accepts;
-                telemetry_log[ frame ].tx_resubmit_calls = frame_tx_resubmit_calls;
-                telemetry_log[ frame ].tx_resubmitted_packets = frame_tx_resubmitted_packets;
-                telemetry_log[ frame ].mbuf_starvation = frame_mbuf_drops;
-
-                telemetry_log[ frame ].active_tx_ms = active_tx_sec * 1000.0;
-
-                double disk_io_sec = current_disk_io_ms / 1000.0;
-                double active_process_sec = disk_io_sec + serialization_sec + send_duration_sec; 
-
-                telemetry_log[ frame ].active_process_ms = active_process_sec * 1000.0;
-
-                if ( residency_sec > 0.0 )
-                    telemetry_log[ frame ].node_efficiency_pct = ( active_process_sec / residency_sec ) * 100.0;
-                else
-                    telemetry_log[ frame ].node_efficiency_pct = 0.0;
-            }
-
-            while ( rte_get_timer_cycles() < expected_time ) 
+            while ( rte_get_timer_cycles() < expected_time )
                 rte_pause();
+
+            continue;
         }
 
-        struct rte_mbuf *eos_burst[ BURST_SIZE ];
-        int eos_count = 0;
-        
-        for ( int i = 0; i < BURST_SIZE; i++ ) {
-            struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
+        uint64_t t_start_residency = rte_get_timer_cycles();
+
+        double current_disk_io_ms = 0.0;
+        double serialization_sec = 0.0;
+
+        uint8_t *frame_buffer = NULL;
+
+        uint64_t t_camera_send = 0;
+
+        if ( CACHE_MODE == CACHE_MODE_BEST ) {
+            frame_buffer = frames[ frame ].buffer;
+            t_camera_send = rte_get_timer_cycles();
+        }
+        else if ( CACHE_MODE == CACHE_MODE_MIDDLE )
+            frame_buffer = staging_buffer;
+
+        if ( CACHE_MODE != CACHE_MODE_BEST ) {
+            uint64_t t_start_io = rte_get_timer_cycles();
             
-            if ( likely( m != NULL ) ) {
-                uint16_t pkt_len = sizeof( struct net_hdr ) + sizeof( struct cam_hdr );
-                uint8_t *pkt_data = ( uint8_t * )rte_pktmbuf_append( m, pkt_len );
+            if ( CACHE_MODE == CACHE_MODE_WORST ) {
+                frame_buffer = malloc( frames[ frame ].size );
                 
+                if ( frame_buffer == NULL ) 
+                    rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Buffer allocation failed...\n" );
+            }
+
+            FILE *fp = fopen( frames[ frame ].file_path, "rb" );
+
+            if ( fp ) {
+                if ( fread( frame_buffer, 1, frames[ frame ].size, fp ) != frames[ frame ].size )
+                    rte_exit( EXIT_FAILURE, "[SYSTEM] Error: I / O anomaly while reading file \"%s\"...\n", frames[ frame ].file_path );
+                
+                fclose( fp );
+            }
+            else
+                rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Unable to open file \"%s\"...\n", frames[ frame ].file_path );
+            
+            uint64_t t_end_io = rte_get_timer_cycles();
+            current_disk_io_ms = ( double )( t_end_io - t_start_io ) * 1000.0 / timer_hz;
+            
+            t_camera_send = rte_get_timer_cycles();
+
+            uint64_t t_start_serialization = rte_get_timer_cycles();
+
+            serialize_points( frame_buffer, frames[ frame ].point_count );
+            
+            uint64_t t_end_serialization = rte_get_timer_cycles();
+            serialization_sec = ( double )( t_end_serialization - t_start_serialization ) / timer_hz;
+        }
+
+        uint32_t total_points = frames[ frame ].point_count;
+        uint32_t points_sent = 0;
+        uint32_t sequence_number = 0;
+        int burst_idx = 0;
+
+        uint32_t frame_tx_zero_accepts = 0;
+        uint32_t frame_tx_partial_accepts = 0;
+        uint32_t frame_tx_resubmit_calls = 0;
+        uint32_t frame_tx_resubmitted_packets = 0;
+
+        uint32_t frame_mbuf_drops = 0;
+
+        uint32_t frame_tx_packets = 0;
+        uint32_t frame_tx_points = 0;
+
+        uint64_t frame_active_tx_cycles = 0;
+
+        uint8_t *raw_points_ptr = frame_buffer;
+
+        template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
+        template_hdr.net.ipv4.hdr_checksum = 0;
+        template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
+        template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + standard_payload_size );
+
+        template_hdr.cam.temporal_skip = rte_cpu_to_be_16( frame_temporal_skip );
+        
+        uint64_t t_send_start = rte_get_timer_cycles();
+        
+        while ( points_sent < total_points ) {
+            uint32_t batch = ( total_points - points_sent > POINTS_PER_PACKET ) ? POINTS_PER_PACKET : ( total_points - points_sent );
+            uint16_t payload_size = batch * POINT_SIZE_BYTES;
+
+            struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
+            if ( likely( m != NULL ) ) {
+                uint16_t pkt_len = outer_len + payload_size;
+                uint8_t *pkt_data = ( uint8_t * )rte_pktmbuf_append( m, pkt_len );
+
                 if ( unlikely( pkt_data == NULL ) ) {
                     rte_pktmbuf_free( m );
                     break;
                 }
 
-                template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) );
-                template_hdr.net.ipv4.hdr_checksum = 0;
-                template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
-                template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr) + sizeof( struct cam_hdr ) );
-                
-                template_hdr.cam.frame_id = htonl( END_OF_STREAM );
-                template_hdr.cam.temporal_skip = rte_cpu_to_be_16( current_temporal_skip );
-                template_hdr.cam.points_in_packet = 0;
-                template_hdr.cam.original_points = 0;
-                
+                template_hdr.cam.frame_id = htonl( frame_id );
+                template_hdr.cam.sequence_number = htonl( sequence_number );
+                template_hdr.cam.timestamp = rte_cpu_to_be_64( t_camera_send );
+                template_hdr.cam.original_points = htonl( total_points );
+                template_hdr.cam.points_in_packet = htonl( batch );
+
+                if ( unlikely( batch != POINTS_PER_PACKET ) ) {
+                    template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + payload_size );
+                    template_hdr.net.ipv4.hdr_checksum = 0;
+                    template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
+                    template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + payload_size );
+                }
+
                 rte_memcpy( pkt_data, &template_hdr, outer_len );
-                
-                eos_burst[ eos_count++ ] = m;
+                rte_memcpy( pkt_data + outer_len, raw_points_ptr + ( points_sent * POINT_SIZE_BYTES ), payload_size );
+
+                burst_buffer[ burst_idx ] = m;
+                burst_points[ burst_idx ] = batch;
+                burst_idx++;
             }
-            else
+            else {
+                frame_mbuf_drops++;
                 break;
-        }
-        
-        if ( eos_count > 0 ) {
-            uint16_t sent = 0;
-            uint16_t zero_accept_streak = 0;
-
-            while ( sent < eos_count ) {
-                uint16_t nb_tx = rte_eth_tx_burst( PORT_SFF1, 0, &eos_burst[ sent ], eos_count - sent );
-                sent += nb_tx;
-
-                if ( nb_tx == 0 ) {
-                    if ( ++zero_accept_streak > MAX_ZERO_ACCEPTS ) {
-                        for ( uint16_t i = sent; i < eos_count; i++ )
-                            rte_pktmbuf_free( eos_burst[ i ] );
-
-                        break;
-                    }
-
-                    rte_pause();
-                } 
-                else
-                    zero_accept_streak = 0;
             }
+
+            points_sent += batch;
+            sequence_number++;
+
+            if ( burst_idx == BURST_SIZE || points_sent == total_points )
+                flush_tx_burst( burst_buffer, burst_points, &burst_idx, &frame_tx_packets, &frame_tx_points, &frame_tx_zero_accepts, &frame_tx_partial_accepts, &frame_tx_resubmit_calls, &frame_tx_resubmitted_packets, &frame_active_tx_cycles );
         }
 
-        if ( !csv_written ) {
-            if ( temporal_notification_printed )
-                printf( "\n" );
+        uint64_t t_send_end = rte_get_timer_cycles();
 
-            telemetry_to_csv();
-            csv_written = true;
+        if ( CACHE_MODE == CACHE_MODE_BEST && frames[ frame ].buffer != NULL ) {
+            munlock( frames[ frame ].buffer, frames[ frame ].size );
+            free( frames[ frame ].buffer );
+            
+            frames[ frame ].buffer = NULL;
         }
-        
-        printf( "\n[SYSTEM] Sequence completed. Shutting down...\n" );
-        rte_delay_ms( WAITING_TIME );
-        break;
+        else if ( CACHE_MODE == CACHE_MODE_WORST && frame_buffer != NULL ) {
+            free( frame_buffer );
+            frame_buffer = NULL;
+        }
+
+        uint64_t send_cycles = t_send_end - t_send_start;
+
+        double send_duration_sec = ( double )send_cycles / timer_hz;
+        double residency_sec = ( double )( t_send_end - t_start_residency ) / timer_hz;
+
+        double active_tx_sec = ( double )frame_active_tx_cycles / timer_hz;
+
+        uint32_t expected_packets = ( total_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET;
+        uint8_t tx_complete = ( frame_tx_points == total_points && frame_tx_packets == expected_packets && frame_mbuf_drops == 0 ) ? 1 : 0;
+
+        uint64_t transmitted_payload_bytes = ( uint64_t )frame_tx_points * POINT_SIZE_BYTES;
+        uint64_t logical_frame_bytes = transmitted_payload_bytes + ( frame_tx_packets > 0 ? sizeof( struct cam_hdr ) : 0 );
+        uint64_t network_frame_bytes = transmitted_payload_bytes + ( ( uint64_t )frame_tx_packets * ( sizeof( struct main_hdr ) ) );
+        uint64_t reference_frame_bytes = frames[ frame ].size + sizeof( struct cam_hdr );
+
+        double effective_fps = TARGET_FPS / frame_temporal_skip;
+
+        telemetry_log[ frame ].frame_id = frame_id;
+        telemetry_log[ frame ].selected = 1;
+        telemetry_log[ frame ].tx_complete = tx_complete;
+        telemetry_log[ frame ].current_skip = frame_temporal_skip;
+        telemetry_log[ frame ].last_control_frame = frame_control_source;
+        telemetry_log[ frame ].temporal_control_ms = frame_temporal_control_ms;
+        telemetry_log[ frame ].camera_send_timestamp = ( double )t_camera_send / timer_hz;
+        telemetry_log[ frame ].tx_start_timestamp = ( double )t_send_start / timer_hz;
+        telemetry_log[ frame ].tx_duration_ms = send_duration_sec * 1000.0;
+        telemetry_log[ frame ].reference_size_bytes = frames[ frame ].size;
+        telemetry_log[ frame ].payload_bytes = transmitted_payload_bytes;
+        telemetry_log[ frame ].disk_io_ms = current_disk_io_ms;
+        telemetry_log[ frame ].serialization_ms = serialization_sec * 1000.0;
+        telemetry_log[ frame ].internal_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )logical_frame_bytes / 1000000.0 ) / send_duration_sec : 0.0;
+        telemetry_log[ frame ].reference_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )reference_frame_bytes / ( 1024.0 * 1024.0 ) ) / send_duration_sec : 0.0;
+        telemetry_log[ frame ].logical_bitrate_mbps = ( logical_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
+        telemetry_log[ frame ].network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
+        telemetry_log[ frame ].reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * TARGET_FPS ) / 1000000.0;
+        telemetry_log[ frame ].total_residency_ms = residency_sec * 1000.0;
+        telemetry_log[ frame ].tx_packets = frame_tx_packets;
+        telemetry_log[ frame ].tx_points = frame_tx_points;
+
+        telemetry_log[ frame ].tx_zero_accepts = frame_tx_zero_accepts;
+        telemetry_log[ frame ].tx_partial_accepts = frame_tx_partial_accepts;
+        telemetry_log[ frame ].tx_resubmit_calls = frame_tx_resubmit_calls;
+        telemetry_log[ frame ].tx_resubmitted_packets = frame_tx_resubmitted_packets;
+        telemetry_log[ frame ].mbuf_starvation = frame_mbuf_drops;
+
+        telemetry_log[ frame ].active_tx_ms = active_tx_sec * 1000.0;
+
+        double disk_io_sec = current_disk_io_ms / 1000.0;
+        double active_process_sec = disk_io_sec + serialization_sec + send_duration_sec; 
+        double reference_process_sec = disk_io_sec + send_duration_sec;
+
+        telemetry_log[ frame ].active_process_ms = active_process_sec * 1000.0;
+
+        if ( residency_sec > 0.0 ) {
+            telemetry_log[ frame ].node_efficiency_pct = ( active_process_sec / residency_sec ) * 100.0;
+            telemetry_log[ frame ].reference_efficiency_pct = ( reference_process_sec / residency_sec ) * 100.0;
+        }
+        else {
+            telemetry_log[ frame ].node_efficiency_pct = 0.0;
+            telemetry_log[ frame ].reference_efficiency_pct = 0.0;
+        }
+
+        while ( rte_get_timer_cycles() < expected_time ) 
+            rte_pause();
     }
+
+    struct rte_mbuf *eos_burst[ BURST_SIZE ];
+    int eos_count = 0;
+    
+    for ( int i = 0; i < BURST_SIZE; i++ ) {
+        struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
+        
+        if ( likely( m != NULL ) ) {
+            uint16_t pkt_len = sizeof( struct net_hdr ) + sizeof( struct cam_hdr );
+            uint8_t *pkt_data = ( uint8_t * )rte_pktmbuf_append( m, pkt_len );
+            
+            if ( unlikely( pkt_data == NULL ) ) {
+                rte_pktmbuf_free( m );
+                break;
+            }
+
+            template_hdr.net.ipv4.total_length = rte_cpu_to_be_16( sizeof( struct rte_ipv4_hdr) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) );
+            template_hdr.net.ipv4.hdr_checksum = 0;
+            template_hdr.net.ipv4.hdr_checksum = rte_ipv4_cksum( &template_hdr.net.ipv4 );
+            template_hdr.net.udp.dgram_len = rte_cpu_to_be_16( sizeof( struct rte_udp_hdr) + sizeof( struct cam_hdr ) );
+            
+            template_hdr.cam.frame_id = htonl( END_OF_STREAM );
+            template_hdr.cam.temporal_skip = rte_cpu_to_be_16( current_temporal_skip );
+            template_hdr.cam.points_in_packet = 0;
+            template_hdr.cam.original_points = 0;
+            
+            rte_memcpy( pkt_data, &template_hdr, outer_len );
+            
+            eos_burst[ eos_count++ ] = m;
+        }
+        else
+            break;
+    }
+    
+    if ( eos_count > 0 ) {
+        uint16_t sent = 0;
+        uint16_t zero_accept_streak = 0;
+
+        while ( sent < eos_count ) {
+            uint16_t nb_tx = rte_eth_tx_burst( PORT_SFF1, 0, &eos_burst[ sent ], eos_count - sent );
+            sent += nb_tx;
+
+            if ( nb_tx == 0 ) {
+                if ( ++zero_accept_streak > MAX_ZERO_ACCEPTS ) {
+                    for ( uint16_t i = sent; i < eos_count; i++ )
+                        rte_pktmbuf_free( eos_burst[ i ] );
+
+                    break;
+                }
+
+                rte_pause();
+            } 
+            else
+                zero_accept_streak = 0;
+        }
+    }
+
+    if ( temporal_notification_printed )
+        printf( "\n" );
+
+    telemetry_to_csv();
+    
+    printf( "\n[SYSTEM] Sequence completed. Shutting down...\n" );
+    rte_delay_us_sleep( WAITING_TIME * 100 );
+
 
     return 0;
 }
@@ -896,10 +916,10 @@ int main( int argc, char *argv[] ) {
     if ( WARM_MODE == WARM_MODE_ENABLED && CACHE_MODE != CACHE_MODE_BEST )
         lock_persistent_pages();
     
-    header_init( &template_hdr );
+    main_header_init( &template_hdr );
 
-    printf( "[SYSTEM] Waiting time for initial stability...\n\n" );
-    rte_delay_ms( WAITING_TIME );
+    printf( "[SYSTEM] Waiting for initial stability...\n\n" );
+    rte_delay_us_sleep( WAITING_TIME * 1000 );
 
     uint32_t worker_lcore = rte_get_next_lcore( -1, 1, 0 );
 

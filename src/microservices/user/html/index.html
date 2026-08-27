@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang = "en">
+<head>
+    <meta charset = "UTF-8">
+    <meta name = "viewport" content = "width = device-width, initial-scale = 1.0">
+    <title>Real-Time Point-Cloud Viewer</title>
+    <link rel = "icon" type = "image/png" href = "favicon.png">
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background: #050505; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        
+        #hud { position: absolute; top: 14px; left: 14px; z-index: 5; min-width: 350px; color: #d8f8df; background: rgba( 0, 0, 0, .78 ); border: 1px solid #2f8f4e; border-radius: 8px; padding: 12px 14px; line-height: 1.45; }
+        #hud strong { color: #6cff9b; }
+        #hud ul { margin: 6px 0 0; padding-left: 20px; }
+        #hud li { margin-bottom: 4px; }
+        
+        #ctrl { position: absolute; right: 14px; top: 14px; z-index: 5; width: 300px; color: #e8e8e8; background: rgba( 0, 0, 0, .78 ); border: 1px solid #555; border-radius: 8px; padding: 12px; }
+        #ctrl button { width: 62px; height: 34px; margin: 3px; border: 1px solid #777; border-radius: 6px; background: #181818; color: #fff; cursor: pointer; }
+        #ctrl button:hover { background: #292929; }
+        #ctrl .row { text-align: center; }
+        #ctrl .hint { margin-top: 9px; color: #aaa; font-size: 12px; line-height: 1.35; }
+        #ctrl .hint ul { margin: 5px 0; padding-left: 20px; }
+        #ctrl .hint li { margin-bottom: 3px; }
+        #ctrl .hint .keymap { margin: 5px 0; padding-left: 20px; list-style-type: disc; }
+        #ctrl .hint .keymap li { margin-bottom: 3px; }
+        #ctrl .hint .keymap .keyrow { display: grid; grid-template-columns: 72px 24px auto; align-items: baseline; }
+        
+        #ctrl .hint .guidelines { margin-top: 9px; }
+        #ctrl .hint .guidelines .description { margin-top: 5px; text-align: justify; text-align-last: left; text-justify: inter-word; hyphens: auto; }
+        
+        #ctrl .requested { margin-top: 9px; color: #aaa; font-size: 12px; line-height: 1.35; }
+        #ctrl .requested ul { margin: 5px 0 0; padding-left: 20px; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <div id = "hud">Establishing the association...</div>
+    <div id = "ctrl">
+        <div class = "row"><button data-cmd = "pitch+">Pitch +</button></div>
+        <div class = "row"><button data-cmd = "yaw-">Yaw -</button><button data-cmd = "reset">Reset</button><button data-cmd = "yaw+">Yaw +</button></div>
+        <div class = "row"><button data-cmd = "pitch-">Pitch -</button></div>
+        <div class = "row"><button data-cmd = "zoom-">Zoom -</button><button data-cmd = "zoom+">Zoom +</button></div>
+        <div class = "requested">
+            Pending stance:
+            <ul>
+                <li>Yaw: <span id = "requestedYaw">0.00 °</span></li>
+                <li>Pitch: <span id = "requestedPitch">0.00 °</span></li>
+                <li>Zoom: <span id = "requestedZoom">1.00</span></li>
+            </ul>
+        </div>
+        <div class = "hint">
+            Keyboard controls:
+            <ul class = "keymap">
+                <li><span class = "keyrow"><span>"W" / "S"</span><span>-></span><span>"pitch"</span></span></li>
+                <li><span class = "keyrow"><span>"A" / "D"</span><span>-></span><span>"yaw"</span></span></li>
+                <li><span class = "keyrow"><span>"+" / "-"</span><span>-></span><span>"zoom"</span></span></li>
+                <li><span class = "keyrow"><span>"R"</span><span>-></span><span>"reset"</span></span></li>
+            </ul>
+            <div class = "guidelines">
+                Notes:
+                <div class = "description">
+                    Guidelines are pose queries sent to Decoder. Such a panel reports all the key information of the first rendered element carrying that directive
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src = "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        const WEB_SIZE = 72;
+        const POINT_SIZE = 16;
+        const RADIANT_STEP = Math.PI / 36.0;
+        const ZOOM_STEP = 1.05;
+
+        const hud = document.getElementById( "hud" );
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 5000 );
+        
+        camera.position.set( 0, 80, 1000 );
+
+        const renderer = new THREE.WebGLRenderer( { antialias: true } );
+        
+        renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 2 ) );
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        
+        document.body.appendChild( renderer.domElement );
+
+        const controls = new THREE.OrbitControls( camera, renderer.domElement );
+        controls.target.set( 0, 0, 0 );
+        controls.update();
+
+        let geometry = new THREE.BufferGeometry();
+        const material = new THREE.PointsMaterial( { size: 2.2, vertexColors: true, sizeAttenuation: true } );
+        const cloud = new THREE.Points( geometry, material );
+
+        cloud.frustumCulled = false;
+
+        let pointCapacity = 0;
+        let positionArray = null;
+        let colorArray = null;
+        let positionData = null;
+        let colorData = null;
+
+        function ensurePointCapacity( requiredPoints ) {
+            if ( requiredPoints <= pointCapacity )
+                return;
+
+            const block = 65536;
+            const newCapacity = Math.ceil( requiredPoints / block ) * block;
+
+            const newPositionArray = new Float32Array( newCapacity * 3 );
+            const newColorArray = new Uint8Array( newCapacity * 3 );
+
+            const newPositionData = new THREE.BufferAttribute( newPositionArray, 3 );
+            const newColorData = new THREE.BufferAttribute( newColorArray, 3, true );
+
+            newPositionData.setUsage( THREE.DynamicDrawUsage );
+            newColorData.setUsage( THREE.DynamicDrawUsage );
+
+            const newGeometry = new THREE.BufferGeometry();
+            newGeometry.setAttribute( "position", newPositionData );
+            newGeometry.setAttribute( "color", newColorData );
+            newGeometry.setDrawRange( 0, 0 );
+
+            const oldGeometry = geometry;
+
+            geometry = newGeometry;
+            cloud.geometry = newGeometry;
+
+            oldGeometry.dispose();
+
+            pointCapacity = newCapacity;
+            positionArray = newPositionArray;
+            colorArray = newColorArray;
+            positionData = newPositionData;
+            colorData = newColorData;
+        }
+
+        scene.add( cloud );
+        scene.add( new THREE.AxesHelper( 150 ) );
+
+        let yaw = 0.0;
+        let pitch = 0.0;
+        let zoom = 1.0;
+        let streamReady = false;
+        let pendingPose = false;
+        let cmdSeq = 1;
+        const cmdTimes = new Map();
+
+        let frameId = 0;
+        let pointCount = 0;
+        let originalPoints = 0;
+        let arrivedPoints = 0;
+        let erodedPoints = 0;
+        let validPoints = 0;
+        let currentSkip = 1;
+        let frameYaw = 0.0;
+        let framePitch = 0.0;
+        let frameZoom = 1.0;
+        let e2eMs = 0.0;
+        let applyMs = 0.0;
+        let lastCtp = 0.0;
+        let renderFrame = 0;
+        let renderCmd = 0;
+        let ackFrame = 0;
+        let renderPending = false;
+
+        const requestedYaw = document.getElementById( "requestedYaw" );
+        const requestedPitch = document.getElementById( "requestedPitch" );
+        const requestedZoom = document.getElementById( "requestedZoom" );
+
+        const params = new URLSearchParams( window.location.search );
+
+        const wsPort = params.get( "ws" ) || "9999";
+        const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
+        
+        const socket = new WebSocket( `${wsProto}://${window.location.hostname}:${wsPort}` );
+        socket.binaryType = "arraybuffer";
+
+        function updateRequestedPose() {
+
+            // Purpose: It exposes the present spatial condition independently from the element availability
+
+            requestedYaw.textContent = `${( yaw * 180 / Math.PI ).toFixed( 2 )} °`;
+            requestedPitch.textContent = `${( pitch * 180 / Math.PI ).toFixed( 2 )} °`;
+            requestedZoom.textContent = zoom.toFixed( 2 );
+        }
+
+        function sendPose() {
+
+            // Purpose: It packages the current rotation & zoom states into a "JSON" string & forwards them to the "Python" "WebSocket" endpoint
+
+            if ( socket.readyState !== WebSocket.OPEN ) 
+                return;
+
+            const cmdId = cmdSeq++;
+            cmdTimes.set( cmdId, performance.now() );
+
+            socket.send( JSON.stringify( { type: "pose", id: cmdId, yaw: yaw, pitch: pitch, zoom: zoom } ) );        
+        }
+
+        function applyCmd( cmd ) {
+
+            // Purpose: It interprets a specific keyboard or button directive, accumulating the required transformation & scheduling the network dispatch
+
+            if ( cmd === "yaw+" ) yaw += RADIANT_STEP;
+            else if ( cmd === "yaw-" ) yaw -= RADIANT_STEP;
+            else if ( cmd === "pitch+" ) pitch += RADIANT_STEP;
+            else if ( cmd === "pitch-" ) pitch -= RADIANT_STEP;
+            else if ( cmd === "zoom+" ) zoom *= ZOOM_STEP;
+            else if ( cmd === "zoom-" ) zoom /= ZOOM_STEP;
+            else if ( cmd === "reset" ) { yaw = 0.0; pitch = 0.0; zoom = 1.0; }
+            else 
+                return;
+
+            updateRequestedPose();
+
+            if ( !streamReady ) {
+                pendingPose = true;
+                return;
+            }
+
+            sendPose();
+        }
+
+        document.querySelectorAll( "button[data-cmd]" ).forEach( ( button ) => { 
+            button.addEventListener( "click", () => applyCmd( button.dataset.cmd ) );
+        } );
+
+        window.addEventListener( "keydown", ( event ) => { 
+            if ( event.repeat ) 
+                return;
+
+            const key = event.key.toLowerCase();
+
+            if ( key === "w" ) applyCmd( "pitch+" );
+            else if ( key === "s" ) applyCmd( "pitch-" );
+            else if ( key === "a" ) applyCmd( "yaw-" );
+            else if ( key === "d" ) applyCmd( "yaw+" );
+            else if ( key === "+" || key === "=" ) applyCmd( "zoom+" );
+            else if ( key === "-" || key === "_" ) applyCmd( "zoom-" );
+            else if ( key === "r" ) applyCmd( "reset" );
+        } );
+
+        socket.onopen = () => {
+            hud.innerHTML = "<strong>Connected.</strong> Waiting for initial element...";
+        };
+
+        socket.onclose = () => {
+            hud.innerHTML = "<strong>Disconnected.</strong>";
+        };
+
+        socket.onmessage = ( event ) => {
+
+            // Purpose: It intercepts binary "WebSocket" payloads, decoding the "C"-aligned frame header & mapping the associated point-cloud geometry into the "WebGL" scene
+
+            if ( ! ( event.data instanceof ArrayBuffer ) || event.data.byteLength < WEB_SIZE ) 
+                return;
+
+            const view = new DataView( event.data );
+            frameId = view.getUint32( 8, true );
+            pointCount = view.getUint32( 12, true );
+            originalPoints = view.getUint32( 16, true );
+            arrivedPoints = view.getUint32( 20, true );
+            erodedPoints = view.getUint32( 24, true );
+            validPoints = view.getUint32( 28, true );
+            renderCmd = view.getUint32( 32, true );
+            currentSkip = view.getUint16( 36, true );
+            frameYaw = view.getFloat32( 40, true );
+            framePitch = view.getFloat32( 44, true );
+            frameZoom = view.getFloat32( 48, true );
+            e2eMs = view.getFloat64( 56, true );
+            applyMs = view.getFloat64( 64, true );
+
+            if ( event.data.byteLength !== WEB_SIZE + pointCount * POINT_SIZE ) 
+                return;
+
+            ensurePointCapacity( pointCount );
+
+            if ( pointCount > 0 ) {
+                const sourceBytes = new Uint8Array( event.data, WEB_SIZE, pointCount * POINT_SIZE );
+                const sourceFloats = new Float32Array( event.data, WEB_SIZE, pointCount * 4 );
+
+                for ( let i = 0, position = 0, color = 0, sourceFloat = 0, sourceByte = 0; i < pointCount; i++, position += 3, color += 3, sourceFloat += 4, sourceByte += POINT_SIZE ) {
+                    positionArray[ position ] = sourceFloats[ sourceFloat ];
+                    positionArray[ position + 1 ] = sourceFloats[ sourceFloat + 1 ];
+                    positionArray[ position + 2 ] = sourceFloats[ sourceFloat + 2 ];
+
+                    colorArray[ color ] = sourceBytes[ sourceByte + 12 ];
+                    colorArray[ color + 1 ] = sourceBytes[ sourceByte + 13 ];
+                    colorArray[ color + 2 ] = sourceBytes[ sourceByte + 14 ];
+                }
+ 
+                positionData.updateRange.offset = 0;
+                positionData.updateRange.count = pointCount * 3;
+                positionData.needsUpdate = true;
+ 
+                colorData.updateRange.offset = 0;
+                colorData.updateRange.count = pointCount * 3;
+                colorData.needsUpdate = true;
+            }
+
+            geometry.setDrawRange( 0, pointCount );
+
+            renderFrame = frameId;
+
+            if ( !streamReady ) {
+                streamReady = true;
+
+                if ( pendingPose ) {
+                    pendingPose = false;
+                    sendPose();
+                }
+                else {
+                    yaw = frameYaw;
+                    pitch = framePitch;
+                    zoom = frameZoom;
+                    updateRequestedPose();
+                }
+            }
+            else if ( cmdTimes.size === 0 ) {
+                yaw = frameYaw;
+                pitch = framePitch;
+                zoom = frameZoom;
+                updateRequestedPose();
+            }
+
+            const retention = originalPoints > 0 ? ( 100.0 * validPoints / originalPoints ) : 0.0;
+            const ctpText = lastCtp > 0 ? `${lastCtp.toFixed( 2 )} ms` : "n / a";
+
+            hud.innerHTML = `
+                <strong>Frame:</strong> ${frameId} ( Skip: ${currentSkip} )
+                <ul>
+                    <li>Points: ${pointCount.toLocaleString()} / ${originalPoints.toLocaleString()} ( ${retention.toFixed( 2 )} % )</li>
+                    <li>Condition: 
+                        <ul>
+                            <li>Arrived: ${arrivedPoints.toLocaleString()}</li>
+                            <li>Eroded: ${erodedPoints.toLocaleString()}</li>
+                            <li>Valid: ${validPoints.toLocaleString()}</li>
+                        </ul>
+                    </li>
+                    <li>Status:
+                        <ul>
+                            <li>Yaw: ${( frameYaw * 180 / Math.PI ).toFixed( 2 )} &deg;</li>
+                            <li>Pitch: ${( framePitch * 180 / Math.PI ).toFixed( 2 )} &deg;</li>
+                            <li>Zoom: ${frameZoom.toFixed( 2 )}</li>
+                        </ul>
+                    </li>
+                    <li>Latency: ${e2eMs.toFixed( 2 )} ms</li>
+                    <li>Directive: ${applyMs > 0 ? applyMs.toFixed( 2 ) + " ms" : "n / a"}</li>
+                    <li><strong>"Command-to-Photon":</strong> ${ctpText}</li>
+                </ul>
+            `;
+
+            scheduleRender();
+        };
+
+        function scheduleRender() {
+
+            // Purpose: It orchestrates a single browser rendering pass whenever the visible scene has changed
+
+            if ( renderPending )
+                return;
+
+            renderPending = true;
+            requestAnimationFrame( render );
+        }
+
+        function render() {
+
+            // Purpose: It depicts the latest available point-cloud state & acknowledges the corresponding displayed element
+
+            renderPending = false;
+
+            controls.update();
+            renderer.render( scene, camera );
+
+            if ( renderFrame > 0 && renderFrame !== ackFrame && socket.readyState === WebSocket.OPEN ) {
+                let ackCmd = 0;
+                let ctpMs = 0.0;
+
+                if ( renderCmd > 0 && cmdTimes.has( renderCmd ) ) {
+                    ctpMs = performance.now() - cmdTimes.get( renderCmd );
+                    lastCtp = ctpMs;
+                    cmdTimes.delete( renderCmd );
+                    ackCmd = renderCmd;
+                }
+
+                socket.send( JSON.stringify( { type: "ack", frame: renderFrame, cmd: ackCmd, ctp_ms: ctpMs } ) );
+
+                ackFrame = renderFrame;
+            }
+        }
+
+        controls.addEventListener( "change", scheduleRender );
+
+        scheduleRender();
+
+        window.addEventListener( "resize", () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            scheduleRender();
+        } );
+    </script>
+</body>
+</html>

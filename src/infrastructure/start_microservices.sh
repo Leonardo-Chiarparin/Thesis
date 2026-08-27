@@ -1,6 +1,11 @@
-#!/bin/bash
-
 set -euo pipefail
+
+QUALITY_CAPTURE="0"
+
+if [ "$QUALITY_CAPTURE" != "0" ] && [ "$QUALITY_CAPTURE" != "1" ]; then
+  echo "[SYSTEM] Error: \"QUALITY_CAPTURE\" must be either \"0\" or \"1\"..."
+  exit 1
+fi
 
 echo -e "[SYSTEM] Creating the \"base\" image...\n"
 
@@ -9,6 +14,7 @@ sudo docker build -t base ./microservices/base
 
 echo -e "\n[SYSTEM] Removing any existing microservices...\n"
 
+sudo rm -f /tmp/sfc-encoder-ready /tmp/sfc-decoder-ready /tmp/sfc-user-ready
 sudo docker rm -f camera sff1 encoder sff2 decoder sff3 user 2>/dev/null || true
 
 # Launches containers sequentially in detached mode, configuring explicit naming, working directories, "CPU" affinity, optional "GPU" access, shared "HugePages" & designed "DPDK" "lcores"
@@ -21,9 +27,25 @@ start_node() {
 
   local ENTRYPOINT="entrypoint.sh"
   local GPU_FLAG=""
+  local NETWORK_FLAG="--net none"
+  local PORTS=""
+  local ENVIRONMENT=""
 
   if [ "$USE_GPU" == "true" ]; then
     GPU_FLAG="--gpus all"
+  fi
+
+  if [ "$NODE_NAME" == "encoder" ]; then
+    ENVIRONMENT="--env QUALITY_CAPTURE=$QUALITY_CAPTURE"
+  fi
+
+  if [ "$NODE_NAME" == "user" ]; then
+    ENVIRONMENT="--env QUALITY_CAPTURE=$QUALITY_CAPTURE"
+  
+    if [ "$QUALITY_CAPTURE" = "0" ]; then
+      NETWORK_FLAG="--network bridge"
+      PORTS="-p 8080:8080 -p 9999:9999"
+    fi
   fi
 
   sudo docker run -itd \
@@ -31,8 +53,10 @@ start_node() {
     --privileged \
     $GPU_FLAG \
     --env DPDK_CORE="$DPDK_CORE" \
+    $ENVIRONMENT \
     --entrypoint "" \
-    --net none \
+    $NETWORK_FLAG \
+    $PORTS \
     --cpuset-cpus="$CORE_SET" \
     -v /dev/hugepages:/dev/hugepages \
     -v /tmp/:/tmp/ \
@@ -50,31 +74,51 @@ wait_for_dpdk_init() {
   done
 }
 
-start_node "user" "user" "7" "false" "7" # + "rendering"
-# wait_for_dpdk_init "/tmp/vh-usr"
+wait_for_node_init() {
+  local READY_PATH=$1
 
-start_node "decoder" "decoder" "0,6" "true" "6"
-# wait_for_dpdk_init "/tmp/vh-dec"
+  while [ ! -f "$READY_PATH" ]; do
+    sleep 0.05
 
-start_node "encoder" "encoder" "0,5" "true" "5"
-wait_for_dpdk_init "/tmp/vh-enc"
+  done
+}
 
-start_node "sff2" "sff2" "4" "false" "4"
-wait_for_dpdk_init "/tmp/vh-sff2-sff1"
-wait_for_dpdk_init "/tmp/vh-sff2-enc"
-wait_for_dpdk_init "/tmp/vh-sff2-dec"
-wait_for_dpdk_init "/tmp/vh-sff2-sff3"
+# Reference physical topology: { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }
 
-start_node "sff3" "sff3" "3" "false" "3"
-# wait_for_dpdk_init "/tmp/vh-sff3-sff2"
-# wait_for_dpdk_init "/tmp/vh-sff3-usr"
+start_node "sff2" "sff2" "6" "false" "6"
+wait_for_dpdk_init "/tmp/sfc-sff1-sff2"
+wait_for_dpdk_init "/tmp/sfc-sff2-enc"
+wait_for_dpdk_init "/tmp/sfc-sff2-dec"
+wait_for_dpdk_init "/tmp/sfc-sff2-sff3"
+
+start_node "decoder" "decoder" "2,4" "true" "4"
+start_node "encoder" "encoder" "5,7" "true" "5"
+
+wait_for_node_init "/tmp/sfc-encoder-ready"
+wait_for_node_init "/tmp/sfc-decoder-ready"
+
+start_node "sff3" "sff3" "7" "false" "7"
+wait_for_dpdk_init "/tmp/sfc-sff3-usr"
+
+if [ "$QUALITY_CAPTURE" = "1" ]; then
+  USER_GROUP="0"
+else
+  USER_GROUP="0,2"
+fi
+
+start_node "user" "user" "$USER_GROUP" "false" "0" 
+wait_for_node_init "/tmp/sfc-user-ready"
 
 start_node "sff1" "sff1" "3" "false" "3"
-wait_for_dpdk_init "/tmp/vh-sff1-cam"
-wait_for_dpdk_init "/tmp/vh-sff1-sff2"
+wait_for_dpdk_init "/tmp/sfc-cam-sff1"
 
-start_node "camera" "camera" "2" "false" "2"
-wait_for_dpdk_init "/tmp/vh-cam"
+if [ "$QUALITY_CAPTURE" = "0" ]; then
+  echo ""
+  read -r -p "[SYSTEM] Press \"ENTER\" once the remote viewer is linked up..."
+  echo ""
+fi
+
+start_node "camera" "camera" "1" "false" "1"
 
 echo -e "\n[SYSTEM] All components are up! Element status:\n"
 

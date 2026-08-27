@@ -1,4 +1,4 @@
-echo "[SYSTEM] Evaluating the \"C++\" application for \"Encoder\"..."
+echo "[SYSTEM] Evaluating the \"C++\" application for \"Decoder\"..."
 
 cd /app
 
@@ -13,6 +13,6 @@ fi
 
 echo -e "[SYSTEM] Communicating directly with \"DPDK\"...\n"
 
-/tmp/encoder_dpdk -l $DPDK_CORE -m 256 --file-prefix=encoder --single-file-segments --no-pci \
-  --vdev=net_virtio_user0,path=/tmp/sfc-sff2-enc,queue_size=4096,mac=00:00:00:00:03:01 \
+/tmp/decoder_dpdk -l $DPDK_CORE -m 256 --file-prefix=decoder --single-file-segments --no-pci \
+  --vdev=net_virtio_user0,path=/tmp/sfc-sff2-dec,queue_size=4096,mac=00:00:00:00:04:01 \
   --log-level=*:alert

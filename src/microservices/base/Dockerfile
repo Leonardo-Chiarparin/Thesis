@@ -18,10 +18,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     pkg-config \
     libnuma-dev \
+    python3 \
+    python3-pip \
     python3-pyelftools \
     ca-certificates \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir \
+    "websockets>=12,<17" \
+    "numpy>=1.26,<3" \
+    "scipy>=1.11,<2"
 
 # Collects & sets the fixed "DPDK 22.11.4 LTS" ( "stable" version ) baseline used by the whole experiment
 RUN wget http://fast.dpdk.org/rel/dpdk-22.11.4.tar.xz && \

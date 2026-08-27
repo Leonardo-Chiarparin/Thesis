@@ -1,7 +1,3 @@
-#ifndef __CUDACC__
-#define __CUDACC__
-#endif
-
 #include "encoder.h"
 #include <cuda_runtime.h>
 #include <cmath>
@@ -16,7 +12,7 @@
     } \
 }
 
-// Persistent device-side buffers eliminate frame-local allocation & memory-handling overhead from the critical streaming path
+// Persistent device-side buffers eliminating frame-local allocation & memory-handling overhead from the critical streaming path
 static struct host_point *d_points = nullptr;
 static uint8_t *d_out = nullptr;
 static int32_t *d_zbuf = nullptr;
@@ -33,124 +29,6 @@ static cudaEvent_t h2d_done_event = nullptr;
 static cudaEvent_t kernel_done_event = nullptr;
 static cudaEvent_t packing_done_event = nullptr;
 static cudaEvent_t d2h_done_event = nullptr;
-
-extern "C" void cuda_memory_init( uint32_t max_pts ) {
-
-    // Purpose: It preallocates all requisite components for the fixed-resolution projection pipeline, circumventing distribution system burden
-
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_points, max_pts * sizeof( struct host_point ) ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_out, TOTAL_YUV_SIZE ) );
-
-    size_t face_mem = 6 * FACE_H_PADDED * FACE_W_PADDED;
-
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_zbuf, face_mem * sizeof( int32_t ) ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_geo, face_mem ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_occ, face_mem ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_y, face_mem ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_u, face_mem ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_v, face_mem ) );
-
-    CHECK_CUDA( cudaFree( 0 ) );
-    CHECK_CUDA( cudaStreamCreate( &projection_stream ) );
-
-    CHECK_CUDA( cudaEventCreate( &projection_start_event ) );
-    CHECK_CUDA( cudaEventCreate( &h2d_done_event ) );
-    CHECK_CUDA( cudaEventCreate( &kernel_done_event ) );
-    CHECK_CUDA( cudaEventCreate( &packing_done_event ) );
-    CHECK_CUDA( cudaEventCreate( &d2h_done_event ) );
-}
-
-extern "C" void cuda_memory_free() {
-
-    // Purpose: It releases "CUDA" context resources & timing events
-
-    if ( projection_start_event != nullptr )
-        CHECK_CUDA( cudaEventDestroy( projection_start_event ) );
-
-    if ( h2d_done_event != nullptr )
-        CHECK_CUDA( cudaEventDestroy( h2d_done_event ) );
-
-    if ( kernel_done_event != nullptr )
-        CHECK_CUDA( cudaEventDestroy( kernel_done_event ) );
-
-    if ( packing_done_event != nullptr )
-        CHECK_CUDA( cudaEventDestroy( packing_done_event ) );
-
-    if ( d2h_done_event != nullptr )
-        CHECK_CUDA( cudaEventDestroy( d2h_done_event ) );
-
-    if ( projection_stream != nullptr )
-        CHECK_CUDA( cudaStreamDestroy( projection_stream ) );
-
-    projection_start_event = nullptr;
-    h2d_done_event = nullptr;
-    kernel_done_event = nullptr;
-    packing_done_event = nullptr;
-    d2h_done_event = nullptr;
-    projection_stream = nullptr;
-
-    cudaFree( d_points );
-    cudaFree( d_out );
-    cudaFree( d_zbuf );
-    cudaFree( d_geo );
-    cudaFree( d_occ );
-    cudaFree( d_tex_y );
-    cudaFree( d_tex_u );
-    cudaFree( d_tex_v );
-
-    d_points = nullptr;
-    d_out = nullptr;
-    d_zbuf = nullptr;
-    d_geo = nullptr;
-    d_occ = nullptr;
-    d_tex_y = nullptr;
-    d_tex_u = nullptr;
-    d_tex_v = nullptr;
-}
-
-extern "C" void cuda_memory_warmup() {
-
-    // Purpose: It executes an untimed projection pipeline iteration to initialize the forthcoming scenario, kernel paths, & buffer residency prior to measurement
-
-    const uint32_t n_pts = 100;
-    struct host_point dummy_points[ n_pts ];
-
-    for ( uint32_t i = 0; i < n_pts; i++ ) {
-        dummy_points[ i ].x = ( ( float )rand() / RAND_MAX ) * 10.0f;
-        dummy_points[ i ].y = ( ( float )rand() / RAND_MAX ) * 10.0f;
-        dummy_points[ i ].z = ( ( float )rand() / RAND_MAX ) * 10.0f;
-        dummy_points[ i ].r = 0;
-        dummy_points[ i ].g = 0;
-        dummy_points[ i ].b = 0;
-        dummy_points[ i ].padding = 0;
-    }
-
-    uint8_t *dummy_out = ( uint8_t * )malloc( TOTAL_YUV_SIZE );
-    double dummy_metrics[ 4 ] = { 0.0, 0.0, 0.0, 0.0 };
-    float dummy_global_scale = 1.0f;
-    float dummy_bbox_center_x = 0.0f;
-    float dummy_bbox_center_y = 0.0f;
-    float dummy_bbox_center_z = 0.0f;
-    uint64_t dummy_projection_end_cycles = 0;
-
-    run_projection_pipeline( dummy_points, n_pts, 0.0f, 0.0f, 0.0f, 100.0f, 100.0f, 100.0f, 0.0f, 0.0f, 0.0f, 1.0f, CAMERA_DISTANCE, dummy_out, dummy_metrics, &dummy_global_scale, &dummy_bbox_center_x, &dummy_bbox_center_y, &dummy_bbox_center_z, &dummy_projection_end_cycles, nullptr );
-
-    free( dummy_out );
-}
-
-extern "C" void cuda_memory_register( void *ptr, size_t size ) {
-    
-    // Purpose: It registers host memory with the "CUDA" runtime to enable optimized pinned transfers
-    
-    CHECK_CUDA( cudaHostRegister( ptr, size, cudaHostRegisterDefault ) );
-}
-
-extern "C" void cuda_memory_unleash( void *ptr ) {
-
-    // Purpose: It removes user references from the environment
-
-    CHECK_CUDA( cudaHostUnregister( ptr ) );
-}
 
 __global__ void generate_gbuffer_cuda_kernel( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float final_scale, float cam_dist, float bbox_center_x, float bbox_center_y, float bbox_center_z, float global_scale, int32_t *z_buffer, uint8_t *geo_y, uint8_t *occ_y, uint8_t *tex_y, uint8_t *tex_u, uint8_t *tex_v ) {
 
@@ -290,10 +168,128 @@ __global__ void pack_i420_stream_cuda( const uint8_t *geo_y, const uint8_t *occ_
     }
 }
 
-extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_bbox_center_x, float raw_bbox_center_y, float raw_bbox_center_z, float final_scale, float cam_dist, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_bbox_center_x, float *out_bbox_center_y, float *out_bbox_center_z, uint64_t *out_projection_end_cycles, dpdk_poll_callback_t dpdk_poll_callback ) {
+extern "C" void cuda_memory_init( uint32_t max_pts ) {
 
-    // Purpose: It orchestrates asynchronous "H2D" transfer, "G-Buffer" projection, "Atlas" packing & "D2H" copies, exploiting the static pose data to optimize transformations
-    //          Since "yaw" = "pitch" = 0 & "zoom" = 1, transformed bounds are exact affine images of the raw frontiers, therefore no point-wise box reduction is necessary
+    // Purpose: It preallocates all requisite components for the fixed-resolution projection pipeline, circumventing distribution system burden during isochronous execution
+
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_points, max_pts * sizeof( struct host_point ) ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_out, TOTAL_YUV_SIZE ) );
+
+    size_t face_mem = 6 * FACE_H_PADDED * FACE_W_PADDED;
+
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_zbuf, face_mem * sizeof( int32_t ) ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_geo, face_mem ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_occ, face_mem ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_y, face_mem ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_u, face_mem ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_tex_v, face_mem ) );
+
+    CHECK_CUDA( cudaFree( 0 ) );
+    CHECK_CUDA( cudaStreamCreate( &projection_stream ) );
+
+    CHECK_CUDA( cudaEventCreate( &projection_start_event ) );
+    CHECK_CUDA( cudaEventCreate( &h2d_done_event ) );
+    CHECK_CUDA( cudaEventCreate( &kernel_done_event ) );
+    CHECK_CUDA( cudaEventCreate( &packing_done_event ) );
+    CHECK_CUDA( cudaEventCreate( &d2h_done_event ) );
+}
+
+extern "C" void cuda_memory_free() {
+
+    // Purpose: It releases "CUDA" context resources & diagnostic timing events
+
+    if ( projection_start_event != nullptr )
+        CHECK_CUDA( cudaEventDestroy( projection_start_event ) );
+
+    if ( h2d_done_event != nullptr )
+        CHECK_CUDA( cudaEventDestroy( h2d_done_event ) );
+
+    if ( kernel_done_event != nullptr )
+        CHECK_CUDA( cudaEventDestroy( kernel_done_event ) );
+
+    if ( packing_done_event != nullptr )
+        CHECK_CUDA( cudaEventDestroy( packing_done_event ) );
+
+    if ( d2h_done_event != nullptr )
+        CHECK_CUDA( cudaEventDestroy( d2h_done_event ) );
+
+    if ( projection_stream != nullptr )
+        CHECK_CUDA( cudaStreamDestroy( projection_stream ) );
+
+    projection_start_event = nullptr;
+    h2d_done_event = nullptr;
+    kernel_done_event = nullptr;
+    packing_done_event = nullptr;
+    d2h_done_event = nullptr;
+    projection_stream = nullptr;
+
+    cudaFree( d_points );
+    cudaFree( d_out );
+    cudaFree( d_zbuf );
+    cudaFree( d_geo );
+    cudaFree( d_occ );
+    cudaFree( d_tex_y );
+    cudaFree( d_tex_u );
+    cudaFree( d_tex_v );
+
+    d_points = nullptr;
+    d_out = nullptr;
+    d_zbuf = nullptr;
+    d_geo = nullptr;
+    d_occ = nullptr;
+    d_tex_y = nullptr;
+    d_tex_u = nullptr;
+    d_tex_v = nullptr;
+}
+
+extern "C" void cuda_memory_warmup() {
+
+    // Purpose: It performs an untimed iteration to configure the forthcoming scenario, kernel paths, & buffer residency prior to measurement
+
+    const uint32_t n_pts = 100;
+    struct host_point dummy_points[ n_pts ];
+
+    for ( uint32_t i = 0; i < n_pts; i++ ) {
+        dummy_points[ i ].x = ( ( float )rand() / RAND_MAX ) * 10.0f;
+        dummy_points[ i ].y = ( ( float )rand() / RAND_MAX ) * 10.0f;
+        dummy_points[ i ].z = ( ( float )rand() / RAND_MAX ) * 10.0f;
+        dummy_points[ i ].r = 0;
+        dummy_points[ i ].g = 0;
+        dummy_points[ i ].b = 0;
+        dummy_points[ i ].padding = 0;
+    }
+
+    uint8_t *dummy_out = ( uint8_t * )malloc( TOTAL_YUV_SIZE );
+    double dummy_metrics[ 4 ] = { 0.0, 0.0, 0.0, 0.0 };
+    float dummy_global_scale = 1.0f;
+    float dummy_bbox_center_x = 0.0f;
+    float dummy_bbox_center_y = 0.0f;
+    float dummy_bbox_center_z = 0.0f;
+    uint64_t dummy_projection_end_cycles = 0;
+
+    run_projection_pipeline( dummy_points, n_pts, 0.0f, 0.0f, 0.0f, 100.0f, 100.0f, 100.0f, 0.0f, 0.0f, 0.0f, 1.0f, CAMERA_DISTANCE, dummy_out, dummy_metrics, &dummy_global_scale, &dummy_bbox_center_x, &dummy_bbox_center_y, &dummy_bbox_center_z, &dummy_projection_end_cycles, nullptr );
+
+    free( dummy_out );
+}
+
+extern "C" void cuda_memory_register( void *ptr, size_t size ) {
+    
+    // Purpose: It registers host memory with the "CUDA" runtime to enable optimized pinned transfers
+    
+    CHECK_CUDA( cudaHostRegister( ptr, size, cudaHostRegisterDefault ) );
+}
+
+extern "C" void cuda_memory_unleash( void *ptr ) {
+
+    // Purpose: It removes user references from the environment
+
+    CHECK_CUDA( cudaHostUnregister( ptr ) );
+}
+
+extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_bbox_center_x, float raw_bbox_center_y, float raw_bbox_center_z, float final_scale, float cam_dist, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_bbox_center_x, float *out_bbox_center_y, float *out_bbox_center_z, uint64_t *out_projection_end_cycles, process_callback_t process_callback ) {
+
+    // Purpose: It orchestrates asynchronous "Host-to-Device" ( "H2D" ) shift, "G-Buffer" projection, "Atlas" packing & "Device-to-Host" ( "D2H" ) copies, exploiting static pose data to enhance transformations
+    //          Since "yaw" = "pitch" = 0 & "zoom" = 1, retrieved bounds are precise affine images of the raw frontiers, therefore no point-wise box reduction is necessary
 
     if ( num_pts == 0 ) {
         if ( out_global_scale )
@@ -328,8 +324,8 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
     for ( uint32_t offset = 0; offset < num_pts; offset += H2D_CHUNK_POINTS ) {
         uint32_t cur_pts = ( offset + H2D_CHUNK_POINTS > num_pts ) ? ( num_pts - offset ) : H2D_CHUNK_POINTS;
 
-        if ( dpdk_poll_callback != nullptr )
-            dpdk_poll_callback();
+        if ( process_callback != nullptr )
+            process_callback();
 
         CHECK_CUDA( cudaMemcpyAsync( d_points + offset, points + offset, cur_pts * sizeof( struct host_point ), cudaMemcpyHostToDevice, stream ) );
     }
@@ -392,9 +388,9 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
     CHECK_CUDA( cudaMemcpyAsync( out_yuv_buffer, d_out, TOTAL_YUV_SIZE, cudaMemcpyDeviceToHost, stream ) );
     CHECK_CUDA( cudaEventRecord( d2h_done_event, stream ) );
 
-    if ( dpdk_poll_callback != nullptr ) {
+    if ( process_callback != nullptr ) {
         while ( cudaStreamQuery( stream ) == cudaErrorNotReady )
-            dpdk_poll_callback();
+            process_callback();
 
         CHECK_CUDA( cudaStreamQuery( stream ) );
     }

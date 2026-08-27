@@ -1,5 +1,3 @@
-#!/bin/bash
-
 echo "[SYSTEM] Evaluating the \"C\" application for \"SFF2\"..."
 
 # Compiles the "DPDK" program applying maximum optimization flags ( "-03" ) & linking modules natively via "gcc" / "pkg-config"
@@ -10,11 +8,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo -e "[SYSTEM] Communicating directly with \"OVS\"-\"DPDK\"...\n"
+echo -e "[SYSTEM] Communicating directly \"DPDK\"...\n"
 
 /tmp/sff2_dpdk -l $DPDK_CORE -m 256 --file-prefix=sff2 --single-file-segments --no-pci \
-  --vdev=net_virtio_user0,path=/tmp/vh-sff2-sff1,server=1,queue_size=1024,mac=00:00:00:00:02:02 \
-  --vdev=net_virtio_user1,path=/tmp/vh-sff2-enc,server=1,queue_size=4096,mac=00:00:00:00:03:01 \
-  --vdev=net_virtio_user2,path=/tmp/vh-sff2-dec,server=1,queue_size=4096,mac=00:00:00:00:04:01 \
-  --vdev=net_virtio_user3,path=/tmp/vh-sff2-sff3,server=1,queue_size=1024,mac=00:00:00:00:05:01 \
+  --vdev=net_vhost0,iface=/tmp/sfc-sff1-sff2,queues=1 \
+  --vdev=net_vhost1,iface=/tmp/sfc-sff2-enc,queues=1 \
+  --vdev=net_vhost2,iface=/tmp/sfc-sff2-dec,queues=1 \
+  --vdev=net_vhost3,iface=/tmp/sfc-sff2-sff3,queues=1 \
   --log-level=*:alert
