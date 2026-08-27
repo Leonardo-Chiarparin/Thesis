@@ -4108,3 +4108,6 @@ src/shared/data/loot/original/loot_vox10_1296.ply
 src/shared/data/loot/original/loot_vox10_1297.ply
 src/shared/data/loot/original/loot_vox10_1298.ply
 src/shared/data/loot/original/loot_vox10_1299.ply
+src/shared/data/loot/made/results.bin
+src/shared/log/encoder/encoded.ts
+src/shared/log/encoder/reference_y.raw
