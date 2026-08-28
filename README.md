@@ -14,7 +14,7 @@
 
 ---
 
-## 🧭 Realization Status
+## 📌 Realization Status
 
 This repository serves as an experimental research platform rather than a production-ready "Service Function Chaining" ( "SFC" ) framework. The present snapshot implements & validates the complete `Camera`-to-`User` volumetric chain, the reverse workload-driven "Temporal" control path, the independent `User`-originated "Pose" path, the asynchronous browser bridge, & two deliberately separated validation conditions for runtime behaviour & objective "Quality".
 
@@ -23,7 +23,7 @@ This repository serves as an experimental research platform rather than a produc
 | `Camera` | Validated | "DPDK"-native point-cloud source, warm-mode file acquisition, frame packetisation, absolute scheduling, temporal selection, bounded local Tx resubmission, & source telemetry |
 | `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-progressive spatial aggregation, exact frame-completing radius evaluation, experimental "NSH" metadata insertion, & "Temporal" decapsulation directed to `Camera` |
 | `SFF2`<br>( Route 0 ) | Validated | Stateful proxy for `SFF1` -> `Encoder`; validates the aware envelope, preserves proxy state, strips service metadata, & forwards plain geometry-bearing application datagrams |
-| `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback, workload-driven "Temporal" regulation, "CUDA" projection, persistent "FFmpeg" / "NVENC" encoding, "MPEG-TS" attribution, & optional post-stream luma-"Quality" evaluation |
+| `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback, workload-driven "Temporal" regulation, "CUDA" projection, persistent "FFmpeg" / "NVENC" encoding, "MPEG-TS" attribution, & optional post-stream "luma"-"Quality" evaluation |
 | `SFF2`<br>( Route 1 ) | Validated | Proxy-maintained `Encoder` -> `Decoder` transition, compressed-media integrity accounting, & advancement of the primary service state |
 | `Decoder` | Validated | "SFC"-unaware persistent hardware-accelerated "H.265" decoding, occupancy erosion, geometric reconstruction, dynamic pose application, output packetisation, & reconstruction telemetry |
 | `SFF2`<br>( Route 2 ) | Validated | Stateful `Decoder` -> `SFF3` transition; advances the retained primary state, re-imposes the base service envelope, & records route-specific reconstructed-point telemetry |
@@ -48,11 +48,11 @@ Control mechanisms remain deliberately separated into two independent logical se
 
 The "Temporal" loop is fully operational. `Encoder` derives a requested `temporal_skip`, `SFF2` classifies the plain control datagram & imposes the corresponding service state, `SFF1` validates / removes the envelope, & `Camera` applies the reflected factor before subsequent source-frame admission. In both final representative runs, the controller remains at `current_skip = 1`, because the measured workload does not satisfy the configured overload conditions.
 
-The "Pose" loop is likewise operational. Browser-originated `yaw`, `pitch`, & `zoom` modifications are written into the `User` control mapping, dispatched as a plain 24-byte payload by the native `User`, encapsulated by `SFF3` as `SPI 300 / SI 255`, stripped by `SFF2`, & consumed by `Decoder`. `Decoder` applies the most recent accepted pose during reconstruction; the corresponding values return with the reconstructed frame & are correlated by `User` with command identifiers & browser render acknowledgments.
+The "Pose" cycle is likewise functional. Browser-originated `yaw`, `pitch`, & `zoom` modifications are written into the `User` control mapping, dispatched as a plain 24-byte payload by the native `User`, encapsulated by `SFF3` as `SPI 300 / SI 255`, stripped by `SFF2`, & consumed by `Decoder`. `Decoder` applies the most recent accepted pose during reconstruction; the corresponding values return with the reconstructed frame & are correlated by `User` with command identifiers & browser render acknowledgments.
 
 > **Repository Note:** The final topology no longer depends upon "Open vSwitch" or an "OVS"-"DPDK" "PMD". Native components are attached directly through explicit `/tmp/sfc-*` "vhost-user" / "virtio-user" adjacencies. This removes an intermediary switching stage & releases the logical core previously dedicated to the virtual switch for application-level placement.
 
-> **Validation Scope:** Two complementary 300-frame "Loot" conditions are archived. `QUALITY_CAPTURE = 0` enables the asynchronous browser bridge & measures interactive end-to-end / command behaviour; `QUALITY_CAPTURE = 1` removes the browser path, captures objective luma & reconstructed-geometry information in memory, & evaluates quality strictly after stream termination. Both final runs sustain 300 / 300 complete frames through every primary-route stage at `current_skip = 1`, with a `Camera` source cadence of approximately `29.997 frames/s`.
+> **Validation Scope:** Two complementary 300-frame "Loot" conditions are archived. `QUALITY_CAPTURE = 0` enables the asynchronous browser bridge & measures interactive end-to-end / command behaviour; `QUALITY_CAPTURE = 1` removes the browser path, captures objective "luma" & reconstructed-geometry information in memory, & evaluates quality strictly after stream termination. Both final runs sustain 300 / 300 complete frames through every primary-route stage at `current_skip = 1`, with a `Camera` source cadence of approximately `29.997 frames/s`.
 
 ---
 
@@ -60,30 +60,51 @@ The "Pose" loop is likewise operational. Browser-originated `yaw`, `pitch`, & `z
 
 This project investigates the feasibility of migrating selected functions within a real-time volumetric streaming pipeline from conventional application-level microservices to direct execution during packet traversal through a "DPDK"-based "SFC".
 
-The objective extends beyond merely substituting kernel sockets with a faster packet-I / O "API". The principal research question addresses whether the forwarding path can function as an active computational component without overloading the data plane or compromising the semantic correctness of frame-level processing. This approach aims to preserve bounded queuing behaviour, data integrity, & sufficient observability to accurately attribute latency to the responsible components.
+The objective extends beyond merely substituting kernel sockets with a faster packet-I / O "API". The principal research question addresses whether the forwarding path can function as an active computational component without overloading the Data Plane or compromising the semantic correctness of frame-level processing. This approach aims to preserve bounded queuing behaviour, data integrity, & sufficient observability to accurately attribute latency to the responsible components.
 
-### 1.1 Why "DPDK" & "UDP" Are Topological Requirements
+### 1.1 Why "DPDK" & "UDP" Are Design Requirements
+
 
 "DPDK" is employed because the experiment necessitates more than aggregate throughput. Service functions require the capability to inspect & modify the packet envelope directly, retain per-frame state, perform incremental computations while traffic is in flight, observe local queue acceptance, & account separately for active `rte_eth_tx_burst()` execution versus wall-clock backpressure. A conventional kernel-socket path would deliberately obscure portions of the packet lifecycle behind socket queues, scheduler wake-ups, generic buffering, & transport-stack policies. While valuable for general-purpose applications, such mechanisms would blur the principal experimental boundaries.
 
-"UDP" is equally requisite. Volumetric frames inherently carry their own identity, packet sequence, original-point count, & temporal relevance. Consequently, the application benefits from preserving datagram boundaries & explicitly determining which information retains utility. A reliable, ordered byte stream such as "TCP" would couple subsequent data to the retransmission & in-order delivery of prior missing bytes, thereby introducing head-of-line blocking precisely when a delayed volumetric frame holds less value than a more recent one. Furthermore, it would shift flow control & recovery policies into the transport layer, whereas this project intentionally investigates source-rate regulation via an application-aware temporal controller.
+"UDP" is selected for a more specific reason than the generic assertion that an unreliable transport is simply "faster" than "TCP". In the present system, **the transport is part of the experimental protocol contract**. "RFC 768" defines "UDP" as a transaction-oriented datagram service with a minimum 8-byte transport header, while "RFC 8085" characterises it as a minimal message-passing transport that avoids connection establishment / teardown & maintains little transport-layer end-system state. "TCP", conversely, deliberately provides a reliable, in-order byte stream through sequence / acknowledgment state, send & receive windows, retransmission, congestion control, & a connection state machine. Those properties are valuable when the application requires stream reliability; they are stronger than the semantics required by the present packet-oriented service paths.
 
-This architectural choice does **not** assume "UDP" reliability. Instead, correctness is rendered observable through explicit frame & packet identifiers, point / media counters, integrity percentages, protocol field validation, redundant "End-of-Stream" ( "EOS" ) signalling, & bounded local resubmissions when a Tx ring temporarily accepts zero elements.
+The distinction is especially important for the two control loops. `temporal_payload` & `pose_payload` are not fragments of a command stream whose every historical transition must eventually be executed. They represent **absolute desired state**:
 
-**Accordingly**, the architecture leverages "DPDK" & "UDP" to achieve:
-
+```text
+"Temporal" -> { frame reference, timestamp, requested skip }
+"Pose"     -> { timestamp, absolute yaw, absolute pitch, absolute zoom }
 ```
+
+Accordingly, the reliability objective is **eventual convergence toward the most recent admissible state**, rather than reliable delivery of every intermediate byte or command event. `Encoder` re-presents an unresolved `temporal_skip` every `RETRY_FRAMES = 3` observations until the returned `Camera` stream reflects the requested factor. `User` analogously re-presents the same unresolved "Pose" every three completed frames until the requested stance is visible in the returning reconstructed stream. "Pose" retries preserve the original timestamp; `Decoder` ignores an already consumed timestamp & rejects older timestamps, making duplicate or delayed copies semantically harmless. A newer browser request supersedes the preceding unresolved request at `User`. The application therefore supplies the reliability property actually required by the control plane: **latest-state confirmation with duplicate / stale-state suppression**.
+
+This distinction is more than a reformulation of head-of-line blocking. Carrying these controls through "TCP" would impose a different semantic contract: the transport would reliably preserve an ordered history of intermediate commands even when a more recent absolute state has rendered those commands obsolete. The application would still require its own coalescing / supersession logic to recover latest-state semantics. Furthermore, "TCP" exposes a byte stream rather than application message boundaries. A native `SFF` could no longer classify one command through the current deterministic `ingress port + exact payload length + protocol fields` rule without introducing a stream-framing / reassembly layer or terminating the connection. "UDP" instead maintains a one-command / one-datagram correspondence, allowing `SFF2` & `SFF3` to classify, encapsulate, validate, & decapsulate a complete control entity without transport reassembly.
+
+The same uniformity applies to the primary path. Every native component already constructs & validates "Ethernet" / "IPv4" / "UDP" envelopes directly; raw geometry, compressed media, reconstructed points, "Temporal", & "Pose" consequently share one packet-processing model. Replacing only the vital controls with "TCP" would either require a kernel off-ramp or the introduction of an additional user-space "TCP" implementation with its own connection control blocks, queues, timers, acknowledgment processing, retransmission state, & stream parsing. Either alternative would introduce a qualitatively different software subsystem into the very data-plane experiment being measured.
+
+The byte saving is real but is deliberately treated as a **secondary, lower-bound consequence**, not as the sole justification. For an identical application payload, the minimum "TCP" header is 20 B while the current "UDP" header is 8 B. Thus, before considering "TCP" options or acknowledgment-only traffic, each control data segment carries at least 12 additional transport bytes under "TCP"; Section 5.5 quantifies the resulting packet-size differences for the exact 16-B & 24-B project commands. A persistent "TCP" connection would of course amortise connection establishment & can employ `TCP_NODELAY`; therefore the project does **not** claim that every command would incur a fresh handshake or that "TCP" is intrinsically unsuitable for low-latency control. The choice instead follows from a tighter correspondence between the required state semantics & a datagram-oriented, directly inspectable "DPDK" path.
+
+This architecture also avoids treating "UDP" as implicitly reliable. Data correctness is rendered observable through explicit frame / packet identifiers, point / media counters, integrity percentages, protocol field validation, redundant "End-of-Stream" ( "EOS" ) signalling, & bounded local resubmissions when a Tx ring temporarily accepts zero elements. Control correctness is established separately through returned-state confirmation, monotonic command metadata, & application-level re-presentation.
+
+Finally, the deployment scope matters. "RFC 8085" correctly requires congestion-safe behaviour for "UDP" applications intended for the general Internet. The present implementation is instead a **closed, single-administrative-domain experimental environment** composed of six explicit local "vhost-user" / "virtio-user" adjacencies. Source production is isochronously bounded at `TARGET_FPS = 30`, local overload is directly observable through "DPDK" queue telemetry, & the workload-driven "Temporal" loop can reduce source admission. This restricted applicability is part of the specification; the current design must not be generalised into a claim that the same zero-checksum / no-general-Internet-congestion-control configuration is appropriate for unrestricted Internet deployment.
+
+**Accordingly**, "DPDK" + "UDP" provide the project with:
+
+```text
 explicit packet ownership & lifetime
-application-preserved datagram boundaries
+one application message = one inspectable datagram
+fixed-width service-path classification without stream reassembly
 in-place service-header manipulation
+no native "TCP" connection-control state in the SFF data path
+latest-state control semantics with application-level confirmation
 observable local queue backpressure
 frame-aware loss / integrity accounting
-"Maximum Transmission Unit" ( "MTU" )-bounded packetisation
-service-path-specific metadata processing
-control over temporal relevance at the source
+"MTU"-bounded packetisation without "IP" fragmentation
+uniform transport parsing across "Main" / "Temporal" / "Pose" paths
+source-level regulation rather than hidden transport flow-control policy
 ```
 
-Performance is a natural consequence of the design; however, **experimental control, packet semantic visibility, & the avoidance of transport-level head-of-line coupling serve as equally pivotal motivations**.
+Performance therefore remains an important consequence, but the more defensible argument is architectural: **"UDP" matches the packet-level "SFC" experiment, the absolute-state control model, & the direct "DPDK" implementation while leaving reliability at the same semantic layer that defines whether a command has actually taken effect**.
 
 ### 1.2 Selecting Computation for the Data Plane
 
@@ -135,14 +156,15 @@ The `Encoder` operates neither as a conventional isolated application nor as a p
 
 ### 1.3 Connection with the Reference Pipeline
 
-This methodical approach is informed by state-of-the-art literature, including the application-level architecture documented in the reference thesis upon which the present investigation builds. The current repository preserves the fundamental separation between a unidirectional volumetric data path & independent reverse control channels, while deliberately reformulating the transport & service-steering substrate around a software data plane.
 
-The current project does **not** replicate the reference architecture verbatim. Instead, it recasts the corresponding workload around:
+This methodical approach is informed by the application-level architecture documented in the reference thesis upon which the present investigation builds. The reference implementation is already distributed across four containerised services — `Camera`, Flow Controller, `Encoder`, & Client — & should therefore not be inaccurately described as a single-process monolith. The relevant limitation is **coarse deployment granularity**: its `Encoder` & Client each remain internally monolithic placement blocks even though they combine operations with markedly different "CPU", "GPU", network, & "codec" requirements. The reference thesis itself identifies their decomposition into independently deployable functions as a natural next step for service orchestration.
 
-```
+The current repository deliberately materialises that change of paradigm. It preserves the fundamental unidirectional volumetric path & independent reverse controls, while reformulating transport, service steering, placement boundaries, & control ownership around an explicit software Data Plane:
+
+```text
 "DPDK"-native packet I / O
 direct "virtio-user" / "vhost-user" adjacencies
-explicit "SFC" topology without an intermediate "OVS" data plane
+explicit "SFC" topology without an intermediate "OVS" Data Plane
 "NSH"-style "SPI" / "SI" steering
 in-place geometric aggregation
 stateful proxying around "SFC"-unaware applications
@@ -151,17 +173,37 @@ persistent "FFmpeg" / "NVENC" encoding
 persistent "FFmpeg" / "CUDA" decoding
 frame-aware "MPEG-TS" attribution
 workload-driven "Temporal" source regulation
-independent User-originated "Pose" control
+independent User-originated "Pose" control applied at Decoder
 asynchronous latest-frame browser delivery
 per-node native telemetry
 post-stream objective "Quality" assessment
 ```
 
-The removal of the former "OVS"-"DPDK" virtual-switch intermediary constitutes a deliberate simplification of the experimental topology. Adjacent microservices now communicate directly through the project-defined Unix-domain "vhost-user" sockets, eliminating the dedicated virtual-switch "PMD" role & releasing the logical core that had previously been reserved exclusively for switching. Said scheduling capacity is consequently available to the application chain itself; within the final affinity layout it is reassigned to native processing rather than retained as an additional intermediary forwarding stage.
+The architectural contrast is therefore concrete:
+
+| Dimension | Reference Application Pipeline | Current "SFC" / "DPDK" Pipeline |
+|---|---|---|
+| Primary deployment graph | 4 coarse services: `Camera`, Flow Controller, `Encoder`, Client | 7 native placement units: `Camera`, `SFF1`, `SFF2`, `Encoder`, `Decoder`, `SFF3`, `User` |
+| Raw upstream transport | Persistent "TCP" through `Camera -> Flow Controller -> Encoder` | Direct packet-oriented "UDP" / "DPDK" adjacencies |
+| Encoded-media transport | "UDP" from `Encoder` to Client | "UDP" throughout Route 1 with explicit `SFF` proxy state |
+| "Temporal" ownership | Client-originated relative control applied by a downstream Flow Controller | `Encoder`-derived absolute skip applied at `Camera` before source packetisation |
+| "Pose" ownership | Client -> `Encoder`; new pose is reflected through re-projection & subsequent encoding | `User` -> `Decoder`; pose is applied during reconstruction without forcing Encoder re-projection |
+| Control transport | Two persistent "TCP" feedback sockets | Two fixed-width "UDP" service paths with application-level convergence confirmation |
+| Service state | Implicit in application connections / node order | Explicit `SPI` / `SI` state across aware boundaries & proxies |
+| Unaware functions | Not an SFC concern | `Encoder` & `Decoder` intentionally remain "SFC"-unaware behind `SFF2` proxying |
+| Placement granularity | `Encoder` & Client must be placed as whole blocks | Geometry service, encoding, decoding / reconstruction, terminal delivery, & `SFF` boundaries expose separate scheduling / placement points |
+
+This decomposition should not be confused with a claim that adding service functions automatically reduces total compute consumption. The current primary graph exposes seven schedulable native nodes rather than four reference services — a `75 %` increase in graph-level placement units — because the objective is **orchestration granularity**, not merely process-count minimisation. The advantage is that an orchestrator can reason about measured roles separately: for example, the `SFF1` geometry stage can be placed independently from `Encoder`; `Decoder` can be separated from `User`; & `SFF` boundaries can steer different service paths without requiring the application codecs to understand the chaining protocol. The corresponding cost — additional forwarding boundaries & metadata handling — remains observable in the route telemetry rather than being treated as free.
+
+The control placement also changes where work can be shed. In the reference design, temporal selection occurs at the Flow Controller after the Camera has already transmitted the source frame over "TCP"; even a discarded frame must be drained from that incoming stream to preserve framing. Here, `Camera` applies the returned `temporal_skip` **before packetisation**, so an admitted factor `skip = n` reduces subsequent source injection nominally to `TARGET_FPS / n`. This means the load-shedding decision can suppress raw point traffic at its origin instead of paying the upstream transport / drain cost first. The final representative runs remain at `skip = 1`, so this structural saving is implemented but not claimed as a measured overload result.
+
+A similar shortening occurs for interactive pose changes. The reference "Pose" command reaches `Encoder`, requiring the newly requested view to traverse projection, encoding, transport, decoding, & reconstruction before it becomes visible. The current "Pose" path terminates at `Decoder`, where the latest stance is applied during reconstruction. This removes re-projection / re-encoding from the **command-to-effect dependency chain** while deliberately leaving the source / encoded representation unchanged. The current NON-QUALITY archive measures this path directly through `reference_cmd_ms`, `cmd_apply_ms`, `Decoder` `pose_control_ms`, & browser `cmd_photon_ms`.
+
+The removal of the former "OVS"-"DPDK" virtual-switch intermediary constitutes a separate topology simplification within the current project lineage. Adjacent microservices communicate directly through project-defined Unix-domain "vhost-user" sockets, eliminating the dedicated virtual-switch "PMD" role & releasing one logical core that had previously been reserved exclusively for switching. On the present 8-logical-"CPU" host, this converts `1 / 8 = 12.5 %` of logical scheduling capacity from switch-only reservation into application-available placement capacity. It is a **resource reallocation**, not evidence that the whole application now consumes 12.5 % less "CPU" time.
 
 At the measurement level, the repository deliberately preserves the experimental principle adopted by the reference pipeline: frame-associated indicators are resolved during execution without synchronous native CSV writes inside the real-time path, retained in memory, & serialised only after the terminal condition. The present "SFC" implementation extends that baseline with service-state, protocol-integrity, local "DPDK" backpressure, reverse-control, browser-acknowledgment, & post-stream "Quality" observability while keeping the authoritative application identity anchored to `frame_id`.
 
-Consequently, comparisons with the reference implementation remain valid only at **semantically equivalent frontiers**. Exact numerical parity is neither anticipated nor methodologically sound given variations in transport mechanisms, buffering, node boundaries, "CPU" placement, cache residency, "GPU" kernels, "codec" queuing policies, browser rendering, or objective "Quality"-analysis procedures.
+Section 21.15 provides the direct numerical comparison supported by the supplied reference material. Its interpretation is deliberately conservative: the evidence supports a materially lower median end-to-end latency & lower selected application-stage costs while retaining the same 300-frame / 30-fps operating objective & a closely comparable reconstruction-fidelity regime. It does **not** support the stronger statement that every per-node residency is lower, that aggregate "CPU" utilisation has already been reduced by a measured percentage, or that every objective quality metric is numerically invariant. Such claims would require a controlled A / B campaign on identical hardware, software boundaries, instrumentation, & metric implementations.
 
 ### 1.4 Guidelines & "Codec" Scope
 
@@ -252,6 +294,7 @@ Route-specific completion, byte accounting, protocol validation, & Tx acceptance
 
 ### 3.2 "Temporal" Service Path
 
+
 "Temporal" adaptation utilises:
 
 ```
@@ -277,18 +320,22 @@ Encoder
   -> plain 16-B "UDP" payload
   -> SFF2 classifies + imposes "SPI 200 / SI 255"
   -> SFF1 validates + removes the service envelope
-  -> Camera accepts a strictly newer decision
+  -> Camera validates the exact 16-B datagram & accepts a non-older frame-associated decision
 ```
 
-Once adopted, `Camera` filters source elements before packetisation according to:
+The command carries the **absolute requested factor**, rather than an increment / decrement event. `Camera` normalises an invalid zero factor back to `1` & accepts the request only when its `frame_id` is not older than the most recently accepted control reference. Once adopted, source admission is evaluated before point packetisation according to:
 
 ```
-FPS = TARGET_FPS / skip
+selected( frame_id ) = ( ( frame_id - 1 ) mod skip ) == 0
+FPS                  = TARGET_FPS / skip
 ```
 
-`Encoder` additionally re-presents a requested skip after the configured retry interval while the returned stream has not yet reflected that request. This couples local control issuance with application-level confirmation without converting the "UDP" data path into a reliable transport.
+Consequently, temporal reduction occurs at the earliest useful frontier: skipped source frames do not consume point packetisation, `Camera` Tx descriptors, or any subsequent primary-route service capacity. For example, if a controlled overload experiment requests `skip = 2`, the nominal admitted source rate becomes `15 frames/s`; `skip = 3` yields `10 frames/s`. These are deterministic consequences of the selection rule, not measured outcomes of the final `skip = 1` archives.
+
+Reliability is expressed as returned-state convergence. If `workload_controller.requested_skip != active_skip`, `Encoder` suppresses further overload / recovery transitions & re-dispatches the desired factor after `RETRY_FRAMES = 3` observations. The request is considered semantically reflected only when subsequent `cam_hdr.temporal_skip` values return the requested state. A lost control datagram can therefore delay adoption, but cannot permanently orphan the requested state while the pipeline continues to produce complete observations. This mechanism is intentionally distinct from transport retransmission: it verifies the **application effect**, not merely delivery to a socket.
 
 ### 3.3 "Pose" Service Path
+
 
 "Pose" control remains independent from temporal regulation:
 
@@ -301,9 +348,9 @@ The packed command is:
 
 ```
 timestamp : uint64
-yaw       : uint32   # network-order float bit pattern
-pitch     : uint32   # network-order float bit pattern
-zoom      : uint32   # network-order float bit pattern
+yaw       : uint32 # network-order float bit pattern
+pitch     : uint32 # ...
+zoom      : uint32 # ...
 padding   : uint32
 ------------------
 Total     : 24 B
@@ -320,13 +367,46 @@ Browser
   -> Decoder ( plain "UDP" command )
 ```
 
-`Decoder` accepts monotonic command timestamps, snapshots the current stance before reconstruction, & applies the selected yaw / pitch / zoom transformation on the "GPU". The reconstructed frame consequently returns the actually applied pose to `User`. `User` correlates this state with its command records & re-presents an unresolved request every three completed frames until it becomes observable in the returning stream.
+The payload represents an **absolute stance**, rather than a relative rotation event. `User` timestamps the first dispatch, stores the requested `yaw`, `pitch`, & `zoom`, & re-presents the same timestamped state every `RETRY_FRAMES = 3` completed frames while it remains unresolved. `Decoder` accepts finite positive-zoom commands, discards an already consumed timestamp, rejects any timestamp older than the active stance, snapshots the latest admissible state before reconstruction, & applies that state on the "GPU". This combination makes retransmitted duplicates idempotent & prevents a delayed older command from rolling the view backward.
 
-The browser remains fire-&-forget from an interaction standpoint: control issuance does not synchronously block upon an acknowledgment. A separate render acknowledgment is employed solely for telemetry & one-frame-in-flight Web scheduling.
+The reconstructed frame returns the pose actually applied by `Decoder`. `User` therefore closes the semantic loop by matching the returned `yaw` / `pitch` / `zoom` against the command record, rather than assuming success after local Tx acceptance. A newer browser command replaces the currently active unresolved request, reflecting the latest-state semantics expected from direct manipulation.
+
+The browser remains fire-&-forget from an interaction standpoint: command issuance does not synchronously block upon an acknowledgment. A distinct browser acknowledgment is retained only for telemetry & one-frame-in-flight Web scheduling. This means the reliability mechanism does not insert a request / response stall into the input path; it operates asynchronously through returned state & optional re-presentation.
 
 ### 3.4 Protocol Clarification
 
-The architecture employs an 8-byte `nsh_hdr`, the "SPI" / "SI" paradigm, a "TTL" field, & a project-defined "MD-Type-2"-like geometric context. The implementation is accurately described as **experimental / "NSH"-inspired**, rather than as a universally interoperable "RFC 8300" implementation.
+
+The architecture employs an 8-byte `nsh_hdr`, the "SPI" / "SI" paradigm, a "TTL" field, & a project-defined "MD-Type-2"-like geometric context. The implementation is accurately described as **experimental / "NSH"-inspired**, rather than as a universally interoperable "RFC 8300" implementation. "RFC 7665" is relevant at the architectural level because it defines SFFs, SFC-aware / unaware functions, proxies, classification, metadata exchange, & topology-independent service paths; "RFC 8300" motivates the `SPI` / `SI` progression & proxy behaviour. Neither RFC requires the project to employ "UDP" as its transport, so transport uniformity is an implementation choice rather than a standards-compliance claim.
+
+The service-plane constants are fixed as part of the experiment:
+
+```text
+MAIN_SPI                   = 100
+MAIN_SI_SFF1               = 255
+MAIN_SI_ENCODER            = 254
+MAIN_SI_DECODER            = 253
+
+TEMPORAL_SPI               = 200
+TEMPORAL_SI                = 255
+POSE_SPI                   = 300
+POSE_SI                    = 255
+
+DEFAULT_TTL                = 63
+MD_CLASS_EXPERIMENTAL      = 0xFFF6
+MD_TYPE_GEOMETRY           = 0x01
+MD_TYPE_2                  = 0x02
+NEXT_PROTOCOL_EXPERIMENT_1 = 0xFE
+```
+
+The corresponding protocol contract can be summarised without relying upon implicit application behaviour:
+
+| Family | Classification / Entry | Service State | Fixed Application Entity | Terminal Acceptance Rule |
+|---|---|---|---|---|
+| "Main" | `Camera` point datagrams enter through `SFF1`; subsequent proxy transitions are selected by ingress port & preserved primary state | `SPI 100`, `SI 255 -> 254 -> 253` | `cam_hdr + points`, then `cam_hdr + enc_hdr + MPEG-TS`, then `dec_hdr + points` | Exact frame / packet populations, route-specific metadata, & expected `SPI` / `SI` at aware boundaries |
+| "Temporal" | Exact 16-B plain payload from `Encoder`-facing port | `SPI 200 / SI 255` between `SFF2` & `SFF1` | `temporal_payload` | Nonzero normalised absolute skip, non-older frame reference, returned `cam_hdr.temporal_skip` confirmation |
+| "Pose" | Exact 24-B plain payload at `SFF3`, then exact base-aware payload at `SFF2` | `SPI 300 / SI 255` between `SFF3` & `SFF2` | `pose_payload` | Finite stance, positive zoom, monotonic timestamp, returned pose matching at `User` |
+
+This explicit contract is central to research validity: route selection, packet shape, accepted state transition, & completion criteria are fixed in code rather than inferred retrospectively from observed traffic.
 
 The current address contract is:
 
@@ -347,7 +427,7 @@ The current address contract is:
 
 These allocations form a closed testbed contract rather than a dynamically routed deployment. Native nodes construct & validate the corresponding "Ethernet" / "IPv4" / "UDP" envelopes directly through the six Unix-domain "DPDK" adjacencies.
 
-When an "IPv4" header is generated or rewritten, its checksum is cleared & recomputed via `rte_ipv4_cksum()`. The project deliberately maintains a zero "UDP" checksum for the present "IPv4" testbed; this convention must not be generalised to future "IPv6" operation.
+When an "IPv4" header is generated or rewritten, its checksum is cleared & recomputed via `rte_ipv4_cksum()`. The project deliberately maintains a zero "UDP" checksum for the present "IPv4" testbed. "RFC 768" permits a transmitted zero checksum to indicate that no checksum was generated, but "RFC 8085" recommends checksum protection for general use; the current choice is therefore a **restricted experimental convention**, compensated by a closed local topology plus explicit application / protocol integrity validation, & must not be generalised to future "IPv6" or unrestricted Internet operation.
 
 ---
 
@@ -589,6 +669,7 @@ SFF2 -> SFF3 = 1360 + 8 = 1368 B
 
 ### 5.5 "Temporal" & "Pose" Packets
 
+
 "Temporal":
 
 ```
@@ -605,7 +686,22 @@ SFF3 -> SFF2 aware    = 20 + 8 + 8 + 24 = 60 B
 SFF2 -> Decoder plain = 52 B
 ```
 
-The two command families are structurally independent & carry their own monotonic timing information.
+Every command therefore fits in one unfragmented datagram & preserves a direct one-message / one-packet relation at the application boundary. This property is used by the native classifiers: no command stream has to be reconstructed before the corresponding service path can be selected.
+
+For the exact current payloads, the **minimum-header** comparison against an otherwise identical "IPv4" / "TCP" carrier is:
+
+| Control Entity | Current "UDP" L3 Packet | Hypothetical Minimum-"TCP" L3 Packet | Current Byte Reduction |
+|---|---:|---:|---:|
+| "Temporal" plain | `20 + 8 + 16 = 44 B` | `20 + 20 + 16 = 56 B` | `21.4 %` |
+| "Temporal" aware | `20 + 8 + 8 + 16 = 52 B` | `20 + 20 + 8 + 16 = 64 B` | `18.8 %` |
+| "Pose" plain | `20 + 8 + 24 = 52 B` | `20 + 20 + 24 = 64 B` | `18.8 %` |
+| "Pose" aware | `20 + 8 + 8 + 24 = 60 B` | `20 + 20 + 8 + 24 = 72 B` | `16.7 %` |
+
+Including the 14-B "Ethernet" header, the corresponding reductions are approximately `17.1 %`, `15.4 %`, `15.4 %`, & `14.0 %`. These percentages are deliberately conservative: they assume the minimum 20-B "TCP" header, no "TCP" options, & no acknowledgment-only traffic. Conversely, they do **not** count a three-way handshake per command, because a sensible comparison would employ a persistent "TCP" control channel as the reference architecture does. The table therefore isolates the transport-envelope difference without constructing an artificially weak "TCP" baseline.
+
+The principal benefit nevertheless remains semantic & architectural rather than bandwidth-driven. At the measured command rates, 12 transport bytes are not the dominant system cost. The more consequential property is that the command remains a self-delimiting object which `SFF2` / `SFF3` can classify immediately, while duplicate / loss handling is tied to the returned application state rather than to reliable byte delivery.
+
+The two command families are structurally independent & carry their own timing / state information. "Temporal" uses frame-associated state confirmation; "Pose" preserves one command timestamp across retries & relies upon `Decoder` monotonicity. Consequently, both can remain fire-&-forget at dispatch time without making control correctness dependent upon a hidden transport acknowledgment.
 
 ### 5.6 "Virtio" Queue Size & "DPDK" Rx / Tx Dimensioning
 
@@ -924,7 +1020,7 @@ frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_t
 | `eth_errors`, `ipv4_errors`, `udp_errors`, `nsh_errors` | Protocol-validation failures. All remain `0` in the final representative runs. |
 | Tx acceptance counters | Local zero / partial accepts & resubmission activity, independent from "UDP" semantics. |
 
-`data_integrity_pct = 100 %` in all 300 final rows of both archived modes, while the geometry fields remain directly observable as the computation deliberately moved into the data plane.
+`data_integrity_pct = 100 %` in all 300 final rows of both archived modes, while the geometry fields remain directly observable as the computation deliberately moved into the Data Plane.
 
 ---
 
@@ -1362,7 +1458,7 @@ Notably, the `Encoder` issues no service-chain headers. Primary-path "NSH" state
 
 ### 9.15 Encoder Telemetry — Complete Semantics
 
-The final `Encoder` exports **69 fields**, making explicit the distinction among raw point reception, offloaded / fallback geometry, "GPU" projection, "codec" submission, asynchronous output attribution, "Temporal" control state, objective luma quality, & Tx acceptance:
+The final `Encoder` exports **69 fields**, making explicit the distinction among raw point reception, offloaded / fallback geometry, "GPU" projection, "codec" submission, asynchronous output attribution, "Temporal" control state, objective "luma" worth, & Tx acceptance:
 
 ```text
 frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
@@ -1393,7 +1489,7 @@ frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_t
 | `frame_backlog`, `codec_backlog` | Native pending frame count & observed writer / "codec" depth. "Codec" growth participates in overload / recovery evaluation. |
 | `encode_service_ms` | Service interval used for `Encoder` workload characterisation. |
 | `encode_h265_ms` | Genuine-frame "codec" submission to first attributed video-"PES" output frontier. |
-| `mse_y`, `psnr_y`, `ssim_y` | Post-stream luma fidelity fields; populated only with `QUALITY_CAPTURE = 1`. |
+| `mse_y`, `psnr_y`, `ssim_y` | Post-stream "luma" fidelity components; populated only with `QUALITY_CAPTURE = 1`. |
 | `mpeg_bytes_generated` | Application-attributed "MPEG-TS" bytes before network packetisation. |
 | `ffmpeg_write_calls`, `ffmpeg_write_eagain` | Pipe-write call count & nonblocking defensive retry observation. |
 | Tx acceptance / starvation fields | Local compressed-output zero / partial accepts, resubmission attempts, & mbuf allocation failures. |
@@ -1424,9 +1520,9 @@ This sequential ordering remains essential because encoded bytes frequently ling
 
 ---
 
-### 9.17 Optional Post-Stream "Luma" "Quality" Assessment
+### 9.17 Optional Post-Stream "uma" "Quality" Assessment
 
-`Encoder` additionally exposes an explicit `QUALITY_CAPTURE` mode whose objective is to quantify coding distortion without introducing persistent disk activity into the measured streaming interval. When enabled, the node reserves bounded in-memory regions for both the authentic projected `Y` planes & the byte-preserved application-attributed "MPEG-TS" stream. Each genuine application frame contributes its luma reference through `write_reference()`, whilst encoded chunks are appended through `write_stream()`.
+`Encoder` additionally exposes an explicit `QUALITY_CAPTURE` mode whose objective is to quantify coding distortion without introducing persistent disk activity into the measured streaming interval. When enabled, the node reserves bounded in-memory regions for both the authentic projected `Y` planes & the byte-preserved application-attributed "MPEG-TS" stream. Each genuine application frame contributes its "luma" reference through `write_reference()`, whilst encoded chunks are appended through `write_stream()`.
 
 The streaming hot path therefore performs bounded memory copies exclusively; serialization to `reference_y.raw` & `encoded.ts`, alongside the subsequent objective analysis, occurs only after "EOS". Two isolated "FFmpeg" filter runs recover frame-associated `MSE-Y`, `PSNR-Y`, & `SSIM-Y`, whose results are merged back into `telemetry_encoder.csv`. Temporary analysis files are deleted only when every captured application frame has received complete indicators.
 
@@ -1667,7 +1763,7 @@ OUT_STD         = 2.0
 
 All `cKDTree` operations explicitly employ one worker. The serial design is a post-stream methodological choice favouring determinism & simplicity; it does not execute concurrently with the measured 300-frame "DPDK" stream.
 
-`Gauge` defines the expected assessment population from `User` rows satisfying `rx_complete = 1`. A frame contributes a completed objective result only when its capture record & reference geometry are both available and the metric pipeline returns successfully. The temporary `results.bin` capture is removed exclusively when the completed population equals the expected one; the final archived "Quality" run therefore evaluates all 300 eligible frames rather than silently tolerating missing geometric assessments.
+`Gauge` defines the expected assessment population from `User` rows satisfying `rx_complete = 1`. A frame contributes a completed objective result only when its capture record & reference geometry are both available & the metric pipeline returns successfully. The temporary `results.bin` capture is removed exclusively when the completed population equals the expected one; the final archived "Quality" run therefore evaluates all 300 eligible frames rather than silently tolerating missing geometric assessments.
 
 ### 12.8 User Telemetry
 
@@ -1742,7 +1838,11 @@ User    : "0,2" when QUALITY_CAPTURE = 0
 User    : "0"   when QUALITY_CAPTURE = 1
 ```
 
-The elimination of "OVS"-"DPDK" therefore removes the old dedicated "PMD" / auxiliary forwarding allocation from the methodology. The released scheduling capacity is consumed by the application chain itself, notably permitting `Camera` to occupy logical Core `1` directly.
+The elimination of "OVS"-"DPDK" therefore removes the old dedicated "PMD" / auxiliary forwarding allocation from the methodology. The released scheduling capacity is consumed by the application chain itself, notably permitting `Camera` to occupy logical Core `1` directly. Since the host exposes eight logical "CPU" threads, eliminating one switch-only logical-core reservation makes `12.5 %` of the host's logical scheduling capacity available for application placement. This value describes **allocation opportunity**, not a measured 12.5 % reduction in aggregate cycles or power.
+
+The resulting graph also exposes seven native placement units (`Camera`, `SFF1`, `SFF2`, `Encoder`, `Decoder`, `SFF3`, `User`) rather than the four coarse services of the reference architecture. Numerically this is a `75 %` increase in the number of graph-level placement units (`7 / 4`), but it should be interpreted as **orchestration granularity**, not as improved resource efficiency by itself. Each function has a dedicated telemetry / affinity profile, allowing a future orchestrator to move, replicate, or allocate resources to the responsible stage rather than relocating an entire monolithic `Encoder` or Client block.
+
+No percentage claim concerning total "CPU" utilisation **against the reference implementation** is made from the supplied data. The two projects do not expose an identical per-core utilisation experiment, & the current deployment deliberately touches all eight logical threads through native, "codec", bridge, or housekeeping roles. A fair resource-efficiency comparison therefore requires a controlled co-located campaign reporting actual "CPU" time / utilisation, "GPU" occupancy, memory footprint, & energy under identical traffic. The current contribution is that such attribution is now possible per service function.
 
 ### Core `0` & Housekeeping
 
@@ -1828,7 +1928,16 @@ Each service mounts:
 
 ### Build-Time Specialisation
 
-The project continues to treat compiler, "CUDA" architecture, driver, "FFmpeg", & "DPDK" versions as experimental parameters. Host-native optimisation & fixed "CUDA" architecture flags preclude assumptions of bit-level or timing equivalence across heterogeneous machines.
+The project treats compiler configuration, `"CUDA"` architecture, `"GPU"` model / driver, `"FFmpeg"` / `"NVENC"` stack, & `"DPDK"` version as constituent elements of the experimental condition. The final native compilation profile includes:
+
+```text
+"C++"  : -O3 -march=native -ffast-math -funroll-loops -std=c++14
+"CUDA" : -O3 -arch=sm_61 -std=c++14
+```
+
+The `-arch=sm_61` specification fixes the generated `"CUDA"` device-code target to Compute Capability `6.1`, rather than defining an architecture-neutral numerical implementation. Consequently, cross-platform bit-level equivalence cannot be presumed when a comparison changes the `"GPU"` architecture, `"CUDA"` compiler / toolkit, or execution-driver environment. The same reproducibility constraint applies independently to the hardware `"H.265"` path, whose `"NVENC"` / `"NVDEC"` execution additionally depends upon the available `"GPU"`, NVIDIA driver, `"FFmpeg"` build, & hardware codec generation.
+
+These factors do not invalidate cross-implementation performance or fidelity comparisons, but they prevent small numerical or codec-output differences from being attributed exclusively to the `"SFC"` / transport decomposition unless the complete hardware & software execution environment is held constant.
 
 ### Direct "SFC" Topology
 
@@ -1847,8 +1956,8 @@ The completed repository organisation is conceptually:
 ```text
 Thesis/
 ├── README.md
-├── docs/                                  # Thesis / reference material
-├── env/                                   # Optional root-level "Python" environment for offline preparation
+├── docs/                              # Thesis / reference material
+├── env/                               # Root-level "Python" environment for offline preparation
 └── src/
     ├── infrastructure/
     │   ├── setup_topology.sh
@@ -1888,9 +1997,9 @@ Thesis/
     │
     ├── shared/
     │   ├── data/loot/
-    │   │   ├── original/                  # Original PLY sequence
-    │   │   ├── bin/                       # Header-less 16-B/point reference frames
-    │   │   └── made/                      # Temporary "Quality"-capture outputs
+    │   │   ├── original/              # Original PLY sequence
+    │   │   ├── bin/                   # Header-less 16-B/point reference frames
+    │   │   └── made/                  # Temporary "Quality"-capture outputs
     │   ├── log/
     │   │   ├── converter/
     │   │   ├── camera/
@@ -1901,8 +2010,8 @@ Thesis/
     │   │   ├── sff3/
     │   │   └── user/
     │   └── py/
-    │       ├── converter/converter.py
-    │       └── gauge/gauge.py              # Equivalent deployment location may be shared by entrypoint
+    │       ├── converter/converter.py 
+    │       └── gauge/gauge.py         # Equivalent deployment location may be shared by entrypoint
     │
     ├── enable_isolcpus.sh
     ├── disable_isolcpus.sh
@@ -2045,7 +2154,7 @@ python3 src/shared/py/converter/converter.py
 deactivate
 ```
 
-The converter operates exclusively as an **offline preparation stage**. The resultant elapsed chronology, encompassing both PLY ingestion & BIN extrusion, must definitively eschew amalgamation with `Camera`, SFF, `Encoder`, "CUDA", or explicit "codec" latency quantifications.
+The converter operates exclusively as an **offline preparation stage**. The resultant elapsed chronology, encompassing both PLY ingestion & BIN extrusion, must definitively eschew amalgamation with `Camera`, `SFF`, `Encoder`, "CUDA", or explicit "codec" latency quantifications.
 
 Nonetheless, the converter telemetry presents substantial utility for replicability parameters, flawlessly tracking the strict frame population & precisely contrasting the source against the generated data footprint prevalent throughout the experiment. The definitive source-configured schema embodies:
 
@@ -2114,10 +2223,10 @@ User "DPDK"          = Core 0
 "Python" bridge      = disabled
 "HTTP" / "WebSocket" = disabled
 viewer               = absent
-Camera starts after native readiness, without ENTER gate
-Encoder luma quality capture = enabled
-User geometry capture        = enabled
-Gauge                        = serial, Core 0, strictly post-"EOS"
+Camera starts after native readiness, without "ENTER" gate
+Encoder "luma" quality capture = enabled
+User geometry capture          = enabled
+Gauge                          = serial, Core 0, strictly post-"EOS"
 ```
 
 ### 18.4 Start the Environment
@@ -2165,15 +2274,15 @@ The `User` entrypoint additionally owns the auxiliary presentation / "Quality" l
 
 ```
 QUALITY_CAPTURE = 0
-  -> start Python HTTP / WebSocket bridge on Core 2 with nice +5
-  -> start User DPDK on Core 0
+  -> start "Python" "HTTP" / "WebSocket" bridge on Core 2 with nice +5
+  -> start User "DPDK" on Core 0
 
 QUALITY_CAPTURE = 1
   -> start a background shell gate waiting for /tmp/sfc-user-quality
-  -> start User DPDK on Core 0
-  -> after User EOS / capture serialization, launch serial gauge.py on Core 0
+  -> start User "DPDK" on Core 0
+  -> after User "EOS" / capture serialization, launch serial gauge.py on Core 0
   -> Gauge writes /tmp/sfc-user-done
-  -> User exits its Quality wait & prints the final EOS state
+  -> User exits its Quality wait & prints the final "EOS" state
 ```
 
 The BLAS / numeric thread environment for `Gauge` is fixed to one thread (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, & `NUMEXPR_NUM_THREADS` all equal `1`). This prevents the offline assessment from silently spawning a larger "CPU" pool.
@@ -2261,7 +2370,7 @@ The most appropriate end-to-end frontier is the timestamp already propagated fro
 
 ### 20.5 Native Telemetry Serialization & Measurement Isolation
 
-Native per-frame telemetry is accumulated within bounded in-memory structures throughout the active stream & is serialised to the corresponding `.csv` artefacts only after the terminal condition has been resolved. Consequently, native CSV file I / O is excluded from the 300-frame real-time measurement path. The "Quality" mechanisms preserve the identical principle: `Encoder` retains luma references / attributed compressed material in memory, while `User` retains complete reconstructed snapshots in `quality_buffer`; persistent "Quality" artefacts & objective evaluation are deferred until after "EOS".
+Native per-frame telemetry is accumulated within bounded in-memory structures throughout the active stream & is serialised to the corresponding `.csv` artefacts only after the terminal condition has been resolved. Consequently, native CSV file I / O is excluded from the 300-frame real-time measurement path. The "Quality" mechanisms preserve the identical principle: `Encoder` retains "luma" references / attributed compressed material in memory, while `User` retains complete reconstructed snapshots in `quality_buffer`; persistent "Quality" artefacts & objective evaluation are deferred until after "EOS".
 
 The `ffmpeg.txt` files constitute a deliberate exception in **measurement domain**, not in CSV semantics. They are "FFmpeg"-originated diagnostic chronologies associated with the persistent "codec" processes & remain analytically separate from the authoritative native per-frame CSVs. They must therefore neither be interpreted as application-frame tables nor be used to redefine the native timing frontiers documented above.
 
@@ -2428,7 +2537,7 @@ The final NON-QUALITY run contains 42 command identifiers matched to returning p
 
 ### 21.10 Objective Encoder "Quality"
 
-The 300-frame "Quality" run produces complete luma indicators:
+The 300-frame "Quality" run produces complete "luma" indicators:
 
 | Metric | Samples | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|---:|
@@ -2436,7 +2545,7 @@ The 300-frame "Quality" run produces complete luma indicators:
 | `PSNR-Y` ( dB ) | `300` | `54.356` | `54.655` | `55.100` | `55.210` |
 | `SSIM-Y` | `300` | `0.997356` | `0.998198` | `0.998588` | `0.998692` |
 
-These values measure the custom projected luma representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
+These values measure the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
 
 ### 21.11 Objective Reconstructed Geometry "Quality"
 
@@ -2487,6 +2596,74 @@ The table is not an additive latency decomposition: several values represent nes
 
 Both final `Encoder` & `Decoder` `ffmpeg.txt` archives contain 396 `vstats` rows. These rows include private warm-up / drain chronology in addition to authentic application frames. The count therefore must not be described as `15 + 300`, nor should it be used as a surrogate for native 300-frame completion. Application CSVs remain authoritative for frame identity & correctness.
 
+
+### 21.15 Direct Comparison with the Application-Level Reference Baseline
+
+A direct comparison was performed against the supplied 300-frame **probe-disabled GPU reference logs** associated with the Lacaria pipeline & against the 10-Mbit/s quality values reported in the reference thesis. The comparison is intentionally restricted to frontiers that can be reconstructed with compatible semantics. It is not presented as a same-binary controlled A / B experiment: transport, node boundaries, warm-up strategy, "GPU" kernels, control placement, & some quality-analysis details differ.
+
+For end-to-end responsiveness, the reference log permits an explicit Camera-to-Client calculation:
+
+```text
+reference_e2e_ms = ( t_client_recv_abs - t_camera_send ) * 1000
+```
+
+Across all 300 supplied reference rows, this produces:
+
+```text
+Reference median Camera -> Client reception = 341.785 ms
+Current median Camera   -> User frame-ready = 240.732 ms
+Relative median reduction                   = 29.6 %
+```
+
+The current value uses `User.reference_e2e_ms`, deliberately terminating at the native complete-frame frontier rather than at browser rendering. The median is selected because the supplied reference trace contains both a pronounced startup transient & a late stall; it is therefore more robust than comparing raw full-run means. The current archive simultaneously retains 300 / 300 complete native frames & an approximately `29.997 frames/s` source cadence. The supported conclusion is consequently a **lower representative end-to-end latency at the same 300-frame / nominal-30-fps service objective**, not a claim of universally lower latency under every workload.
+
+Selected application-stage comparisons additionally expose where the paradigm shift redistributes work:
+
+| Semantically Related Frontier | Reference Median | Current Median | Relative Change | Interpretation |
+|---|---:|---:|---:|---|
+| Encoder point conversion | `8.667 ms` | `3.521 ms` | `-59.4 %` | Current point conversion is packet-progressive; part of geometric preparation is externalised upstream |
+| Encoder projection | `10.882 ms` | `4.956 ms` | `-54.5 %` | Encoder-local projection is materially shorter, but `SFF1` now performs real geometric work & must not be treated as zero-cost |
+| Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.029 ms` | `-66.8 %` | Reference value is `unpack_ms + erode_ms + render_ms`; current value is `Decoder.reconstruction_pipeline_ms`, so the comparison is indicative rather than bit-identical |
+
+These reductions are **not** equivalent to a statement that every node became faster. The service boundaries changed: for example, current `Encoder.total_residency_ms` includes persistent asynchronous "codec" chronology under a different timing frontier, while geometry previously hidden within application processing is now explicitly charged to `SFF1`. The defensible advantage is therefore that selected computational frontiers & the end-to-end path are lower while costs are distributed into independently measurable functions.
+
+#### Fidelity Relative to the Reference
+
+The decomposition preserves the same source sequence exactly at the population level. The mean source population is `793,821.303` points / frame in both data sets. More significantly, the final valid reconstructed population is almost identical:
+
+```text
+Reference mean valid_points = 145,403.233
+Current mean valid_points   = 145,403.197
+Difference                  = 0.037 points / frame
+```
+
+When the two 300-frame sequences are aligned by ordinal source frame, `292 / 300` final `valid_points` counts are exactly equal & the largest absolute difference is only `10` points. The mean final-population ratio is approximately `18.317 %` of the original cloud in both implementations. This is strong evidence that service decomposition & additional `SFF` traversal do **not** introduce systematic reconstruction-population loss.
+
+Signal & geometric quality must be stated more carefully. At the common 10-Mbit/s condition, the reference thesis reports approximately `MSE-Y = 0.129`, `PSNR-Y = 56.06 dB`, & `SSIM-Y = 0.997`; the current 300-frame "Quality" run reports `0.242`, `54.356 dB`, & `0.997356`, respectively. Thus, structural similarity remains effectively in the same high-fidelity regime, while `PSNR-Y` is approximately `1.704 dB` lower & `MSE-Y` is higher. Exact "luma"-fidelity invariance is therefore **not** claimed.
+
+An additional comparability constraint originates from the execution environment itself. The current `"CUDA"` kernels are compiled explicitly for `sm_61`, while the host-side build additionally enables `-ffast-math`; the resulting numerical path is therefore tied to a specific compilation target rather than being guaranteed to reproduce bit-identical floating-point operations across heterogeneous `"GPU"` architectures. At the same time, the compressed representation is produced by the hardware `"NVENC"` path, whose concrete execution environment includes the `"GPU"` generation, NVIDIA driver, `"FFmpeg"` build, & encoder implementation available during the run.
+
+The observed `PSNR-Y` / `MSE-Y` difference must consequently not be interpreted as a distortion introduced by `"SFC"` or `"UDP"` alone. The present comparison changes several variables simultaneously, including service decomposition, `"CUDA"` compilation / execution conditions, persistent `"codec"` handling, & the hardware-software video stack. Establishing causal attribution for the residual quality difference would require rebuilding & executing both architectures under an identical `"GPU"`, driver, `"CUDA"` toolchain, `"FFmpeg"` / `"NVENC"` configuration, source representation, & metric implementation.
+
+The same caution applies to robust post-erosion geometry. Converting the reference thesis's 10-Mbit/s robust values through the common `1 voxel = 1.820 mm` scale gives:
+
+| Metric | Reference Robust Post-Erosion | Current `Gauge` | Difference in Interpretation |
+|---|---:|---:|---|
+| Mean geometric error | `4.472 mm` | `6.392 mm` | Current value is higher; both remain millimetre-scale |
+| Geometric RMSE | `5.586 mm` | `6.249 mm` | Same order of magnitude |
+| Symmetric Chamfer | `10.025 mm` | `11.164 mm` | Same order of magnitude |
+| Symmetric Hausdorff | `87.364 mm` | `121.113 mm` | Current worst-case tail is higher |
+
+The scientifically supportable statement is therefore **fidelity preservation at the same high-quality operating regime, not numerical identity**. Network / service decomposition preserves all 300 frames, the final reconstructed population is essentially unchanged, `SSIM-Y` remains approximately `0.997`, & geometric errors remain comparable in scale; however, the current quality metrics are not universally equal to or better than the reference. A claim that "Quality is unaltered" in the strict numerical sense would exceed the evidence because the implementations do not constitute an isolated transport-only A / B experiment.
+
+#### Orchestration & Request-Handling Consequences
+
+The reference thesis explicitly identifies its monolithic `Encoder` & Client placement as an orchestration limitation & proposes splitting projection / encoding & decoding / client processing into independently deployable blocks. The current architecture directly advances that objective by exposing seven native graph-level placement units instead of four coarse services. This is a `75 %` increase in **placement granularity**, not a 75 % resource saving.
+
+The control model also removes dedicated transport-connection state from the native service plane. The reference architecture maintains two persistent "TCP" feedback channels, each bound to a specific upstream application node. The current design instead classifies two fixed-size control datagrams into independent `SPI 200` & `SPI 300` service paths. A new request family can consequently be represented through a new classifier / service-path contract without requiring `Encoder` / `Decoder` to acquire "SFC" parsing logic or introducing another byte-stream framing scheme into the `SFF` path.
+
+This improves **orchestration flexibility**, but present evidence does not yet establish a maximum simultaneous-user or request-rate gain. The reference thesis itself notes that its proposed Density Test would replicate the complete four-node stack because the original application has no stream identifier & accepts one connection per socket. The current implementation likewise remains a single-stream experimental chain; it has not yet executed an N-user density test. Its demonstrated advantage is finer placement / steering granularity & O(1)-sized latest-state control, while quantitative multi-stream capacity remains future work rather than a claimed result.
+
 ---
 
 ## ⚠️ 22. Experimental Interpretation & Known Boundaries
@@ -2530,9 +2707,9 @@ Native `User` `e2e_latency_ms` measures the `Camera` timestamp to `User` node ex
 
 The project deliberately uses an "NSH"-inspired closed contract. The experimental metadata class / next-protocol choices do not establish generic interoperability with arbitrary RFC 8300 implementations.
 
-### 22.9 The "Temporal" Controller Was Not Stress-Activated in the Final Runs
+### 22.9 The "Temporal" Controller Is Integrated but Remains Inactive in the Final Representative Runs
 
-`TEMPORAL_ADAPTATION_ENABLED` is active, yet measured workload remains below the overload threshold & `current_skip = 1` throughout both final representative archives. The implementation is validated as an integrated control path; aggressive overload dynamics still require a purpose-built stress experiment.
+`TEMPORAL_ADAPTATION_ENABLED` is active throughout both final representative archives. Under these specific NON-QUALITY & QUALITY operating conditions, however, the measured workload remains below the configured overload thresholds & `current_skip = 1` throughout the 300-frame sequence. Consequently, the absence of `SKIP+1` / recovery events in these two archives must not be interpreted as an unimplemented or unvalidated control mechanism; it indicates that the final stable operating point does not require source-rate reduction. The controller, its re-presentation semantics, hysteresis, & returned-state confirmation remain part of the implemented architecture, while the final archives deliberately characterise the nominal non-overloaded condition.
 
 ### 22.10 "Codec" Diagnostics Are Not Application Frame Tables
 
@@ -2545,6 +2722,16 @@ The millimetre metrics include pose reversal, statistical filtering, robust "ICP
 ### 22.12 Dataset Artefacts Are External to Git
 
 The repository intentionally excludes the multi-gigabyte PLY / BIN sequence. Reproducibility requires independent dataset acquisition plus the exact Converter settings.
+
+### 22.13 Reference Comparison Is a Cross-Architecture Comparison
+
+The direct values in Section 21.15 combine the current archived runs, the supplied probe-disabled reference telemetry, & published values from the reference thesis. They are useful because the dataset, target cadence, projection family, hardware codec family, & 10-Mbit/s quality condition are closely related, but they do not form a transport-only controlled A / B test. Median end-to-end improvement can be reported as an observed cross-implementation result; causal attribution must remain distributed across transport, buffering, function decomposition, "GPU" kernels, persistent "codec" handling, affinity, & control placement.
+
+In particular, a lower current `Encoder` sub-stage does not imply that the corresponding work disappeared: part of the geometry is now explicitly executed by `SFF1`. Likewise, the absence of a compatible per-core utilisation log in the supplied reference material prevents a defensible claim that the current architecture consumes a specific percentage less total "CPU".
+
+### 22.14 "UDP" Applicability Is Deliberately Restricted
+
+The current "UDP" rationale is valid for the closed "DPDK" / "SFC" experiment because message identity, application pacing, returned-state confirmation, queue pressure, & integrity are explicitly controlled. "RFC 8085" should be treated as a boundary condition rather than ignored: a deployment over the unrestricted Internet would require an appropriate congestion-control / fairness strategy, checksum policy, path-"MTU" consideration, security treatment, & potentially a different transport. The project therefore claims **semantic suitability within its controlled domain**, not universal transport superiority over "TCP".
 
 ---
 
@@ -2585,6 +2772,12 @@ The repository intentionally excludes the multi-gigabyte PLY / BIN sequence. Rep
 **Challenge:** `Encoder` & `Decoder` should remain ordinary application parsers.
 
 **Current approach:** `SFF2` captures, advances, removes, & reconstructs service state around both unaware nodes; `SFF3` consumes the final aware primary state.
+
+### Reliable Control Semantics Without a Reliable Byte Stream
+
+**Challenge:** "Pose" & "Temporal" directives are operationally important, yet the native Data Plane deliberately avoids persistent "TCP" state. A lost, duplicated, or delayed control datagram must not leave the application permanently inconsistent.
+
+**Current approach:** Commands encode absolute desired state rather than relative event histories. "Pose" retains one timestamp across re-presentations & `Decoder` suppresses duplicate / older timestamps; "Temporal" retains an absolute requested skip & is re-issued while the returning `Camera` stream has not reflected it. Both paths therefore verify application effect through returned state. This provides the required convergence semantics while preserving one-message / one-datagram classification at the `SFF` frontiers.
 
 ### Preserving "MTU" Across Different Traffic Types
 
@@ -2651,6 +2844,10 @@ virtio queue_size
 MAIN_SPI / SI transitions
 TEMPORAL_SPI / SI
 POSE_SPI / SI
+DEFAULT_TTL / metadata class / next-protocol values
+exact Main / Temporal / Pose payload sizes
+control retry interval & returned-state confirmation rules
+"UDP" checksum convention & controlled-environment applicability
 SFF2 proxy rules
 Route-0 / Route-1 / Route-2 byte semantics
 
@@ -2683,6 +2880,7 @@ Gauge VOXEL_MM / "ICP" / outlier parameters
 
 all native telemetry CSV files
 Encoder / Decoder ffmpeg.txt + stderr logs
+comparison-baseline revision / log set when reporting cross-architecture percentages
 ```
 
 The final representative configuration is:
@@ -2720,74 +2918,104 @@ A benchmark attains reproducibility only when the result files & the exact mode 
 
 ---
 
-## 🚧 25. Ongoing Work
+## 🚧 25. Future Extensions
 
-The functional `Camera`-to-`User` chain is now complete. Remaining work should therefore focus upon **controlled validation breadth**, **comparative performance**, & **extended quality interpretation**, rather than basic downstream implementation.
+The functional `Camera`-to-`User` chain is complete, including the `"Main"` service path, the reverse `"Temporal"` & `"Pose"` control paths, the `"Quality"` condition, native per-frame telemetry, browser-side `"Command-to-Photon"` tracking, & the final validated CPU-affinity arrangement. Future work should therefore concern **broader deployment conditions**, **protocol interoperability**, **multi-stream scalability**, & **additional platform-level characterisation**, rather than completion or re-validation of mechanisms already consolidated within the present implementation.
 
-### Performance Validation
-
-```text
-1. perform repeated final NON-QUALITY / QUALITY runs & report confidence intervals
-2. perform OFFLOAD_MODE_ENABLED vs OFFLOAD_MODE_DISABLED A/B experiments
-3. force controlled Encoder overload to validate SKIP+1 / retry / recovery dynamics
-4. quantify temporal-controller response, hysteresis, & oscillation behaviour
-5. compare CACHE_MODE / WARM_MODE combinations as independent source conditions
-6. evaluate descriptor depth only through controlled single-variable experiments
-7. isolate the contribution of geometry offload from "codec" / "GPU" optimisations
-8. evaluate alternative "CPU"-affinity layouts without changing application semantics
-9. study "H.265" rate-control / GOP sensitivity under identical source conditions
-```
-
-### "Quality" & End-to-End Validation
+### Portability & Deployment
 
 ```text
-1. repeat the 300-frame PSNR-Y / SSIM-Y experiment across controlled bitrates
-2. report confidence intervals for mean / RMSE / Chamfer / Hausdorff geometry indicators
-3. introduce point-to-plane / surface-aware metrics where an appropriate reference is available
-4. extend quality analysis to texture / attribute fidelity
-5. analyse occupancy consistency independently from network integrity
-6. study bitrate-quality trade-offs for the custom six-view representation
-7. repeat Command-to-Photon experiments under fixed scripted interaction patterns
-8. separate browser rendering cost from network / reconstruction command latency
-9. compare final semantically equivalent frontiers with the reference application architecture
+1. repeat the complete experiment on hosts exposing a different number of physical / logical cores
+2. validate the final CPU-affinity policy across heterogeneous "SMT" / "NUMA" topologies
+3. evaluate deployment across physically distributed hosts rather than the current controlled local topology
+4. quantify the sensitivity of the validated service chain to heterogeneous compute resources across edge / cloud placement conditions
 ```
 
-### Portability & Protocol Validation
+These experiments would establish how strongly the current operating point depends upon the characteristics of the reference host, while preserving the already validated service semantics, packet formats, & node responsibilities.
+
+### Protocol Interoperability
 
 ```text
-1. repeat the experiment on a less core-constrained host
-2. validate affinity sensitivity across different SMT / NUMA layouts
-3. evaluate standards-compliant "NSH" encapsulation if interoperability becomes a research requirement
-4. validate the closed packet format on architectures with different host endianness / alignment characteristics
+1. evaluate fully standards-compliant "NSH" encapsulation if interoperability with external "SFC" implementations becomes a research requirement
+2. validate the closed packet representation on architectures exposing different host endianness / alignment characteristics
+3. revisit checksum, congestion-control, & transport assumptions before any unrestricted wide-area or Internet-facing deployment
+4. assess compatibility with external service-chain classifiers / orchestrators without altering the internal behaviour of "SFC"-unaware functions
 ```
 
-The immediate research priority is therefore no longer Route-2 completion; it is the systematic expansion of the already complete chain into repeatable controlled experiments whose variables remain isolated & explicitly documented.
+The current packet representation remains intentionally `"NSH"-inspired` & closed within the experimental topology; interoperability with generic RFC-compliant service-chain infrastructures is therefore a distinct extension rather than a missing element of the present implementation.
+
+### Multi-Stream Scalability & Orchestration
+
+```text
+1. introduce an explicit stream / session identifier if concurrent multi-user multiplexing is required
+2. evaluate whether selected "SFC" functions can be shared across concurrent sessions while preserving per-stream service state
+3. measure replicated-chain vs shared-function deployment strategies under controlled multi-stream load
+4. quantify orchestration decisions in terms of placement granularity, resource assignment, service migration cost, & request admission capacity
+```
+
+The present architecture already exposes a finer placement granularity than the monolithic reference blocks; however, true multi-stream scalability requires explicit stream identity & controlled contention experiments before quantitative claims regarding concurrent-user capacity can be made.
+
+### Extended Resource Characterisation
+
+```text
+1. complement the existing per-node latency / residency / efficiency telemetry with platform-level "CPU" utilisation measurements
+2. introduce "GPU" utilisation & memory-bandwidth observations at the projection / reconstruction stages
+3. measure power / energy consumption where suitable hardware instrumentation is available
+4. relate resource consumption to placement decisions across different orchestration scenarios
+```
+
+This extension would allow the currently measured latency, throughput, & quality profiles to be complemented by a complete compute-resource cost model, enabling more direct use of the pipeline as an orchestration input within heterogeneous compute-continuum scenarios.
+
+### Broader Application Validation
+
+```text
+1. repeat the validated pipeline on additional volumetric datasets exhibiting different point densities, motions, & spatial distributions
+2. assess the portability of the fixed packetisation, codec, & reconstruction parameters across such datasets
+3. evaluate the integration of an actual "VR" / "AR" terminal while preserving the existing browser / shared-memory diagnostic path as a reference condition
+```
+
+These experiments would test the generality of the current implementation beyond the `Loot` sequence without changing the architectural principles validated in the present work.
+
+The immediate research priority is therefore no longer architectural completion or re-validation of the current service chain; it is the extension of an already complete & experimentally characterised `"SFC"` pipeline toward **portable deployment**, **standards-oriented interoperability**, **multi-stream orchestration**, & **broader resource-aware evaluation**.
 
 ---
 
 ## 📚 26. References
 
+
 1. J. Halpern & C. Pignataro, **"Service Function Chaining" ( "SFC" ) Architecture**, "RFC 7665", IETF, 2015.
 2. P. Quinn, U. Elzur, & C. Pignataro, **"Network Service Header" ( "NSH" )**, "RFC 8300", IETF, 2018. The present project adopts its "SPI" / "SI" terminology & architectural concepts but refrains from claiming complete wire-format interoperability.
-3. E. d'Eon, B. Harrison, T. Myers, & P. A. Chou, **8i Voxelized Full Bodies — A Voxelized Point Cloud Dataset**, ISO/IEC JTC1/SC29 Joint WG11/WG1 input document WG11M40059/WG1M74006, Geneva, January 2017.
-4. **JPEG Pleno Database**, *8i Voxelized Full Bodies ( 8iVFB v2 ) — A Dynamic Voxelized Point Cloud Dataset*.
-5. **"DPDK" Project**, Data Plane Development Kit documentation, including Ethdev, "virtio-user", & "vhost-user" interfaces.
-6. **NVIDIA**, "CUDA" Toolkit documentation & NVIDIA Video Codec / "NVENC" / hardware-decoding documentation.
-7. **"FFmpeg" Project**, "FFmpeg" documentation, filter reference, hardware acceleration, & `vstats` facilities.
-8. **Three.js Project**, Three.js / WebGL point-geometry documentation used by the browser presentation frontier.
-9. **SciPy Project**, `scipy.spatial.cKDTree` documentation employed by the offline geometric `Gauge`.
-10. Maria Giovanna Lacaria, **Point Cloud Coding for Extended Reality Services**, Master's Thesis, Sapienza University of Rome, Academic Year 2025/2026. This reference constitutes the application-level architectural & evaluation baseline explicitly discussed by the project.
+3. J. Postel, **"User Datagram Protocol"**, "RFC 768", IETF, 1980. Used as the base datagram-format reference for the fixed-width application messages carried by the native Data Plane.
+4. L. Eggert, G. Fairhurst, & G. Shepherd, **"UDP Usage Guidelines"**, "RFC 8085" / "BCP 145", IETF, 2017. The current deployment is explicitly scoped as a controlled environment; general-Internet congestion-control & checksum guidance remains an applicability boundary.
+5. W. Eddy, Ed., **"Transmission Control Protocol" ( "TCP" )**, "RFC 9293", IETF, 2022. Used as the comparison reference for reliable byte-stream semantics, connection state, sequence / acknowledgment processing, & minimum header structure.
+6. E. d'Eon, B. Harrison, T. Myers, & P. A. Chou, **8i Voxelized Full Bodies — A Voxelized Point Cloud Dataset**, ISO/IEC JTC1/SC29 Joint WG11/WG1 input document WG11M40059/WG1M74006, Geneva, January 2017.
+7. **JPEG Pleno Database**, *8i Voxelized Full Bodies ( 8iVFB v2 ) — A Dynamic Voxelized Point Cloud Dataset*.
+8. **"DPDK" Project**, Data Plane Development Kit documentation, including Ethdev, "virtio-user", & "vhost-user" interfaces.
+9. **NVIDIA**, "CUDA" Toolkit documentation & NVIDIA Video Codec / "NVENC" / hardware-decoding documentation.
+10. **"FFmpeg" Project**, "FFmpeg" documentation, filter reference, hardware acceleration, & `vstats` facilities.
+11. **Three.js Project**, Three.js / WebGL point-geometry documentation used by the browser presentation frontier.
+12. **SciPy Project**, `scipy.spatial.cKDTree` documentation employed by the offline geometric `Gauge`.
+13. Maria Giovanna Lacaria, **Point Cloud Coding for Extended Reality Services**, Master's Thesis, Sapienza University of Rome, Academic Year 2025/2026. This reference constitutes the application-level architectural & evaluation baseline explicitly discussed by the project.
 
 ---
 
 ## Final Note
 
-The principal scholarly contribution of this repository resides in the **holistic co-design of packet transport, service steering, computation, reconstruction, control, presentation, & measurement** under a deliberately constrained software data-plane environment.
+
+The principal scholarly contribution of this repository resides in the **holistic co-design of packet transport, service steering, computation, reconstruction, control, presentation, orchestration granularity, & measurement** under a deliberately constrained software data-plane environment.
 
 The point cloud is not merely relayed between isolated applications. `Camera` governs source admission from an `Encoder`-derived workload signal; `SFF1` computes useful geometry while packets traverse the data path; `SFF2` preserves experimental service state around two unaware application functions; `Encoder` projects & compresses the geometry through persistent "GPU" / "codec" state; `Decoder` reconstructs the point cloud & applies independent `User` "Pose"; `SFF3` closes the aware primary chain & classifies the reverse "Pose" path; & `User` separates native reception from asynchronous browser presentation while retaining explicit command & "Quality" telemetry.
 
+The use of "UDP" is therefore not justified by an undifferentiated claim that it is simply faster than "TCP". It follows from the current protocol semantics: fixed-size application entities are directly classifiable by SFFs, every control request encodes absolute latest state, duplicates / stale commands can be rejected deterministically, & unresolved state is re-presented until its application effect is observed in the returning data stream. This design avoids introducing byte-stream reassembly / connection-control state into the native "DPDK" service plane while retaining a clear reliability mechanism at the application frontier. Its validity is intentionally restricted to the documented controlled environment.
+
 The two final 300-frame "Loot" archives establish complementary outcomes. In both modes, the entire primary route preserves 300 / 300 frame completion with 100 % recorded data integrity at every native forwarding / application frontier & a `Camera` cadence of approximately 30 frames / s. The interactive run further exercises 42 matched "Pose" directives & browser `Command-to-Photon` acknowledgments, while the isolated "Quality" run evaluates all 300 reconstructed frames & recovers complete `PSNR-Y`, `SSIM-Y`, mean / `RMSE` / `Chamfer` / `Hausdorff` geometry indicators.
 
-Consequently, the repository has progressed beyond an upstream proof of concept into a complete experimental `Camera`-to-`User` platform. Its remaining limitations are methodological rather than missing-chain placeholders: the packet format is intentionally "NSH"-inspired rather than a generic interoperable stack, the custom six-view "HEVC" representation is not a standards-compliant point-cloud "codec", "Temporal" overload dynamics still warrant forced stress validation, & all reported performance remains inseparable from the documented 4-core / 8-thread host placement.
+Against the supplied probe-disabled application-level reference logs, the current native complete-frame frontier exhibits a median Camera-to-User latency of approximately `240.732 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `29.6 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
 
-The resulting platform is therefore best interpreted as an empirical study of **which volumetric-streaming operations benefit from in-path execution, how state can be retained around unaware service functions, how asynchronous "codec" / reconstruction work interacts with direct "DPDK" forwarding, & how runtime responsiveness & objective fidelity can be evaluated without allowing one measurement procedure to perturb the other**.
+Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences (`145,403.233` versus `145,403.197` mean points / frame; 292 exact frame-wise population matches), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact "Quality" invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
+
+The orchestration contribution is similarly structural rather than rhetorical. The reference thesis identifies its monolithic `Encoder` & Client blocks as an obstacle to fine-grained placement & proposes their decomposition as future work. The current primary graph exposes seven native placement units rather than four coarse services — `75 %` more graph-level placement points — while the removal of one former switch-only "PMD" reservation makes `12.5 %` of this eight-thread host's logical scheduling capacity available for application placement. Neither percentage is presented as a measured reduction in total "CPU" consumption; the former quantifies granularity & the latter quantifies reallocation.
+
+Consequently, the repository has progressed beyond an upstream proof of concept into a complete experimental `Camera`-to-`User` platform whose remaining limitations are primarily methodological: the packet format is intentionally "NSH"-inspired rather than a generic interoperable stack, the custom six-view "HEVC" representation is not a standards-compliant point-cloud "codec", the final representative archives deliberately exercise the nominal non-overloaded "Temporal" operating point, multi-user density remains unmeasured, & cross-reference resource percentages require a dedicated equal-hardware campaign.
+
+The resulting platform is therefore best interpreted as an empirical study of **how a coarse application pipeline can be decomposed into explicit service functions, which volumetric-streaming operations benefit from in-path execution, how latest-state controls can remain reliable without importing a reliable byte stream into the packet path, how state can be retained around unaware functions, & how latency / fidelity / resource boundaries can be made sufficiently explicit for future orchestration decisions**.
