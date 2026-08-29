@@ -58,6 +58,11 @@
 #define POINTS_PER_PACKET 80
 #define MAX_FRAME_POINTS 835458
 
+#define CAMERA_DISTANCE 1200.0f
+#define WIDTH 640
+#define HEIGHT 480
+#define PADDING 0.10f
+
 #define MD_CLASS_EXPERIMENTAL 0xFFF6
 #define MD_TYPE_GEOMETRY 0x01
 #define MD_TYPE_2 0x02
@@ -80,7 +85,7 @@ struct nsh_md2_ctx_hdr {
 
 // Progressive geometry information exported via the "MD-Type-2" context, representing a "computational offloading" strategy. 
 // For the active point set, "C = ( 1 / N ) * sum_i( p_i )", "E = p_max - p_min", "B = ( p_min + p_max ) / 2". 
-// Middle packets carry the summary while frame-completing elements include "max_r = max_i || p_i - C ||_2" for downstream employment
+// Middle packets carry the summary while frame-completing elements include "max_r = max_i || p_i - C ||_2" for downstream employment ( alongside remaining projection metadata )
 struct geo_agg_hdr { 
     uint32_t centroid_x;
     uint32_t centroid_y;
@@ -94,8 +99,14 @@ struct geo_agg_hdr {
     uint32_t bbox_center_y;
     uint32_t bbox_center_z;
 
-    uint32_t max_r; // zero on intermidiate packets / exact farthest-point radius otherwise
-    
+    uint32_t max_r; // zero on intermediate packets / exact farthest-point radius otherwise
+
+    uint32_t final_scale;
+    uint32_t global_scale;
+    uint32_t projected_bbox_x;
+    uint32_t projected_bbox_y;
+    uint32_t projected_bbox_z;
+
     uint32_t active_point_count;
 } __attribute__((__packed__));
 
@@ -279,23 +290,75 @@ static inline uint16_t nsh_length_bytes( struct nsh_hdr *nsh ) {
 
 static inline float calculate_maximum_radius( const struct geometry_point *points, uint32_t point_count, float centroid_x, float centroid_y, float centroid_z ) {
 
-    // Purpose: It computes the exact frame distance about the final centroid coordinates once all points are definitively acquired
-    //          Mathematically speaking, "max_r = max_i sqrt( ( x_i - C_x ) ^ 2 + ( y_i - C_y ) ^ 2 + ( z_i - C_z ) ^ 2 )"
+    // Purpose: It follows the reference numerical order more closely by
+    //          evaluating sqrt() per point before selecting the maximum.
 
-    float max_r2 = 0.0f;
+    float max_r = 0.0f;
 
     for ( uint32_t point = 0; point < point_count; point++ ) {
         float dx = points[ point ].x - centroid_x;
         float dy = points[ point ].y - centroid_y;
         float dz = points[ point ].z - centroid_z;
 
-        float r2 = dx * dx + dy * dy + dz * dz;
+        float dist = sqrtf( ( dx * dx ) + ( dy * dy ) + ( dz * dz ) );
 
-        if ( r2 > max_r2 )
-            max_r2 = r2;
+        if ( dist > max_r )
+            max_r = dist;
     }
 
-    return sqrtf( max_r2 );
+    return max_r;
+}
+
+static inline void calculate_projection_metadata( const struct geometry_point *points, uint32_t point_count, float centroid_x, float centroid_y, float centroid_z, float max_r, float *final_scale_out, float *global_scale_out, float *center_x_out, float *center_y_out, float *center_z_out ) {
+
+    // Purpose: It derives the frame-complete projection metadata from the offloaded geometry, reproducing the reference numerical sequence through explicit point-wise normalization, transformed spatial frontiers & final scale evaluation
+
+    float final_scale = 1.0f;
+
+    if ( isfinite( max_r ) && max_r > 0.0f )
+        final_scale = ( CAMERA_DISTANCE * 0.2f ) / max_r;
+
+    float min_x = FLT_MAX;
+    float min_y = FLT_MAX;
+    float min_z = FLT_MAX;
+    float max_x = -FLT_MAX;
+    float max_y = -FLT_MAX;
+    float max_z = -FLT_MAX;
+
+    for ( uint32_t point = 0; point < point_count; point++ ) {
+        float tx = ( points[ point ].x - centroid_x ) * final_scale;
+        float ty = ( points[ point ].y - centroid_y ) * final_scale;
+        float tz = ( points[ point ].z - centroid_z ) * final_scale + CAMERA_DISTANCE;
+
+        if ( tx < min_x ) min_x = tx;
+        if ( tx > max_x ) max_x = tx;
+        if ( ty < min_y ) min_y = ty;
+        if ( ty > max_y ) max_y = ty;
+        if ( tz < min_z ) min_z = tz;
+        if ( tz > max_z ) max_z = tz;
+    }
+
+    float extent_x = ( point_count > 0 ) ? max_x - min_x : 0.0f;
+    float extent_y = ( point_count > 0 ) ? max_y - min_y : 0.0f;
+    float extent_z = ( point_count > 0 ) ? max_z - min_z : 0.0f;
+
+    float bbox_center_x = ( point_count > 0 ) ? ( min_x + max_x ) * 0.5f : 0.0f;
+    float bbox_center_y = ( point_count > 0 ) ? ( min_y + max_y ) * 0.5f : 0.0f;
+    float bbox_center_z = ( point_count > 0 ) ? ( min_z + max_z ) * 0.5f : 0.0f;
+
+    float scale_x = extent_x / ( float )WIDTH;
+    float scale_y = extent_y / ( float )HEIGHT;
+    float scale_z = extent_z / ( float )WIDTH;
+    float global_scale = fmaxf( fmaxf( scale_x, scale_y ), scale_z ) * ( 1.0f + PADDING );
+
+    if ( !isfinite( global_scale ) || global_scale <= 0.0f )
+        global_scale = 1.0f;
+
+    *final_scale_out = final_scale;
+    *global_scale_out = global_scale;
+    *center_x_out = bbox_center_x;
+    *center_y_out = bbox_center_y;
+    *center_z_out = bbox_center_z;
 }
 
 static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
@@ -1124,15 +1187,34 @@ static int worker_loop( __rte_unused void *arg ) {
             geometry_cycles += t_geometry_end - t_geometry_start;
 
             float packet_max_r = 0.0f;
+            float packet_final_scale = 0.0f;
+            float packet_global_scale = 0.0f;
+            float packet_bbox_x = 0.0f;
+            float packet_bbox_y = 0.0f;
+            float packet_bbox_z = 0.0f;
+
             bool final_geometry = frame_original_points > 0 && frame_point_count == frame_original_points;
 
             if ( final_geometry ) {
                 uint64_t t_max_r_start = rte_get_timer_cycles();
 
-                packet_max_r = calculate_maximum_radius( frame_geometry_points, frame_point_count, centroid_x, centroid_y, centroid_z );
+                packet_max_r = calculate_maximum_radius(
+                    frame_geometry_points,
+                    frame_point_count,
+                    centroid_x,
+                    centroid_y,
+                    centroid_z
+                );
 
                 uint64_t t_max_r_end = rte_get_timer_cycles();
                 max_r_cycles += t_max_r_end - t_max_r_start;
+
+                uint64_t t_projection_frontier_start = rte_get_timer_cycles();
+
+                calculate_projection_metadata( frame_geometry_points, frame_point_count, centroid_x, centroid_y, centroid_z, packet_max_r, &packet_final_scale, &packet_global_scale, &packet_bbox_x, &packet_bbox_y, &packet_bbox_z );
+
+                uint64_t t_projection_frontier_end = rte_get_timer_cycles();
+                geometry_cycles += t_projection_frontier_end - t_projection_frontier_start;
             }
 
             if ( unlikely( rte_pktmbuf_adj( m, camera_net_len ) == NULL ) ) {
@@ -1188,6 +1270,11 @@ static int worker_loop( __rte_unused void *arg ) {
             hdr -> geo.bbox_center_z = float_to_be( bbox_center_z );
 
             hdr -> geo.max_r = float_to_be( packet_max_r );
+            hdr -> geo.final_scale = float_to_be( packet_final_scale );
+            hdr -> geo.global_scale = float_to_be( packet_global_scale );
+            hdr -> geo.projected_bbox_x = float_to_be( packet_bbox_x );
+            hdr -> geo.projected_bbox_y = float_to_be( packet_bbox_y );
+            hdr -> geo.projected_bbox_z = float_to_be( packet_bbox_z );
             hdr -> geo.active_point_count = rte_cpu_to_be_32( frame_point_count );
 
             tx_bufs[ burst_idx ] = m;

@@ -70,6 +70,13 @@ struct geometry_result {
 
     float max_r = 0.0f;
 
+    float final_scale = 1.0f;
+    float global_scale = 1.0f;
+    float projected_bbox_x = 0.0f;
+    float projected_bbox_y = 0.0f;
+    float projected_bbox_z = 0.0f;
+    bool projection_geometry_ready = false;
+
     double geometry_aggregation_ms = 0.0;
     double max_r_ms = 0.0;
 };
@@ -738,10 +745,24 @@ static inline bool geometry_from_sff1( const frame_buffer &fb, const struct host
 
     if ( frame_complete ) {
         result -> max_r = be_to_float( fb.geo.max_r );
+        result -> final_scale = be_to_float( fb.geo.final_scale );
+        result -> global_scale = be_to_float( fb.geo.global_scale );
+        result -> projected_bbox_x = be_to_float( fb.geo.projected_bbox_x );
+        result -> projected_bbox_y = be_to_float( fb.geo.projected_bbox_y );
+        result -> projected_bbox_z = be_to_float( fb.geo.projected_bbox_z );
         result -> max_r_ms = 0.0;
+
+        result -> projection_geometry_ready =
+            std::isfinite( result -> final_scale ) && result -> final_scale > 0.0f &&
+            std::isfinite( result -> global_scale ) && result -> global_scale > 0.0f &&
+            std::isfinite( result -> projected_bbox_x ) &&
+            std::isfinite( result -> projected_bbox_y ) &&
+            std::isfinite( result -> projected_bbox_z );
 
         return std::isfinite( result -> max_r ) && result -> max_r >= 0.0f;
     }
+
+    result -> projection_geometry_ready = false;
 
     uint64_t t_max_r_start = rte_get_timer_cycles();
     float max_r2 = 0.0f;
@@ -774,6 +795,8 @@ static inline bool compute_geometry_locally( const struct host_point *active_poi
     
     if ( active_points == NULL || active_point_count == 0 )
         return false;
+
+    result -> projection_geometry_ready = false;
 
     uint64_t t_geometry_start = rte_get_timer_cycles();
 
@@ -2141,7 +2164,7 @@ static int worker_loop( __rte_unused void *arg ) {
             t -> max_r_ms = geometry.max_r_ms;
 
             float target_radius = CAMERA_DISTANCE * 0.2f;
-            float final_scale = ( geometry.max_r > 0.0f ) ? target_radius / geometry.max_r : 1.0f;
+            float final_scale = geometry.projection_geometry_ready ? geometry.final_scale : ( ( geometry.max_r > 0.0f ) ? target_radius / geometry.max_r : 1.0f );
 
             double slot_wait_ms = 0.0;
             int yuv_slot = acquire_yuv_slot( tx_bufs, &burst_idx, timer_hz, &slot_wait_ms );
@@ -2154,7 +2177,7 @@ static int worker_loop( __rte_unused void *arg ) {
             uint64_t projection_end_cycles = 0;
             double gpu_metrics[ 4 ] = { 0.0, 0.0, 0.0, 0.0 };
 
-            run_projection_pipeline( active_points, active_point_count, geometry.centroid_x, geometry.centroid_y, geometry.centroid_z, geometry.extent_x, geometry.extent_y, geometry.extent_z, geometry.bbox_center_x, geometry.bbox_center_y, geometry.bbox_center_z, final_scale, CAMERA_DISTANCE, yuv_buffers[ yuv_slot ].data(), gpu_metrics, &global_scale, &bbox_center_x, &bbox_center_y, &bbox_center_z, &projection_end_cycles, process_network_stream );
+            run_projection_pipeline( active_points, active_point_count, geometry.centroid_x, geometry.centroid_y, geometry.centroid_z, geometry.extent_x, geometry.extent_y, geometry.extent_z, geometry.bbox_center_x, geometry.bbox_center_y, geometry.bbox_center_z, final_scale, CAMERA_DISTANCE, geometry.projection_geometry_ready, geometry.global_scale, geometry.projected_bbox_x, geometry.projected_bbox_y, geometry.projected_bbox_z, yuv_buffers[ yuv_slot ].data(), gpu_metrics, &global_scale, &bbox_center_x, &bbox_center_y, &bbox_center_z, &projection_end_cycles, process_network_stream );
 
             t -> projection_ms = ( ( double )( projection_end_cycles - t_projection_start ) / timer_hz ) * 1000.0;
             t -> gpu_transfer_ms = gpu_metrics[ 0 ];

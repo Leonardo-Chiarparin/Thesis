@@ -267,7 +267,7 @@ extern "C" void cuda_memory_warmup() {
     float dummy_bbox_center_z = 0.0f;
     uint64_t dummy_projection_end_cycles = 0;
 
-    run_projection_pipeline( dummy_points, n_pts, 0.0f, 0.0f, 0.0f, 100.0f, 100.0f, 100.0f, 0.0f, 0.0f, 0.0f, 1.0f, CAMERA_DISTANCE, dummy_out, dummy_metrics, &dummy_global_scale, &dummy_bbox_center_x, &dummy_bbox_center_y, &dummy_bbox_center_z, &dummy_projection_end_cycles, nullptr );
+    run_projection_pipeline( dummy_points, n_pts, 0.0f, 0.0f, 0.0f, 100.0f, 100.0f, 100.0f, 0.0f, 0.0f, 0.0f, 1.0f, CAMERA_DISTANCE, false, 1.0f, 0.0f, 0.0f, 0.0f, dummy_out, dummy_metrics, &dummy_global_scale, &dummy_bbox_center_x, &dummy_bbox_center_y, &dummy_bbox_center_z, &dummy_projection_end_cycles, nullptr );
 
     free( dummy_out );
 }
@@ -286,23 +286,22 @@ extern "C" void cuda_memory_unleash( void *ptr ) {
     CHECK_CUDA( cudaHostUnregister( ptr ) );
 }
 
-extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_bbox_center_x, float raw_bbox_center_y, float raw_bbox_center_z, float final_scale, float cam_dist, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_bbox_center_x, float *out_bbox_center_y, float *out_bbox_center_z, uint64_t *out_projection_end_cycles, process_callback_t process_callback ) {
+extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_center_x, float raw_center_y, float raw_center_z, float final_scale, float cam_dist, bool use_projection_geometry, float projected_global_scale, float projected_bbox_x, float projected_bbox_y, float projected_bbox_z, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_center_x, float *out_center_y, float *out_center_z, uint64_t *out_projection_cycles, process_callback_t process_callback ) {
 
     // Purpose: It orchestrates asynchronous "Host-to-Device" ( "H2D" ) shift, "G-Buffer" projection, "Atlas" packing & "Device-to-Host" ( "D2H" ) copies, exploiting static pose data to enhance transformations
-    //          Since "yaw" = "pitch" = 0 & "zoom" = 1, retrieved bounds are precise affine images of the raw frontiers, therefore no point-wise box reduction is necessary
 
     if ( num_pts == 0 ) {
         if ( out_global_scale )
             *out_global_scale = 1.0f;
 
-        if ( out_bbox_center_x )
-            *out_bbox_center_x = 0.0f;
+        if ( out_center_x )
+            *out_center_x = 0.0f;
 
-        if ( out_bbox_center_y )
-            *out_bbox_center_y = 0.0f;
+        if ( out_center_y )
+            *out_center_y = 0.0f;
 
-        if ( out_bbox_center_z )
-            *out_bbox_center_z = 0.0f;
+        if ( out_center_z )
+            *out_center_z = 0.0f;
 
         if ( gpu_metrics ) {
             gpu_metrics[ 0 ] = 0.0;
@@ -311,8 +310,8 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
             gpu_metrics[ 3 ] = 0.0;
         }
 
-        if ( out_projection_end_cycles )
-            *out_projection_end_cycles = rte_get_timer_cycles();
+        if ( out_projection_cycles )
+            *out_projection_cycles = rte_get_timer_cycles();
 
         return;
     }
@@ -332,33 +331,47 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
 
     CHECK_CUDA( cudaEventRecord( h2d_done_event, stream ) );
 
-    float bbox_center_x = ( raw_bbox_center_x - centroid_x ) * final_scale;
-    float bbox_center_y = ( raw_bbox_center_y - centroid_y ) * final_scale;
-    float bbox_center_z = ( raw_bbox_center_z - centroid_z ) * final_scale + cam_dist;
+    float bbox_center_x = 0.0f;
+    float bbox_center_y = 0.0f;
+    float bbox_center_z = 0.0f;
+    float global_scale = 1.0f;
 
-    float transformed_extent_x = extent_x * final_scale;
-    float transformed_extent_y = extent_y * final_scale;
-    float transformed_extent_z = extent_z * final_scale;
+    if ( use_projection_geometry && isfinite( projected_global_scale ) && projected_global_scale > 0.0f && isfinite( projected_bbox_x ) && isfinite( projected_bbox_y ) && isfinite( projected_bbox_z ) ) {
 
-    float scale_x = transformed_extent_x / ( float )WIDTH;
-    float scale_y = transformed_extent_y / ( float )HEIGHT;
-    float scale_z = transformed_extent_z / ( float )WIDTH;
-    float global_scale = fmaxf( fmaxf( scale_x, scale_y ), scale_z ) * 1.10f;
+        global_scale = projected_global_scale;
+        bbox_center_x = projected_bbox_x;
+        bbox_center_y = projected_bbox_y;
+        bbox_center_z = projected_bbox_z;
+    }
+    else {
+        bbox_center_x = ( raw_center_x - centroid_x ) * final_scale;
+        bbox_center_y = ( raw_center_y - centroid_y ) * final_scale;
+        bbox_center_z = ( raw_center_z - centroid_z ) * final_scale + cam_dist;
 
-    if ( !isfinite( global_scale ) || global_scale <= 0.0f )
-        global_scale = 1.0f;
+        float transformed_extent_x = extent_x * final_scale;
+        float transformed_extent_y = extent_y * final_scale;
+        float transformed_extent_z = extent_z * final_scale;
+
+        float scale_x = transformed_extent_x / ( float )WIDTH;
+        float scale_y = transformed_extent_y / ( float )HEIGHT;
+        float scale_z = transformed_extent_z / ( float )WIDTH;
+        global_scale = fmaxf( fmaxf( scale_x, scale_y ), scale_z ) * 1.10f;
+
+        if ( !isfinite( global_scale ) || global_scale <= 0.0f )
+            global_scale = 1.0f;
+    }
 
     if ( out_global_scale )
         *out_global_scale = global_scale;
 
-    if ( out_bbox_center_x )
-        *out_bbox_center_x = bbox_center_x;
+    if ( out_center_x )
+        *out_center_x = bbox_center_x;
 
-    if ( out_bbox_center_y )
-        *out_bbox_center_y = bbox_center_y;
+    if ( out_center_y )
+        *out_center_y = bbox_center_y;
 
-    if ( out_bbox_center_z )
-        *out_bbox_center_z = bbox_center_z;
+    if ( out_center_z )
+        *out_center_z = bbox_center_z;
 
     size_t face_mem = 6 * FACE_H_PADDED * FACE_W_PADDED;
 
@@ -397,8 +410,8 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
     else
         CHECK_CUDA( cudaStreamSynchronize( stream ) );
 
-    if ( out_projection_end_cycles )
-        *out_projection_end_cycles = rte_get_timer_cycles();
+    if ( out_projection_cycles )
+        *out_projection_cycles = rte_get_timer_cycles();
 
     if ( gpu_metrics ) {
         float ms = 0.0f;

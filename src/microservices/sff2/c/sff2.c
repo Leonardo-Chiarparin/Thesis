@@ -102,11 +102,11 @@ struct nsh_md2_ctx_hdr {
     uint8_t u_length;
 } __attribute__((__packed__));
 
-struct geo_agg_hdr {
+struct geo_agg_hdr { 
     uint32_t centroid_x;
     uint32_t centroid_y;
     uint32_t centroid_z;
-    
+
     uint32_t extent_x;
     uint32_t extent_y;
     uint32_t extent_z;
@@ -115,7 +115,13 @@ struct geo_agg_hdr {
     uint32_t bbox_center_y;
     uint32_t bbox_center_z;
 
-    uint32_t max_r;
+    uint32_t max_r; 
+
+    uint32_t final_scale; 
+    uint32_t global_scale;
+    uint32_t projected_bbox_x;
+    uint32_t projected_bbox_y;
+    uint32_t projected_bbox_z;
 
     uint32_t active_point_count;
 } __attribute__((__packed__));

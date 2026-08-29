@@ -21,7 +21,7 @@ This repository serves as an experimental research platform rather than a produc
 | Node | Condition | Responsibility |
 |---|---|---|
 | `Camera` | Validated | "DPDK"-native point-cloud source, warm-mode file acquisition, frame packetisation, absolute scheduling, temporal selection, bounded local Tx resubmission, & source telemetry |
-| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-progressive spatial aggregation, exact frame-completing radius evaluation, experimental "NSH" metadata insertion, & "Temporal" decapsulation directed to `Camera` |
+| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-progressive spatial aggregation, exact frame-completing radius evaluation, final projection-metadata derivation, experimental "NSH" metadata insertion, & "Temporal" decapsulation directed to `Camera` |
 | `SFF2`<br>( Route 0 ) | Validated | Stateful proxy for `SFF1` -> `Encoder`; validates the aware envelope, preserves proxy state, strips service metadata, & forwards plain geometry-bearing application datagrams |
 | `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback, workload-driven "Temporal" regulation, "CUDA" projection, persistent "FFmpeg" / "NVENC" encoding, "MPEG-TS" attribution, & optional post-stream "luma"-quality evaluation |
 | `SFF2`<br>( Route 1 ) | Validated | Proxy-maintained `Encoder` -> `Decoder` transition, compressed-media integrity accounting, & advancement of the primary service state |
@@ -139,14 +139,12 @@ max_r = max_i || p_i - C_final ||_2
 
 This metric is contingent upon `C_final`, which remains undetermined until the frame is entirely received. Consequently, "GAC" maintains a compact frame-local `XYZ` workspace, executing the initial aggregation pass while packets are actively forwarded, & performs the precise distance calculation only upon ascertaining the final population. The resultant data is then appended to the scene-completing packet.
 
-This limitation is not merely a deferred optimisation resolvable by transmitting an alternative packet earlier. Pre-computing the accurate centroid-dependent boundary at the `Camera`, within an offline stage, or via another processing element would shift the computation outside the data-plane locale under experimental evaluation. Similarly, pose-dependent transformed frontiers cannot be finalised until the requisite stance data is available. Thus, the implementation rigorously distinguishes between **continuous in-path information** & **frame-global information mathematically unavailable until a specific barrier is breached**.
+This limitation is not merely a deferred optimisation resolvable by transmitting an alternative packet earlier. Pre-computing the accurate centroid-dependent boundary at the `Camera`, within an offline stage, or via another processing element would shift the computation outside the data-plane locale under experimental evaluation. Likewise, the final transformed projection frontier cannot be materialised until the final centroid & exact `max_r` have become available at the frame-completion barrier. Thus, the implementation rigorously distinguishes between **continuous in-path information** & **frame-global information mathematically unavailable until a specific barrier is breached**.
 
-Procedures necessitating the complete active point set, final reconstruction parameters, "GPU" visibility, or "codec" state are retained downstream:
+Once that barrier is reached, `SFF1` now completes the geometric offload by deriving `final_scale`, transformed extents, projected bounding-box centre, & `global_scale`. Procedures that still require final reconstruction parameters, "GPU" visibility, dynamic stance, or "codec" state remain downstream:
 
 ```
-final geometric scaling
 pose transformation
-projection-specific transformed bounds
 6-view projection
 visibility / depth conflict resolution
 "Geometry" / "Texture" / "Occupancy" "Atlas" packing
@@ -154,7 +152,7 @@ visibility / depth conflict resolution
 "H.265" / "NVENC" compression
 ```
 
-The `Encoder` operates neither as a conventional isolated application nor as a purely stateless data-plane function. It retains a frame-completion boundary prior to projection, yet it incrementally performs packet-by-packet conversion & placement, consumes progressive / final geometric metadata, cooperatively services "DPDK" during "CPU" / "GPU" workloads, & decouples "codec" input via a writer queue. It functions as a **hybrid frame-aware elaboration node** situated between application-level semantics & data-plane-oriented incremental execution.
+The `Encoder` operates neither as a conventional isolated application nor as a purely stateless data-plane function. It retains a frame-completion boundary prior to projection, yet it incrementally performs packet-by-packet conversion & placement, consumes progressive / final geometric metadata, cooperatively services "DPDK" during "CPU" / "GPU" workloads, & decouples "codec" input via a writer queue. Complete validated frames therefore enter projection with the final geometric frontier already resolved by `SFF1`, while analytical / local fallbacks remain available for partial or invalid upstream states. It functions as a **hybrid frame-aware elaboration node** situated between application-level semantics & data-plane-oriented incremental execution.
 
 ### 1.3 Connection with the Reference Pipeline
 
@@ -224,7 +222,7 @@ Secondly, `Encoder` does **not** implement "MPEG" "V-PCC" or "G-PCC". It constru
 | Device | Importance |
 |---|---|
 | `Camera` | Establishes the absolute source timeline, reads prepared fixed-width frames, serialises coordinates into network byte order, packetises below the "MTU", & applies the most recent `temporal_skip` before frame injection. |
-| `SFF1` | Demonstrates the in-path computation principle. It evaluates progressive centroid / extent / bounding-box information while forwarding & computes the exact final `max_r` at frame completion, exporting geometry through the experimental service context. |
+| `SFF1` | Demonstrates the in-path computation principle. It evaluates progressive centroid / extent / raw bounding-box information while forwarding, computes exact frame-completing `max_r`, derives the final projection scale / projected bounding box, & exports the resulting geometry through the experimental service context. |
 | `SFF2` | Separates service-path state from unaware application functions. Its four ports implement all three primary-route transitions, plus the reverse "Temporal" & "Pose" paths, while preserving `SPI` / `SI` state around `Encoder` & `Decoder`. |
 | `Encoder` | Reconstructs complete frames, consumes `SFF1` geometry when valid, executes the "CUDA" six-view projection, feeds a persistent pre-rolled "NVENC" process, attributes asynchronous "MPEG-TS" output, & regulates source admission from measured workload. |
 | `Decoder` | Receives plain `cam_hdr + enc_hdr + MPEG-TS`, feeds a persistent hardware decoder, reconstructs the projected representation into a point cloud, applies the current pose, & emits a packet-sequenced `dec_hdr + point_tx` stream. |
@@ -452,7 +450,7 @@ Consequently, the storage artefact is a documented local representation, whereas
 | `cam_hdr` | `40 B` | Frame identity, packet sequence, `Camera` timestamp, source pose, temporal skip, original-point count, & packet population |
 | `nsh_hdr` | `8 B` | Experimental service-chain base carrying "SPI", "SI", "TTL", metadata type, & next-protocol information |
 | `nsh_md2_ctx_hdr` | `4 B` | Project geometric-context descriptor |
-| `geo_agg_hdr` | `44 B` | Centroid, extent, bounding-box centre, `max_r`, & active-point count |
+| `geo_agg_hdr` | `64 B` | Centroid, extent, raw bounding-box centre, `max_r`, final scale, global projection scale, projected bounding-box centre, & active-point count |
 | `enc_hdr` | `48 B` | Encoded-media packet identity & reconstruction parameters |
 | `dec_hdr` | `52 B` | Reconstructed-frame identity, sequence, original / arrived / eroded / valid populations, pose, temporal skip, & packet population |
 | `temporal_payload` | `16 B` | Frame / timestamp-associated temporal request |
@@ -506,7 +504,7 @@ The `Camera` introduces the neutral source pose (`0`, `0`, `1`). `User`-originat
 
 ### 4.5 Geometric Metadata Produced by SFF1
 
-The "GAC" exports progressive centroid, extent, bounding-box centre, exact final `max_r`, & `active_point_count`. For the observed prefix `P_N`:
+The "GAC" exports both packet-progressive raw geometry & frame-complete projection geometry. For the observed prefix `P_N`, the progressive state is:
 
 ```
 C_N = ( 1 / N ) * sum_{ p in P_N }( p )
@@ -514,13 +512,22 @@ E_N = p_max,N - p_min,N
 B_N = ( p_min,N + p_max,N ) / 2
 ```
 
-At frame completion:
+At frame completion, `SFF1` first resolves the exact centroid-dependent radius:
 
 ```
 max_r = max_{ p in P_frame } || p - C_final ||_2
 ```
 
-`Encoder` validates the final active-point count before accepting this offloaded geometry.
+It then materialises the reference-compatible projection frontier inside the offloading node:
+
+```
+final_scale  = ( CAMERA_DISTANCE * 0.2 ) / max_r
+p'           = ( p - C_final ) * final_scale + ( 0, 0, CAMERA_DISTANCE )
+global_scale = max( extent_x' / WIDTH, extent_y' / HEIGHT, extent_z' / WIDTH ) * ( 1 + PADDING )
+B'           = ( p'_min + p'_max ) / 2
+```
+
+`Encoder` validates the final active-point count before accepting these offloaded values. For complete frames, it consumes `final_scale`, `global_scale`, & projected bounding-box centre directly; for incomplete or invalid metadata, it retains the local analytical fallback.
 
 ### 4.6 Encoder Structure
 
@@ -619,17 +626,17 @@ Aware `SFF1` output:
 "UDP"                       8 B
 nsh_hdr                     8 B
 nsh_md2_ctx_hdr             4 B
-geo_agg_hdr                44 B
+geo_agg_hdr                64 B
 cam_hdr                    40 B
 80 * point_tx            1280 B
 -------------------------------
-"IPv4" datagram          1404 B
+"IPv4" datagram          1424 B
 ```
 
 Route 0 removes the service base / context while preserving `geo_agg_hdr` for the unaware `Encoder`:
 
 ```
-20 + 8 + 44 + 40 + 1280 = 1392 B
+20 + 8 + 64 + 40 + 1280 = 1412 B
 ```
 
 ### 5.3 Encoder -> SFF2 -> Decoder
@@ -944,9 +951,17 @@ The exact farthest-point radius presents a distinct mathematical dependency:
 max_r = max_i || p_i - C_final ||_2
 ```
 
-Since `C_final` remains indeterminate until the final point is ascertained, exact `max_r` cannot be resolved universally from the initial packet without either revisiting preceding points or offloading the computation upstream. Consequently, the current implementation records only `XYZ` coordinates within a preallocated workspace & executes a secondary radius pass upon frame completion.
+Since `C_final` remains indeterminate until the final point is ascertained, exact `max_r` cannot be resolved universally from the initial packet without revisiting preceding points. Consequently, the current implementation records only `XYZ` coordinates within a preallocated workspace during forwarding & executes the exact radius pass upon frame completion.
 
-This represents a calculated compromise. The computationally expensive application representation is not regenerated inside `SFF1`, packet forwarding persists uninterrupted during the initial pass, & downstream `Encoder` geometry operations are obviated once the final metadata is validated.
+A second frame-complete pass then materialises the reference-compatible projection frontier inside `SFF1`:
+
+```text
+p'_i         = ( p_i - C_final ) * final_scale + ( 0, 0, CAMERA_DISTANCE )
+projected B = ( min_i( p'_i ) + max_i( p'_i ) ) / 2
+global_scale from transformed extents
+```
+
+This pass is intentionally **not** executed for every intermediate packet. Progressive sums / extrema remain inexpensive during traversal, whereas centroid-dependent radius & transformed projection frontiers stay behind the mathematically necessary completion barrier. The resulting design keeps the offloading requirement intact: complete frames arrive at `Encoder` with final projection metadata already attached, while partial / invalid metadata can still fall back to the analytical local path.
 
 ### 7.4 In-Place Header Replacement
 
@@ -1012,10 +1027,10 @@ frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_t
 | `payload_bytes`, `reference_size_bytes` | Point payload & comparison baseline sizes. |
 | `data_integrity_pct` | `100 * rx_points / original_points` for a populated frame. |
 | throughput / bitrate fields | Distinguish local receive-span throughput, logical frame rate, protocol-inclusive rate, & reference formulation. |
-| `geometry_aggregation_ms` | Accumulated progressive sum / extrema / centroid / extent / bounding-box work. |
+| `geometry_aggregation_ms` | Accumulated progressive sum / extrema / centroid / extent / raw bounding-box work, plus frame-complete projection-frontier materialisation. |
 | `max_r_ms` | Exact frame-completing radius evaluation after the final centroid becomes available. |
 | `tx_duration_ms`, `active_tx_ms` | Wall-clock egress span versus active Tx-call execution. |
-| `active_process_ms` | Geometry + exact-radius + active-forwarding work. |
+| `active_process_ms` | Geometry, exact-radius, projection-frontier materialisation, & active-forwarding work. |
 | `cycle_ms`, `header_wait_ms` | Per-frame service-loop / initial-header waiting observability. |
 | `total_residency_ms` | First valid input packet to accepted final output packet. |
 | `node_efficiency_pct`, `reference_efficiency_pct` | Active-work ratios under measured / reference boundaries. |
@@ -1200,6 +1215,9 @@ centroid
 extent
 raw bounding-box centre
 max_r
+final_scale
+global_scale
+projected bounding-box centre
 ```
 
 without executing redundant local frame scans. Under conditions of complete offloaded frames, telemetry dictates:
@@ -1209,16 +1227,16 @@ geometry_aggregation_ms = 0
 max_r_ms                = 0
 ```
 
-Should metadata prove unavailable, inconsistent, deactivated, or partial, `geometry_recompute_local()` provides a robust functional fallback. It reconstructs sums / extrema, derives the centroid / extent / box centre, & executes the radius pass across the active point set while persistently polling "DPDK".
+The fallback remains deliberately tiered rather than discarding useful upstream work. If the assembled active set is partial but its progressive `SFF1` metadata is valid & population-consistent, `Encoder` reuses the supplied centroid / extent / raw bounding-box centre, recomputes only the exact radius across the active points, & marks the final projection geometry as unresolved. The projection stage then derives the corresponding projected box & global scale analytically from those progressive frontiers. If offloading is disabled or the upstream geometry itself is unavailable / inconsistent, `compute_geometry_locally()` reconstructs sums / extrema, centroid, extent, raw box centre, & radius across the active point set while persistently polling "DPDK".
 
-The ultimate object scale, instituted prior to projection, hinges upon the radius target:
+For these partial / local fallback paths, the ultimate object scale instituted prior to projection is recovered from the radius target:
 
 ```text
 target_radius = CAMERA_DISTANCE * 0.2
 final_scale   = target_radius / max_r
 ```
 
-contingent upon implementation-level validity verifications.
+A complete validated `SFF1` snapshot instead supplies this `final_scale` directly together with `global_scale` & the projected bounding-box centre.
 
 This selectable trajectory holds profound experimental significance: it facilitates a highly controlled `OFFLOAD_MODE_ENABLED` versus `OFFLOAD_MODE_DISABLED` comparative analysis without altering the underlying packet-processing architecture.
 
@@ -1296,7 +1314,7 @@ This configuration strictly curtails the duration wherein "GPU" submission obstr
 
 The source-side pose carried by the `Camera` / `Encoder` path remains the neutral reference. Dynamic `User`-originated stance is intentionally applied later by `Decoder`; consequently, the `Encoder` can preserve its projection geometry independently from the reverse "Pose" service path.
 
-The raw bounding-box centre is mathematically transformed directly around the centroid & final scale:
+For complete validated frames, `run_projection_pipeline()` consumes the `global_scale` & projected bounding-box centre already materialised by `SFF1`; the `Encoder` therefore does not repeat the point-wise transformed-frontier reduction. The analytical transformation remains as the partial / invalid-metadata fallback:
 
 ```text
 B'_x = ( B_x - C_x ) * final_scale
@@ -1304,13 +1322,13 @@ B'_y = ( B_y - C_y ) * final_scale
 B'_z = ( B_z - C_z ) * final_scale + CAMERA_DISTANCE
 ```
 
-These scaled extents subsequently define a comprehensive global orthographic scale. Expressed programmatically:
+with the raw extents scaled by the identical `final_scale` & subsequently reduced to:
 
 ```text
 global_scale = 1.10 * max( extent'_x / WIDTH, extent'_y / HEIGHT, extent'_z / WIDTH )
 ```
 
-The multiplier `1.10` ensures adequate projection margin.
+The multiplier `1.10` ensures adequate projection margin in the analytical fallback, whereas the complete nominal path receives the numerically materialised reference-compatible frontier from `SFF1`.
 
 The ensuing stages are structured as:
 
@@ -2461,7 +2479,16 @@ active_process_ms       mean = 7.606 ms
 total_residency_ms      mean = 13.982 ms
 ```
 
-The entire primary input / output population remains at 100 % network integrity while the "GAC" performs packet-progressive aggregation & exact frame-completing radius evaluation.
+In the reference-compatible quality run, the final projection frontier is additionally materialised inside `SFF1`:
+
+```text
+geometry_aggregation_ms mean = 6.340 ms
+max_r_ms                mean = 2.827 ms
+active_process_ms       mean = 11.386 ms
+total_residency_ms      mean = 17.841 ms
+```
+
+The entire primary input / output population remains at 100 % network integrity while the "GAC" performs packet-progressive aggregation, exact frame-completing radius evaluation, & final projection-metadata offloading.
 
 ### 21.5 SFF2 — Three Validated Proxy Transitions
 
@@ -2488,7 +2515,7 @@ NON-QUALITY representative values are:
 | `encode_h265_ms` | `76.487` | `76.856` | `78.025` | `78.555` |
 | `workload_ratio` | `0.152` | `0.150` | `0.154` | `0.386` |
 
-`frame_backlog` remains `0`, `ffmpeg_write_eagain` remains `0`, & `mbuf_starvation` remains `0`. The workload ratio never reaches the configured overload threshold, so all 300 frames retain `current_skip = 1`. Application-attributed compressed output exceeds `10.34 MB` over 300 frames in both final modes.
+`frame_backlog` remains `0`, `ffmpeg_write_eagain` remains `0`, & `mbuf_starvation` remains `0`. The workload ratio never reaches the configured overload threshold, so all 300 frames retain `current_skip = 1`. In the reference-compatible quality run, `Encoder.geometry_aggregation_ms = 0` & `Encoder.max_r_ms = 0` for all 300 complete frames, confirming that local geometry scans are avoided when validated `SFF1` projection metadata is consumed. Application-attributed compressed output exceeds `10.34 MB` over 300 frames in both final modes.
 
 ### 21.7 Decoder — Hardware Decode & Reconstruction
 
@@ -2545,9 +2572,9 @@ The 300-frame quality run produces complete "luma" indicators:
 
 | Metric | Samples | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|---:|
-| `MSE-Y` | `300` | `0.242` | `0.220` | `0.330` | `0.340` |
-| `PSNR-Y` ( dB ) | `300` | `54.356` | `54.655` | `55.100` | `55.210` |
-| `SSIM-Y` | `300` | `0.997356` | `0.998198` | `0.998588` | `0.998692` |
+| `MSE-Y` | `300` | `0.242` | `0.220` | `0.320` | `0.340` |
+| `PSNR-Y` ( dB ) | `300` | `54.353` | `54.670` | `55.110` | `55.230` |
+| `SSIM-Y` | `300` | `0.997359` | `0.998214` | `0.998592` | `0.998720` |
 
 These values measure the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
 
@@ -2569,14 +2596,14 @@ The relatively larger Hausdorff tail records sparse worst-case spatial deviation
 The final stable `User` quality capture retains the reconstructed frame in the ordinary `web_points` region & copies only complete frames into the 1-GiB capture buffer. The measured `quality_save_ms` distribution is:
 
 ```text
-mean   = 3.779 ms
-median = 2.989 ms
-P95    = 9.715 ms
-P99    = 16.305 ms
-max    = 22.425 ms
+mean   = 3.015 ms
+median = 2.585 ms
+P95    = 4.271 ms
+P99    = 11.106 ms
+max    = 28.886 ms
 ```
 
-The maximum of `22.425 ms` remains below the nominal `33.333 ms` source period in this representative run, & the final `SFF3` -> `User` path reports no Tx zero-accept pressure. Objective `Gauge` computation itself begins only after "EOS" & therefore is excluded from these stream-time values.
+The maximum of `28.886 ms` remains below the nominal `33.333 ms` source period in this representative run, & the final `SFF3` -> `User` path reports no Tx zero-accept pressure. Objective `Gauge` computation itself begins only after "EOS" & therefore is excluded from these stream-time values.
 
 `quality_save_ms` is intentionally retained as an independent instrumentation cost rather than being folded into `User` `node_exit_timestamp`, `e2e_latency_ms`, `total_residency_ms`, or `active_process_ms`. In the quality path, the native frame-ready frontier remains the terminal timing reference while the subsequent complete-frame memory copy is exposed separately; the two quantities should therefore be interpreted jointly when evaluating capture pressure, but not silently summed into a redefined end-to-end metric.
 
@@ -2637,13 +2664,13 @@ The decomposition preserves the same source sequence exactly at the population l
 
 ```text
 Reference mean valid_points = 145,403.233
-Current mean valid_points   = 145,403.197
-Difference                  = 0.037 points / frame
+Current mean valid_points   = 145,403.240
+Difference                  = 0.007 points / frame
 ```
 
-When the two 300-frame sequences are aligned by ordinal source frame, `292 / 300` final `valid_points` counts are exactly equal & the largest absolute difference is only `10` points. The mean final-population ratio is approximately `18.317 %` of the original cloud in both implementations. This is strong evidence that service decomposition & additional `SFF` traversal do **not** introduce systematic reconstruction-population loss.
+Across the full 300-frame sequence, the current implementation reconstructs `43,620,972` valid points, only `2` aggregate points above the reference total implied by `145,403.233` points / frame. The mean final-population ratio is approximately `18.317 %` of the original cloud in both implementations. This is strong evidence that service decomposition, additional `SFF` traversal, & reference-compatible offloading do **not** introduce systematic reconstruction-population loss.
 
-Signal & geometric quality must be stated more carefully. At the common 10-Mbit/s condition, the reference thesis reports approximately `MSE-Y = 0.129`, `PSNR-Y = 56.06 dB`, & `SSIM-Y = 0.997`; the current 300-frame quality run reports `0.242`, `54.356 dB`, & `0.997356`, respectively. Thus, structural similarity remains effectively in the same high-fidelity regime, while `PSNR-Y` is approximately `1.704 dB` lower & `MSE-Y` is higher. Exact "luma"-fidelity invariance is therefore **not** claimed.
+Signal & geometric quality must be stated more carefully. At the common 10-Mbit/s condition, the reference thesis reports approximately `MSE-Y = 0.129`, `PSNR-Y = 56.06 dB`, & `SSIM-Y = 0.997`; the current 300-frame quality run reports `0.242`, `54.353 dB`, & `0.997359`, respectively. Thus, structural similarity remains effectively in the same high-fidelity regime, while `PSNR-Y` is approximately `1.707 dB` lower & `MSE-Y` is higher. Exact "luma"-fidelity invariance is therefore **not** claimed.
 
 An additional comparability constraint originates from the execution environment itself. The current `"CUDA"` kernels are compiled explicitly for `sm_61`, while the host-side build additionally enables `-ffast-math`; the resulting numerical path is therefore tied to a specific compilation target rather than being guaranteed to reproduce bit-identical floating-point operations across heterogeneous `"GPU"` architectures. At the same time, the compressed representation is produced by the hardware `"NVENC"` path, whose concrete execution environment includes the `"GPU"` generation, NVIDIA driver, `"FFmpeg"` build, & encoder implementation available during the run.
 
@@ -3020,7 +3047,7 @@ The two final 300-frame "Loot" archives establish complementary outcomes. In bot
 
 Against the supplied probe-disabled application-level reference logs, the current native complete-frame frontier exhibits a median Camera-to-User latency of approximately `240.732 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `29.6 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
 
-Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences (`145,403.233` versus `145,403.197` mean points / frame; 292 exact frame-wise population matches), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact quality invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
+Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences (`145,403.233` versus `145,403.240` mean points / frame; `2` aggregate points of difference over 300 frames), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact quality invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
 
 The orchestration contribution is similarly structural rather than rhetorical. The reference thesis identifies its monolithic `Encoder` & Client blocks as an obstacle to fine-grained placement & proposes their decomposition as future work. The current primary graph exposes seven native placement units rather than four coarse services — `75 %` more graph-level placement points — while the removal of one former switch-only "PMD" reservation makes `12.5 %` of this eight-thread host's logical scheduling capacity available for application placement. Neither percentage is presented as a measured reduction in total "CPU" consumption; the former quantifies granularity & the latter quantifies reallocation.
 

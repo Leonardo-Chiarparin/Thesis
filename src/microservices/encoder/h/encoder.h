@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // Runtime & experimental configuration variables
 #define TELEMETRY_FOLDER "/shared/log/encoder"
@@ -103,7 +104,7 @@
 #define TOTAL_YUV_SIZE ( SIZE_Y + ( 2 * SIZE_UV ) )
 
 // Wire-format structures utilized by the "DPDK" data path
-struct geo_agg_hdr {
+struct geo_agg_hdr { 
     uint32_t centroid_x;
     uint32_t centroid_y;
     uint32_t centroid_z;
@@ -116,7 +117,13 @@ struct geo_agg_hdr {
     uint32_t bbox_center_y;
     uint32_t bbox_center_z;
 
-    uint32_t max_r;
+    uint32_t max_r; 
+
+    uint32_t final_scale;
+    uint32_t global_scale;
+    uint32_t projected_bbox_x;
+    uint32_t projected_bbox_y;
+    uint32_t projected_bbox_z;
 
     uint32_t active_point_count;
 } __attribute__((__packed__));
@@ -292,6 +299,6 @@ extern "C" void cuda_memory_warmup();
 extern "C" void cuda_memory_register( void *ptr, size_t size );
 extern "C" void cuda_memory_unleash( void *ptr );
 
-extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_bbox_center_x, float raw_bbox_center_y, float raw_bbox_center_z, float final_scale, float cam_dist, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_bbox_center_x, float *out_bbox_center_y, float *out_bbox_center_z, uint64_t *out_projection_end_cycles, process_callback_t process_callback );
+extern "C" void run_projection_pipeline( const struct host_point *points, uint32_t num_pts, float centroid_x, float centroid_y, float centroid_z, float extent_x, float extent_y, float extent_z, float raw_center_x, float raw_center_y, float raw_center_z, float final_scale, float cam_dist, bool use_projection_geometry, float projected_global_scale, float projected_bbox_x, float projected_bbox_y, float projected_bbox_z, uint8_t *out_yuv_buffer, double *gpu_metrics, float *out_global_scale, float *out_center_x, float *out_center_y, float *out_center_z, uint64_t *out_projection_cycles, process_callback_t process_callback );
 
 #endif
