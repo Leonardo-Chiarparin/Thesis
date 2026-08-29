@@ -2409,11 +2409,11 @@ Both conditions operate upon the same 300-frame "Loot" binary sequence containin
 | Quantity | NON-QUALITY | QUALITY |
 |---|---:|---:|
 | Original points | `238,146,391` | `238,146,391` |
-| Arrived reconstruction candidates | `49,530,359` | `49,523,055` |
-| Eroded points | `46,561,197` | `46,557,250` |
-| Valid reconstructed points | `43,620,959` | `43,620,959` |
+| Arrived reconstruction candidates | `49,509,484` | `49,514,561` |
+| Eroded points | `46,551,443` | `46,549,878` |
+| Valid reconstructed points | `43,620,972` | `43,620,972` |
 
-The final valid population is identical across both modes: `43,620,959` points, corresponding to approximately `18.317 %` of the original source population. The intermediate `arrived_points` & post-erosion `eroded_points` totals differ slightly between validation conditions, whereas the stricter final reconstruction population remains identical.
+The final valid population is identical across both modes: `43,620,972` points, corresponding to approximately `18.317 %` of the original source population. The intermediate `arrived_points` & post-erosion `eroded_points` totals differ slightly between validation conditions, whereas the stricter final reconstruction population remains identical.
 
 ### 21.2 Complete-Chain Integrity
 
@@ -2454,16 +2454,16 @@ For NON-QUALITY, `Camera` processing exhibits approximately:
 
 | Metric | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|
-| `disk_io_ms` | `4.484` | `4.511` | `5.298` | `6.164` |
-| `serialization_ms` | `2.674` | `2.611` | `3.316` | `3.756` |
-| `tx_duration_ms` | `7.964` | `7.991` | `8.543` | `9.096` |
-| `active_process_ms` | `15.122` | `15.072` | `16.084` | `17.536` |
+| `disk_io_ms` | `3.578` | `3.516` | `4.245` | `5.236` |
+| `serialization_ms` | `3.248` | `3.226` | `3.785` | `4.664` |
+| `tx_duration_ms` | `7.652` | `7.654` | `8.665` | `9.798` |
+| `active_process_ms` | `14.479` | `14.386` | `15.671` | `17.411` |
 
 `Camera` alone encounters substantial local Tx zero-accept pressure while still preserving 300 / 300 completion. The final counts are:
 
 | Condition | Frames with zero accepts | Zero-accept sum | Maximum / frame | Re-presented packets | Partial accepts | `mbuf` starvation |
 |---|---:|---:|---:|---:|---:|---:|
-| NON-QUALITY | `209` | `146,002` | `1,670` | `4,553,699` | `0` | `0` |
+| NON-QUALITY | `297` | `321,881` | `2,063` | `10,118,147` | `0` | `0` |
 | QUALITY | `300` | `624,223` | `3,003` | `19,801,505` | `0` | `0` |
 
 These counts describe repeated local `rte_eth_tx_burst()` presentation attempts. They are **not "UDP" retransmissions**, & they do not imply data-plane loss because frame completion remains 300 / 300.
@@ -2473,13 +2473,13 @@ These counts describe repeated local `rte_eth_tx_burst()` presentation attempts.
 In NON-QUALITY:
 
 ```text
-geometry_aggregation_ms mean = 3.751 ms
-max_r_ms                mean = 1.854 ms
-active_process_ms       mean = 7.606 ms
-total_residency_ms      mean = 13.982 ms
+geometry_aggregation_ms mean = 5.978 ms
+max_r_ms                mean = 2.855 ms
+active_process_ms       mean = 10.909 ms
+total_residency_ms      mean = 16.870 ms
 ```
 
-In the reference-compatible quality run, the final projection frontier is additionally materialised inside `SFF1`:
+In the QUALITY archive, the same reference-compatible final projection frontier remains materialised inside `SFF1`:
 
 ```text
 geometry_aggregation_ms mean = 6.340 ms
@@ -2495,9 +2495,9 @@ The entire primary input / output population remains at 100 % network integrity 
 The three route mean active costs in NON-QUALITY are:
 
 ```text
-Route 0 SFF1 -> Encoder    : 5.083 ms
+Route 0 SFF1 -> Encoder    : 4.591 ms
 Route 1 Encoder -> Decoder : 0.018 ms
-Route 2 Decoder -> SFF3    : 0.572 ms
+Route 2 Decoder -> SFF3    : 0.591 ms
 ```
 
 Route 1 is predominantly compressed-media relay, Route 2 is reconstructed-point re-encapsulation, & Route 0 additionally handles the geometric service context. All three preserve 300 / 300 frames & 100 % integrity.
@@ -2508,14 +2508,14 @@ NON-QUALITY representative values are:
 
 | Metric | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|
-| `conversion_ms` | `3.552` | `3.521` | `3.765` | `11.177` |
-| `projection_ms` | `5.015` | `4.956` | `5.359` | `12.857` |
-| `codec_write_ms` | `6.679` | `6.599` | `7.069` | `8.022` |
-| `encode_service_ms` | `10.284` | `9.908` | `10.790` | `68.690` |
-| `encode_h265_ms` | `76.487` | `76.856` | `78.025` | `78.555` |
-| `workload_ratio` | `0.152` | `0.150` | `0.154` | `0.386` |
+| `conversion_ms` | `3.266` | `3.200` | `3.636` | `11.344` |
+| `projection_ms` | `4.907` | `4.856` | `5.219` | `11.680` |
+| `codec_write_ms` | `6.811` | `6.698` | `8.014` | `9.017` |
+| `encode_service_ms` | `10.376` | `9.957` | `10.998` | `73.778` |
+| `encode_h265_ms` | `76.550` | `76.754` | `78.293` | `81.802` |
+| `workload_ratio` | `0.149` | `0.147` | `0.150` | `0.351` |
 
-`frame_backlog` remains `0`, `ffmpeg_write_eagain` remains `0`, & `mbuf_starvation` remains `0`. The workload ratio never reaches the configured overload threshold, so all 300 frames retain `current_skip = 1`. In the reference-compatible quality run, `Encoder.geometry_aggregation_ms = 0` & `Encoder.max_r_ms = 0` for all 300 complete frames, confirming that local geometry scans are avoided when validated `SFF1` projection metadata is consumed. Application-attributed compressed output exceeds `10.34 MB` over 300 frames in both final modes.
+`frame_backlog` remains `0`, `ffmpeg_write_eagain` remains `0`, & `mbuf_starvation` remains `0`. The workload ratio never reaches the configured overload threshold, so all 300 frames retain `current_skip = 1`. In both final reference-compatible archives, `Encoder.geometry_aggregation_ms = 0` & `Encoder.max_r_ms = 0` for all 300 complete frames, confirming that local geometry scans are avoided when validated `SFF1` projection metadata is consumed. Application-attributed compressed output exceeds `10.34 MB` over 300 frames in both final modes.
 
 ### 21.7 Decoder — Hardware Decode & Reconstruction
 
@@ -2523,48 +2523,48 @@ NON-QUALITY:
 
 | Metric | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|
-| `erosion_ms` | `0.183` | `0.177` | `0.220` | `0.546` |
-| `reconstruction_ms` | `0.105` | `0.104` | `0.107` | `0.123` |
-| `pose_ms` | `0.065` | `0.065` | `0.067` | `0.079` |
-| `reconstruction_pipeline_ms` | `2.067` | `2.029` | `2.330` | `2.965` |
-| `decode_service_ms` | `33.340` | `33.105` | `36.670` | `72.126` |
-| `decode_h265_ms` | `125.476` | `125.144` | `128.393` | `164.501` |
-| `e2e_latency_ms` | `228.718` | `228.177` | `231.976` | `267.590` |
+| `erosion_ms` | `0.187` | `0.179` | `0.221` | `0.343` |
+| `reconstruction_ms` | `0.105` | `0.105` | `0.108` | `0.117` |
+| `pose_ms` | `0.065` | `0.065` | `0.067` | `0.072` |
+| `reconstruction_pipeline_ms` | `2.137` | `2.041` | `2.615` | `3.229` |
+| `decode_service_ms` | `33.313` | `33.301` | `36.006` | `76.979` |
+| `decode_h265_ms` | `123.445` | `123.197` | `125.885` | `164.169` |
+| `e2e_latency_ms` | `230.379` | `229.863` | `232.769` | `271.787` |
 
-The median "codec"-queue delay is only `0.046 ms`; there are no "codec" queue drops, "FFmpeg" write failures, or downstream frame losses.
+The median "codec"-queue delay is only `0.047 ms`; there are no "codec" queue drops, "FFmpeg" write failures, or downstream frame losses.
 
 ### 21.8 SFF3 & User Terminal Delivery
 
 `SFF3` primary forwarding remains light relative to the "codec" stages:
 
 ```text
-SFF3 active_process_ms mean  = 1.083 ms
-SFF3 total_residency_ms mean = 1.438 ms
+SFF3 active_process_ms mean  = 1.263 ms
+SFF3 total_residency_ms mean = 1.639 ms
 ```
 
 The NON-QUALITY `User` end-to-end distribution is:
 
 ```text
-mean   = 241.237 ms
-median = 240.733 ms
-P95    = 250.250 ms
-max    = 277.330 ms
+mean   = 245.585 ms
+median = 245.737 ms
+P95    = 252.846 ms
+max    = 280.085 ms
 ```
 
-The browser returns positive frame acknowledgments for `96` rendered frames over a `Camera` timestamp span of approximately `9.968 s`, corresponding to approximately `9.63` acknowledged renders/s. This is explicitly a **viewer consumption rate**, not the 30-fps native data-path rate; all 300 `User` frames remain successfully received.
+The browser returns positive frame acknowledgments for `110` rendered frames over a `Camera` timestamp span of approximately `9.967 s`, corresponding to approximately `11.04` acknowledged renders/s. This is explicitly a **viewer consumption rate**, not the 30-fps native data-path rate; all 300 `User` frames remain successfully received.
 
 ### 21.9 Interactive "Pose" / "Command-to-Photon" Results
 
-The final NON-QUALITY run contains 42 command identifiers matched to returning pose states. The timing populations are:
+The final NON-QUALITY run contains 56 command identifiers matched to returning pose states. The timing populations are:
 
 | Frontier | Samples | Mean ( ms ) | Median ( ms ) | P95 ( ms ) | Max ( ms ) |
 |---|---:|---:|---:|---:|---:|
-| Reference command | `42` | `13.778` | `12.885` | `28.391` | `37.422` |
-| Applied command | `42` | `34.728` | `34.761` | `52.165` | `74.846` |
-| Command-to-Photon | `41` | `184.366` | `187.000` | `257.000` | `292.000` |
-| `Decoder` pose-control | `42` | `21.573` | `23.108` | `35.329` | `63.556` |
+| Reference command | `56` | `13.832` | `13.582` | `27.291` | `33.359` |
+| Applied command | `56` | `34.956` | `34.962` | `55.560` | `59.179` |
+| Command-to-Photon | `56` | `171.589` | `160.000` | `254.000` | `270.000` |
+| `Decoder` pose-control | `56` | `19.398` | `21.302` | `32.732` | `34.496` |
 
-`cmd_photon_ms` contains 41 positive values because one final matched command does not receive a browser "CTP" acknowledgment before the experiment closes. This distinction is retained rather than silently imputing a value.
+`cmd_photon_ms` contains 56 positive values; in this archive every matched command also receives a browser "CTP" acknowledgment before the experiment closes.
 
 ### 21.10 Objective Encoder Quality
 
@@ -2611,15 +2611,15 @@ The maximum of `28.886 ms` remains below the nominal `33.333 ms` source period i
 
 | Node / Route | Mean ( ms ) | Median ( ms ) | P95 ( ms ) | Max ( ms ) |
 |---|---:|---:|---:|---:|
-| `Camera` | `15.122` | `15.072` | `16.084` | `17.536` |
-| `SFF1` | `7.606` | `7.572` | `8.076` | `8.253` |
-| `SFF2 Route 0` | `5.083` | `5.114` | `5.416` | `5.860` |
-| `Encoder` | `15.246` | `15.107` | `15.980` | `30.369` |
-| `SFF2 Route 1` | `0.018` | `0.015` | `0.056` | `0.086` |
-| `Decoder` | `36.711` | `36.401` | `40.476` | `75.420` |
-| `SFF2 Route 2` | `0.572` | `0.549` | `0.751` | `0.926` |
-| `SFF3` | `1.083` | `1.090` | `1.204` | `1.324` |
-| `User` | `4.057` | `2.978` | `9.962` | `18.746` |
+| `Camera` | `14.479` | `14.386` | `15.671` | `17.411` |
+| `SFF1` | `10.909` | `10.912` | `11.602` | `11.986` |
+| `SFF2 Route 0` | `4.591` | `4.601` | `4.948` | `5.313` |
+| `Encoder` | `14.984` | `14.885` | `16.027` | `30.044` |
+| `SFF2 Route 1` | `0.018` | `0.015` | `0.054` | `0.080` |
+| `Decoder` | `36.755` | `36.618` | `39.443` | `80.240` |
+| `SFF2 Route 2` | `0.591` | `0.577` | `0.742` | `0.936` |
+| `SFF3` | `1.263` | `1.152` | `1.796` | `1.972` |
+| `User` | `4.390` | `3.415` | `11.632` | `18.180` |
 
 The table is not an additive latency decomposition: several values represent nested or asynchronous work, especially around the persistent "codec" processes.
 
@@ -2642,19 +2642,19 @@ Across all 300 supplied reference rows, this produces:
 
 ```text
 Reference median Camera -> Client reception = 341.785 ms
-Current median Camera   -> User frame-ready = 240.732 ms
-Relative median reduction                   = 29.6 %
+Current median Camera   -> User frame-ready = 245.737 ms
+Relative median reduction                   = 28.1 %
 ```
 
-The current value uses `User.reference_e2e_ms`, deliberately terminating at the native complete-frame frontier rather than at browser rendering. The median is selected because the supplied reference trace contains both a pronounced startup transient & a late stall; it is therefore more robust than comparing raw full-run means. The current archive simultaneously retains 300 / 300 complete native frames & an approximately `29.997 frames/s` source cadence. The supported conclusion is consequently a **lower representative end-to-end latency at the same 300-frame / nominal-30-fps service objective**, not a claim of universally lower latency under every workload.
+The current value uses `User.reference_e2e_ms`, deliberately terminating at the native complete-frame frontier rather than at browser rendering. The median is selected because the supplied reference trace contains both a pronounced startup transient & a late stall; it is therefore more robust than comparing raw full-run means. The current archive simultaneously retains 300 / 300 complete native frames, 56 matched "Pose" directives, & an approximately `29.997 frames/s` source cadence. The supported conclusion is consequently a **lower representative end-to-end latency at the same 300-frame / nominal-30-fps service objective**, not a claim of universally lower latency under every workload.
 
 Selected application-stage comparisons additionally expose where the paradigm shift redistributes work:
 
 | Semantically Related Frontier | Reference Median | Current Median | Relative Change | Interpretation |
 |---|---:|---:|---:|---|
-| Encoder point conversion | `8.667 ms` | `3.521 ms` | `-59.4 %` | Current point conversion is packet-progressive; part of geometric preparation is externalised upstream |
-| Encoder projection | `10.882 ms` | `4.956 ms` | `-54.5 %` | Encoder-local projection is materially shorter, but `SFF1` now performs real geometric work & must not be treated as zero-cost |
-| Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.029 ms` | `-66.8 %` | Reference value is `unpack_ms + erode_ms + render_ms`; current value is `Decoder.reconstruction_pipeline_ms`, so the comparison is indicative rather than bit-identical |
+| Encoder point conversion | `8.667 ms` | `3.200 ms` | `-63.1 %` | Current point conversion is packet-progressive; part of geometric preparation is externalised upstream |
+| Encoder projection | `10.882 ms` | `4.856 ms` | `-55.4 %` | Encoder-local projection is materially shorter, but `SFF1` now performs real geometric work & must not be treated as zero-cost |
+| Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.041 ms` | `-66.6 %` | Reference value is `unpack_ms + erode_ms + render_ms`; current value is `Decoder.reconstruction_pipeline_ms`, so the comparison is indicative rather than bit-identical |
 
 These reductions are **not** equivalent to a statement that every node became faster. The service boundaries changed: for example, current `Encoder.total_residency_ms` includes persistent asynchronous "codec" chronology under a different timing frontier, while geometry previously hidden within application processing is now explicitly charged to `SFF1`. The defensible advantage is therefore that selected computational frontiers & the end-to-end path are lower while costs are distributed into independently measurable functions.
 
@@ -2697,7 +2697,7 @@ This improves **orchestration flexibility**, but present evidence does not yet e
 
 #### Presentation-Level Claim Boundaries
 
-For thesis slides, the comparison should be framed through four compact messages rather than through an excessively tall topology: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) the complete primary route preserves 300 / 300 application frames; ( iii ) representative median end-to-end latency decreases from `341.785 ms` to `240.732 ms` under the compatible application-level frontier; & ( iv ) fidelity remains in the same high-quality regime, but strict numerical equality is not claimed because the "GPU", driver, "CUDA", "FFmpeg" / "NVENC", persistent "codec" handling, & metric paths are not a controlled transport-only A / B condition. This wording preserves the scientific advantage of the work without overstating the quality comparison.
+For thesis slides, the comparison should be framed through four compact messages rather than through an excessively tall topology: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) the complete primary route preserves 300 / 300 application frames; ( iii ) representative median end-to-end latency decreases from `341.785 ms` to `245.737 ms` under the compatible application-level frontier; & ( iv ) fidelity remains in the same high-quality regime, but strict numerical equality is not claimed because the "GPU", driver, "CUDA", "FFmpeg" / "NVENC", persistent "codec" handling, & metric paths are not a controlled transport-only A / B condition. This wording preserves the scientific advantage of the work without overstating the quality comparison.
 
 ---
 
@@ -3043,9 +3043,9 @@ The point cloud is not merely relayed between isolated applications. `Camera` go
 
 The use of "UDP" is therefore not justified by an undifferentiated claim that it is simply faster than "TCP". It follows from the current protocol semantics: fixed-size application entities are directly classifiable by SFFs, every control request encodes absolute latest state, duplicates / stale commands can be rejected deterministically, & unresolved state is re-presented until its application effect is observed in the returning data stream. This design avoids introducing byte-stream reassembly / connection-control state into the native "DPDK" service plane while retaining a clear reliability mechanism at the application frontier. Its validity is intentionally restricted to the documented controlled environment.
 
-The two final 300-frame "Loot" archives establish complementary outcomes. In both modes, the entire primary route preserves 300 / 300 frame completion with 100 % recorded data integrity at every native forwarding / application frontier & a `Camera` cadence of approximately 30 frames / s. The interactive run further exercises 42 matched "Pose" directives & browser `Command-to-Photon` acknowledgments, while the isolated quality run evaluates all 300 reconstructed frames & recovers complete `PSNR-Y`, `SSIM-Y`, mean / `RMSE` / `Chamfer` / `Hausdorff` geometry indicators.
+The two final 300-frame "Loot" archives establish complementary outcomes. In both modes, the entire primary route preserves 300 / 300 frame completion with 100 % recorded data integrity at every native forwarding / application frontier & a `Camera` cadence of approximately 30 frames / s. The interactive run further exercises 56 matched "Pose" directives & browser `Command-to-Photon` acknowledgments, while the isolated quality run evaluates all 300 reconstructed frames & recovers complete `PSNR-Y`, `SSIM-Y`, mean / `RMSE` / `Chamfer` / `Hausdorff` geometry indicators.
 
-Against the supplied probe-disabled application-level reference logs, the current native complete-frame frontier exhibits a median Camera-to-User latency of approximately `240.732 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `29.6 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
+Against the supplied probe-disabled application-level reference logs, the current native complete-frame frontier exhibits a median Camera-to-User latency of approximately `245.737 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `28.1 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
 
 Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences (`145,403.233` versus `145,403.240` mean points / frame; `2` aggregate points of difference over 300 frames), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact quality invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
 
