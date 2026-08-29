@@ -86,7 +86,7 @@ static inline struct rotation_matrix rotation_from_pose( float yaw, float pitch 
 
 __device__ static inline uint8_t read_neutral_border( const uint8_t *raw_occ, int x, int y ) {
     
-    // Purpose: It safely samples spatial occupancy from the 2D planar projection, enforcing a neutral boundary condition ( yielding 255 ) to prevent out-of-bounds memory accesses during localized "CUDA" operations like erosion
+    // Purpose: It safely samples topological "Occupancy" from the 2D planar projection, enforcing a neutral boundary condition ( yielding 255 ) to prevent out-of-bounds memory accesses during localized "CUDA" operations, such as erosion
     
     if ( x < 0 || x >= CROSS_W || y < 0 || y >= CROSS_H )
         return 255;
@@ -96,7 +96,7 @@ __device__ static inline uint8_t read_neutral_border( const uint8_t *raw_occ, in
 
 __global__ void erosion_2x2_kernel( const uint8_t *raw_occ, uint8_t *eroded_occ, uint32_t *arrived_count, uint32_t *eroded_count ) {
     
-    // Purpose: It mitigates compression artifacts by suppressing isolated edge responses within the 2D occupancy mapping prior to the volumetric reconstruction
+    // Purpose: It mitigates compression artifacts by suppressing isolated edge responses within the 2D "Occupancy" mapping prior to the volumetric reconstruction
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;

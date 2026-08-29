@@ -31,14 +31,14 @@ QUALITY_FIELDS = [
 
 def load_cloud( path: str, count: int = -1, offset: int = 0 ) -> np.ndarray:
 
-    # Purpose: It extracts raw spatial coordinates from the specified binary payload & constructs the primary floating-point matrix
+    # Purpose: It extracts raw spatial coordinates from the specified binary payload to construct the primary floating-point matrix
 
     data = np.fromfile( path, dtype = POINT_DTYPE, count = count, offset = offset )
     return np.column_stack( ( data[ "x" ], data[ "y" ], data[ "z" ] ) ).astype( np.float64, copy = False )
 
 def rot_matrix( yaw: float, pitch: float ) -> np.ndarray:
 
-    # Purpose: It computes the rigid 3x3 rotational matrix derived from the user-specified angles
+    # Purpose: It computes the rigid 3x3 rotational matrix corresponding to user-specified angles
 
     cp = math.cos( pitch )
     sp = math.sin( pitch )
@@ -53,7 +53,7 @@ def rot_matrix( yaw: float, pitch: float ) -> np.ndarray:
 
 def undo_pose( xyz: np.ndarray, yaw: float, pitch: float, zoom: float ) -> np.ndarray:
 
-    # Purpose: It applies the inverse geometric transformation to revert the aligned coordinates back to their native coordinate space
+    # Purpose: It applies the inverse geometric transformation to revert aligned coordinates to their native spatial reference
 
     scale = zoom if abs( zoom ) > 1e-9 else 1.0
     matrix = rot_matrix( yaw, pitch )
@@ -62,7 +62,7 @@ def undo_pose( xyz: np.ndarray, yaw: float, pitch: float, zoom: float ) -> np.nd
 
 def sample_cloud( xyz: np.ndarray, limit: int ) -> np.ndarray:
 
-    # Purpose: It decimates the dense point cloud through linear selection, preserving structural geometry while reducing the computational domain
+    # Purpose: It decimates the dense point cloud via linear selection, preserving structural geometry whilst reducing the computational domain
 
     if limit <= 0 or len( xyz ) <= limit:
         return xyz
@@ -73,7 +73,7 @@ def sample_cloud( xyz: np.ndarray, limit: int ) -> np.ndarray:
 
 def stat_filter( xyz: np.ndarray ) -> np.ndarray:
 
-    # Purpose: It isolates & removes statistical outliers using spatial nearest-neighbor density evaluation
+    # Purpose: It isolates & removes statistical outliers via topological nearest-neighbor density evaluation
 
     if len( xyz ) <= OUT_K + 1:
         return xyz
@@ -92,7 +92,7 @@ def stat_filter( xyz: np.ndarray ) -> np.ndarray:
 
 def best_rigid( source: np.ndarray, target: np.ndarray ) -> tuple:
 
-    # Purpose: It executes "Singular Value Decomposition" ( "SVD" ) to discover the optimal rigid translation & rotation mapping source to target
+    # Purpose: It executes "Singular Value Decomposition" ( "SVD" ) to determine the optimal rigid translation & rotation mapping between source & target
 
     source_ctr = source.mean( axis = 0 )
     target_ctr = target.mean( axis = 0 )
@@ -114,7 +114,7 @@ def best_rigid( source: np.ndarray, target: np.ndarray ) -> tuple:
 
 def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
-    # Purpose: It performs the "Iterative Closest Point" ( "ICP" ) algorithm over statistically filtered subsets to establish exact frame alignment
+    # Purpose: It performs the "Iterative Closest Point" ( "ICP" ) algorithm on mathematically filtered subsets to establish precise frame alignment
 
     source_fit = sample_cloud( source, ICP_POINTS )
     source_fit = stat_filter( source_fit )
@@ -153,7 +153,7 @@ def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
 def distance_metrics( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
-    # Purpose: It measures the symmetric geometric distortions between the registered source & unaltered reference employing "KD-Tree" associations
+    # Purpose: It measures symmetric geometric distortions between the registered source & unaltered reference utilizing "KD-Tree" associations
 
     ref_tree = cKDTree( reference )
     src_tree = cKDTree( source )
@@ -170,7 +170,7 @@ def distance_metrics( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
 def capture_index( path: str ) -> dict:
 
-    # Purpose: It parses the quality capture file sequentially, building a rapid look-up index for frame payload offsets
+    # Purpose: It parses the quality capture file sequentially to build a rapid look-up index for frame payload offsets
 
     index = {}
 
@@ -182,12 +182,12 @@ def capture_index( path: str ) -> dict:
                 break
 
             if len( header ) != FRAME_SIZE:
-                raise RuntimeError( "Truncated User quality frame header." )
+                raise RuntimeError( "Misshapen frame header detected..." )
 
             frame_id, point_count = struct.unpack( FRAME_FORMAT, header )
 
             if frame_id <= 0 or point_count > MAX_POINTS:
-                raise RuntimeError( f"Invalid User quality record: frame={frame_id}, points={point_count}." )
+                raise RuntimeError( f"Misshapen record detected at frame {frame_id} having {point_count} points..." )
 
             point_offset = capture.tell()
             data_size = point_count * POINT_SIZE
@@ -195,7 +195,7 @@ def capture_index( path: str ) -> dict:
             capture.seek( data_size, os.SEEK_CUR )
 
             if capture.tell() > os.path.getsize( path ):
-                raise RuntimeError( f"Truncated User quality record at frame {frame_id}." )
+                raise RuntimeError( f"Misshapen record detected at frame {frame_id}..." )
 
             index[ frame_id ] = ( point_offset, point_count )
 
@@ -203,7 +203,7 @@ def capture_index( path: str ) -> dict:
 
 def format_metric( value: float ) -> str:
 
-    # Purpose: It safely transforms floating-point metric outcomes into sanitized string formats suitable for telemetry export
+    # Purpose: It transforms floating-point metric outcomes into sanitized string formats suitable for telemetry export
 
     if math.isnan( value ):
         return "nan"
@@ -215,7 +215,7 @@ def format_metric( value: float ) -> str:
 
 def metric_row( frame_id: int, row: dict, capture_path: str, record: tuple, ref_dir: str ) -> dict:
 
-    # Purpose: It orchestrates the full metric pipeline for a specific application frame, reversing applied poses & measuring objective distortions
+    # Purpose: It orchestrates the comprehensive metric pipeline for a specific application frame, reversing applied poses & measuring objective distortions
 
     point_offset, point_count = record
     ref_path = os.path.join( ref_dir, f"loot_vox10_{frame_id + 999}.bin" )
@@ -253,7 +253,7 @@ def metric_row( frame_id: int, row: dict, capture_path: str, record: tuple, ref_
 
 def metric_task( task: tuple ) -> tuple:
 
-    # Purpose: It evaluates one frame while preserving the exact "ICP" & metric definitions
+    # Purpose: It evaluates a single frame while preserving exact "ICP" & metric definitions
 
     row_index, frame_id, row, capture_path, record, ref_dir = task
     metrics = metric_row( frame_id, row, capture_path, record, ref_dir )
@@ -262,7 +262,7 @@ def metric_task( task: tuple ) -> tuple:
 
 def merge_quality( telemetry_path: str, capture_path: str, ref_dir: str ) -> tuple:
 
-    # Purpose: It formats the retrieved quality variables with the existing "DPDK" telemetry logs, evaluating eligible frames consecutively
+    # Purpose: It formats retrieved quality variables alongside existing diagnostic logs, sequentially assessing eligible frames
 
     with open( telemetry_path, newline = "" ) as csv_file:
         reader = csv.DictReader( csv_file, delimiter = ";" )
@@ -322,7 +322,7 @@ def wait_ready( path: str ) -> None:
 
 def main() -> None:
 
-    # Purpose: It drives the offline geometric evaluation sequence, computing structural similarity following "DPDK" operation & merging outcomes into the persistent ".csv" file
+    # Purpose: It drives the offline spatial evaluation sequence, computing structural similarity post-"DPDK" operation & merging outcomes into the persistent ".csv" file
 
     parser = argparse.ArgumentParser( description = "" )
     parser.add_argument( "--telemetry", default = "/shared/log/user/telemetry_user.csv" )
@@ -336,10 +336,10 @@ def main() -> None:
     wait_ready( args.ready )
 
     if not os.path.exists( args.telemetry ):
-        raise SystemExit( "User telemetry is unavailable after the quality-ready signal." )
+        raise SystemExit( "Telemetry is unavailable after the quality-ready signal..." )
 
     if not os.path.exists( args.capture ):
-        raise SystemExit( "User point-cloud quality capture is unavailable after the quality-ready signal." )
+        raise SystemExit( "Quality capture is unavailable after the ready signal..." )
 
     completed, expected = merge_quality( args.telemetry, args.capture, args.reference )
 

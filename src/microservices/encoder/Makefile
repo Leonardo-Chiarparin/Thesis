@@ -8,14 +8,14 @@ CPU_ARCH ?= native
 CUDA_ARCH ?= sm_61
 CUDA_HOME ?= /usr/local/cuda
 
-# Compiler settings to guarantee optimal user-space execution performance 
+# Compiler settings guaranteeing optimal user-space execution performance 
 CXXFLAGS = -O3 -march=$(CPU_ARCH) -ffast-math -funroll-loops $(DPDK_CFLAGS) -I./h -std=c++14 -Wall
 NVCCFLAGS = -O3 -arch=$(CUDA_ARCH) -I./h -std=c++14 -Xcompiler -fPIC
 LDFLAGS = $(DPDK_LIBS) -L$(CUDA_HOME)/lib64 -lcudart -lpthread
 
 TARGET = /tmp/encoder_dpdk
 
-# Declares orchestration targets that do not map to generated output files
+# Declaring orchestration targets devoid of relative generated output files
 .PHONY: all clean
 
 all: $(TARGET)

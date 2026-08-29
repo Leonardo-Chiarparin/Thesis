@@ -79,7 +79,6 @@ def process_data( input_directory: str, output_directory: str, telemetry_file: s
             g = vertex_data[ "green" ].astype( np.uint8 )
             b = vertex_data[ "blue" ].astype( np.uint8 )
 
-            # Note: The "loot" dataset typically lacks an alpha channel. Zeroed padding byte is added to maintain strict 16-byte memory alignment, crucial for "DPDK" "SIMD" / vectorized instructions
             padding = np.zeros( num_points, dtype = np.uint8 )
             
             network_array = np.empty( num_points, dtype = DPDK_STRUCT_DTYPE )
@@ -148,6 +147,6 @@ def process_data( input_directory: str, output_directory: str, telemetry_file: s
     print( f"\n[SYSTEM] Dataset processing successfully completed in {elapsed_time:.2f} seconds." )
 
 if __name__ == "__main__":
-    # Purpose: The script processes original "ASCII" / Binary ".ply" files & converts them into raw, header-less memory dumps ( ".bin" ).
-    #          Such approach allows the "DPDK" "Camera" node to map the document directly into memory structures via pointers, eliminating costly header parsing at runtime & maximizing throughput
+    # Purpose: It processes original "ASCII" / Binary ".ply" files, converting them into raw, header-less memory dumps ( ".bin" ).
+    #          This approach allows the "DPDK" "Camera" node to map files directly into memory structures via pointers, eliminating runtime header parsing overhead & maximizing throughput
     process_data( INPUT_DIR, OUTPUT_DIR, TELEMETRY_PATH )

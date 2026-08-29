@@ -181,7 +181,7 @@
 
         function updateRequestedPose() {
 
-            // Purpose: It exposes the present spatial condition independently from the element availability
+            // Purpose: It exposes the current spatial state independently of element availability
 
             requestedYaw.textContent = `${( yaw * 180 / Math.PI ).toFixed( 2 )} °`;
             requestedPitch.textContent = `${( pitch * 180 / Math.PI ).toFixed( 2 )} °`;
@@ -190,7 +190,7 @@
 
         function sendPose() {
 
-            // Purpose: It packages the current rotation & zoom states into a "JSON" string & forwards them to the "Python" "WebSocket" endpoint
+            // Purpose: It encapsulates current rotation & zoom states within a "JSON" payload, forwarding them to the "Python" "WebSocket" endpoint
 
             if ( socket.readyState !== WebSocket.OPEN ) 
                 return;
@@ -203,7 +203,7 @@
 
         function applyCmd( cmd ) {
 
-            // Purpose: It interprets a specific keyboard or button directive, accumulating the required transformation & scheduling the network dispatch
+            // Purpose: It interprets discrete keyboard or button directives, accumulating necessary transformations & scheduling network dispatch
 
             if ( cmd === "yaw+" ) yaw += RADIANT_STEP;
             else if ( cmd === "yaw-" ) yaw -= RADIANT_STEP;
@@ -254,7 +254,7 @@
 
         socket.onmessage = ( event ) => {
 
-            // Purpose: It intercepts binary "WebSocket" payloads, decoding the "C"-aligned frame header & mapping the associated point-cloud geometry into the "WebGL" scene
+            // Purpose: It intercepts binary "WebSocket" payloads, decoding the "C"-aligned frame header & mapping the corresponding point-cloud geometry into the "WebGL" scene
 
             if ( ! ( event.data instanceof ArrayBuffer ) || event.data.byteLength < WEB_SIZE ) 
                 return;
@@ -359,7 +359,7 @@
 
         function scheduleRender() {
 
-            // Purpose: It orchestrates a single browser rendering pass whenever the visible scene has changed
+            // Purpose: It orchestrates a single browser rendering pass upon detecting changes in the visible scene
 
             if ( renderPending )
                 return;
@@ -370,7 +370,7 @@
 
         function render() {
 
-            // Purpose: It depicts the latest available point-cloud state & acknowledges the corresponding displayed element
+            // Purpose: It depicts the most recently available point-cloud state & acknowledges the rendered element
 
             renderPending = false;
 

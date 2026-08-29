@@ -154,7 +154,7 @@ async def write_pose( data: dict ) -> None:
 
 async def write_ack( data: dict ) -> None:
 
-    # Purpose: It logs the end-to-end "Command-to-Photon" latencies resolved by the client, communicating them backward to the telemetry logger
+    # Purpose: It logs the end-to-end "Command-to-Photon" latencies resolved by the client, communicating them back to the telemetry logger
 
     if ctrl_map is None:
         return

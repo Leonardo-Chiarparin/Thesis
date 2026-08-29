@@ -62,7 +62,7 @@
 #define TEMPORAL_ADAPTATION_DISABLED 0 
 #define TEMPORAL_ADAPTATION_ENABLED 1
 
-// Such a model is defined as "T_base = 1000 / TARGET_FPS", "T_budget( skip ) = skip * T_base", "E_n = alpha * T_n + ( 1 - alpha ) * E_{ n - 1 }" applying an "Exponentially Weighted Moving Average" ( "EWMA" )
+// This model is defined as "T_base = 1000 / TARGET_FPS", "T_budget( skip ) = skip * T_base", "E_n = alpha * T_n + ( 1 - alpha ) * E_{ n - 1 }" applying an "Exponentially Weighted Moving Average" ( "EWMA" )
 #define TEMPORAL_ADAPTATION TEMPORAL_ADAPTATION_ENABLED
 
 #define MAX_SKIP 9

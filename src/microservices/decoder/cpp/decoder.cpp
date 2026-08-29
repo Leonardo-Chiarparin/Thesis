@@ -647,7 +647,7 @@ static void ffmpeg_preroll() {
 
 static void request_codec_eos() {
 
-    // Purpose: It notifies a termination signal broadcasting synchronization release mechanisms on completion
+    // Purpose: It notifies a termination signal, broadcasting synchronization release mechanisms upon completion
 
     pthread_mutex_lock( &codec_mutex );
     codec_eos_requested.store( true, std::memory_order_release );
@@ -666,7 +666,7 @@ static void ffmpeg_writer_stop() {
 
 static inline void process_pose_control( const struct pose_payload *pose ) {
     
-    // Purpose: It registers asynchronous user-driven alterations dynamically adjusting downstream view logic constraints
+    // Purpose: It registers asynchronous user-driven alterations, dynamically adjusting downstream view logic constraints
     
     uint64_t timestamp = rte_be_to_cpu_64( pose -> timestamp );
     
@@ -932,7 +932,7 @@ static inline void process_network_stream() {
 
 static inline void process_node_reception() {
     
-    // Purpose: It uniformly coordinates data-path polling and asynchronous pipe drainage ensuring no execution deadlock occurs
+    // Purpose: It uniformly coordinates data-path polling and asynchronous pipe drainage, ensuring no execution deadlock occurs
     
     process_network_stream();
     drain_codec_output();
@@ -1012,7 +1012,7 @@ static inline bool flush_tx_burst( struct rte_mbuf **tx_bufs, uint16_t *tx_point
 
 static inline bool dispatch_reconstructed_frame( uint32_t frame_id, const struct decoder_frame_context &ctx, const struct decoder_pose_snapshot &pose, const struct host_point *points, uint32_t point_count, struct telemetry_csv *t, uint64_t *first_tx_cycles, uint64_t *last_tx_cycles, uint64_t *active_tx_cycles ) {
     
-    // Purpose: It serializes output arrays into standard network blocks transmitting continuous elements up to the sequence limit
+    // Purpose: It serializes output arrays into standard network blocks, transmitting continuous elements up to the sequence limit
     
     struct rte_mbuf *tx_bufs[ BURST_SIZE ];
     uint16_t tx_points_buf[ BURST_SIZE ];
@@ -1143,7 +1143,7 @@ static inline bool dispatch_reconstructed_frame( uint32_t frame_id, const struct
 
 static inline bool dispatch_node_eos() {
 
-    // Purpose: It issues the terminal condition forwarding completion intent to upstream endpoints
+    // Purpose: It issues the terminal condition, forwarding completion intent to upstream endpoints
 
     struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
 
@@ -1209,7 +1209,6 @@ static inline void compile_input_metrics( uint32_t frame_id, const struct decode
 
     t -> camera_node_ms = ( ctx.first_arrival >= camera_tx_cycles ) ? ( ( double )( ctx.first_arrival - camera_tx_cycles ) / timer_hz ) * 1000.0 : 0.0;
 
-    // Same jitter definition used by SFF1 / SFF2 / Encoder: instantaneous inter-arrival error plus a 1 / 16 EWMA.
     if ( previous_frame_arrival > 0 && frame_id > previous_frame_id ) {
         double real_interval_sec = ( double )( ctx.first_arrival - previous_frame_arrival ) / timer_hz;
         double expected_interval_sec = ( double )( frame_id - previous_frame_id ) / TARGET_FPS;
@@ -1247,7 +1246,7 @@ static inline void compile_input_metrics( uint32_t frame_id, const struct decode
 
 static inline void evaluate_decoded_frame( uint32_t frame_id, uint64_t timer_hz, const uint8_t *decoded_i420, uint64_t decode_service_start, uint64_t decoded_frame_ready ) {
     
-    // Purpose: It organizes the "CUDA" point reconstruction orchestrating hardware transfers before preparing final metadata diagnosis
+    // Purpose: It organizes the "CUDA" point reconstruction, orchestrating hardware transfers before preparing final metadata diagnosis
     
     if ( frame_id == 0 || frame_id > K_FRAMES )
         return;
@@ -1378,7 +1377,7 @@ static inline void evaluate_decoded_frame( uint32_t frame_id, uint64_t timer_hz,
 
 static inline void finalize_undecoded_frame( uint32_t frame_id, uint64_t timer_hz ) {
     
-    // Purpose: It terminates instances discarded by error mechanisms maintaining continuity among subsequent analytical elements
+    // Purpose: It concludes instances discarded by error mechanisms, maintaining continuity among subsequent analytical elements
     
     if ( frame_id == 0 || frame_id > K_FRAMES )
         return;
@@ -1490,7 +1489,7 @@ static int worker_loop( __rte_unused void *arg ) {
 
 int main( int argc, char *argv[] ) {
 
-    // Purpose: It enacts standard microservice boot patterns registering Decoder allocations prior to mapping threads to isolated processors
+    // Purpose: It enacts standard microservice boot patterns, registering Decoder allocations prior to mapping threads to isolated processors
     
     setvbuf( stdout, NULL, _IONBF, 0 );
 

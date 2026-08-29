@@ -325,7 +325,7 @@ static inline float be_to_float( uint32_t value ) {
 
 static inline bool pose_matches( float yaw_a, float pitch_a, float zoom_a, float yaw_b, float pitch_b, float zoom_b ) {
 
-    // Purpose: It correlates applied spatial variables while tolerating fractional deviations originating from serializations
+    // Purpose: It correlates applied topological variables while tolerating fractional deviations originating from serializations
 
     const float epsilon = 1e-4f;
 
