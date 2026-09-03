@@ -266,8 +266,7 @@ struct telemetry_csv {
     double header_wait_ms;
     double total_residency_ms;
     double node_efficiency_pct;
-
-    double reference_efficiency_pct;
+    double cycle_occupancy_pct;
 
     double camera_node_ms;
     double schedule_delay_ms;
@@ -560,7 +559,7 @@ static void write_single_csv( const char *path, struct telemetry_csv *data_array
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
+    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
 
     for ( uint32_t i = 0; i < max_logged_frames; i++ ) {
         struct telemetry_csv *t = &data_array[ i ];
@@ -568,7 +567,7 @@ static void write_single_csv( const char *path, struct telemetry_csv *data_array
         if ( t -> frame_id == 0 )
             continue;
 
-        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_media_bytes, t -> tx_media_bytes, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
+        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_media_bytes, t -> tx_media_bytes, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> cycle_occupancy_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
     }
 
     fclose( f );
@@ -1191,7 +1190,7 @@ static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t
     t -> reference_size_bytes = ( uint32_t )reference_frame_bytes;
     t -> reference_throughput_mbs = ( residency_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / residency_sec : 0.0;
     t -> reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
-    t -> reference_efficiency_pct = ( cycle_sec > 0.0 ) ? ( residency_sec / cycle_sec ) * 100.0 : 0.0;
+    t -> cycle_occupancy_pct = ( cycle_sec > 0.0 ) ? ( residency_sec / cycle_sec ) * 100.0 : 0.0;
 
     uint16_t ingress_port = port_by_route( route_id );
 

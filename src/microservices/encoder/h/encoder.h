@@ -51,7 +51,7 @@
 #define MAX_POINTS 835458
 #define TS_PACKET_SIZE 188
 #define MTU_PAYLOAD_SIZE ( 7 * TS_PACKET_SIZE ) // 7 * 188 = 1316 bytes. The largest complete "MPEG-TS" group fitting the current "MTU" envelope without packet tearing
-#define FFMPEG_READ_SIZE ( MTU_PAYLOAD_SIZE - TS_PACKET_SIZE )
+#define FFMPEG_READ_SIZE MTU_PAYLOAD_SIZE 
 
 // Data-offload selection conditions
 #define OFFLOAD_MODE_DISABLED 0

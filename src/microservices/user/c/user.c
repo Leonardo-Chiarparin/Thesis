@@ -955,7 +955,7 @@ static inline void finalize_frame( uint64_t timer_hz ) {
     }
 
     if ( session_arrival > 0 && frame_id >= session_frame ) {
-        double real_elapsed = ( double )( frame_state.first_arrival - session_arrival ) / timer_hz;
+        double real_elapsed = ( double )( node_exit - session_arrival ) / timer_hz;
         double expected_elapsed = ( double )( frame_id - session_frame ) / TARGET_FPS;
         t -> schedule_delay_ms = ( real_elapsed - expected_elapsed ) * 1000.0;
     }

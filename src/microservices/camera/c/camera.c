@@ -730,7 +730,7 @@ static int worker_loop( __rte_unused void *arg ) {
         telemetry_log[ frame ].disk_io_ms = current_disk_io_ms;
         telemetry_log[ frame ].serialization_ms = serialization_sec * 1000.0;
         telemetry_log[ frame ].internal_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )logical_frame_bytes / 1000000.0 ) / send_duration_sec : 0.0;
-        telemetry_log[ frame ].reference_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )reference_frame_bytes / ( 1024.0 * 1024.0 ) ) / send_duration_sec : 0.0;
+        telemetry_log[ frame ].reference_throughput_mbs = ( send_duration_sec > 0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / send_duration_sec : 0.0;
         telemetry_log[ frame ].logical_bitrate_mbps = ( logical_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
         telemetry_log[ frame ].network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
         telemetry_log[ frame ].reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * TARGET_FPS ) / 1000000.0;
