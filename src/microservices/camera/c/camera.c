@@ -60,6 +60,9 @@
 
 // Packetization & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80 // a 16-byte point representation yields 1280 payload bytes for 80 points
+#define NETWORK_MTU 1500
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
+
 #define POINT_SIZE_BYTES 16 // Such organization ensures the complete datagram remains below the traditional 1500-byte "Eth" broadcast component
 
 // Wire-format structures utilized by the "DPDK" data path
@@ -73,7 +76,7 @@ struct cam_hdr { // application header placed immediately after the "UDP" sectio
     uint16_t temporal_skip; // sampling factor active for the current element
     uint32_t original_points;
     uint32_t points_in_packet;
-    uint16_t padding; // maintains a 40-byte strict alignment
+    uint16_t padding; // carries the configured points-per-packet capacity while preserving the 40-byte layout
 } __attribute__((__packed__)); // suppresses compiler-inserted padding to ensure the in-memory representation pairs with the network protocol layout
 
 struct net_hdr {
@@ -126,6 +129,7 @@ struct telemetry_csv {
     double camera_send_timestamp;
 
     double tx_start_timestamp;
+    double inter_departure_ms;
 
     uint32_t tx_points;
     uint32_t tx_packets;
@@ -265,6 +269,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
     if ( retval != 0 ) 
         return retval;
 
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
+
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, mbuf_pool );
         
     if ( retval < 0 ) 
@@ -309,7 +320,7 @@ static void main_header_init( struct main_hdr *hdr ) {
     hdr -> cam.pitch = float_to_be( 0.0f );
     hdr -> cam.zoom = float_to_be( 1.0f );
     hdr -> cam.temporal_skip = htons( 1 );
-    hdr -> cam.padding = 0;
+    hdr -> cam.padding = rte_cpu_to_be_16( POINTS_PER_PACKET );
 }
 
 static void telemetry_to_csv() {
@@ -331,11 +342,11 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
+    fprintf( f, "frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;inter_departure_ms;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
 
     for ( int i = 0; i < loaded_frames; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
-        fprintf( f, "%u;%u;%u;%u;%u;%.3f;%.6f;%.6f;%u;%u;%u;%llu;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> selected, t -> tx_complete, t -> current_skip, t -> last_control_frame, t -> temporal_control_ms, t -> camera_send_timestamp, t -> tx_start_timestamp, t -> tx_points, t -> tx_packets, t -> payload_bytes, ( unsigned long long )t -> reference_size_bytes, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
+        fprintf( f, "%u;%u;%u;%u;%u;%.3f;%.6f;%.6f;%.3f;%u;%u;%u;%llu;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u\n", t -> frame_id, t -> selected, t -> tx_complete, t -> current_skip, t -> last_control_frame, t -> temporal_control_ms, t -> camera_send_timestamp, t -> tx_start_timestamp, t -> inter_departure_ms, t -> tx_points, t -> tx_packets, t -> payload_bytes, ( unsigned long long )t -> reference_size_bytes, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> disk_io_ms, t -> serialization_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
     }
 
     fclose( f );
@@ -525,6 +536,7 @@ static int worker_loop( __rte_unused void *arg ) {
     printf( "[SYSTEM] Streaming is about to begin at %.1f FPS...\n\n", TARGET_FPS );
     
     uint64_t start_time = rte_get_timer_cycles();
+    uint64_t previous_send_start = 0;
 
     for ( int frame = 0; frame < loaded_frames; frame++ ) {
         uint32_t frame_id = frame + 1;
@@ -639,6 +651,8 @@ static int worker_loop( __rte_unused void *arg ) {
         template_hdr.cam.temporal_skip = rte_cpu_to_be_16( frame_temporal_skip );
         
         uint64_t t_send_start = rte_get_timer_cycles();
+        double inter_departure_ms = ( previous_send_start > 0 && t_send_start >= previous_send_start ) ? ( ( double )( t_send_start - previous_send_start ) / timer_hz ) * 1000.0 : 0.0;
+        previous_send_start = t_send_start;
         
         while ( points_sent < total_points ) {
             uint32_t batch = ( total_points - points_sent > POINTS_PER_PACKET ) ? POINTS_PER_PACKET : ( total_points - points_sent );
@@ -724,6 +738,7 @@ static int worker_loop( __rte_unused void *arg ) {
         telemetry_log[ frame ].temporal_control_ms = frame_temporal_control_ms;
         telemetry_log[ frame ].camera_send_timestamp = ( double )t_camera_send / timer_hz;
         telemetry_log[ frame ].tx_start_timestamp = ( double )t_send_start / timer_hz;
+        telemetry_log[ frame ].inter_departure_ms = inter_departure_ms;
         telemetry_log[ frame ].tx_duration_ms = send_duration_sec * 1000.0;
         telemetry_log[ frame ].reference_size_bytes = frames[ frame ].size;
         telemetry_log[ frame ].payload_bytes = transmitted_payload_bytes;
@@ -848,7 +863,12 @@ int main( int argc, char *argv[] ) {
 
     printf( "[SYSTEM] Booting the \"Camera\" microservice...\n" );
 
-    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    uint32_t point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+
+    if ( point_ipv4_len > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", point_ipv4_len, ( unsigned int )NETWORK_MTU );
+
+    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
     
     if ( mbuf_pool == NULL ) 
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );

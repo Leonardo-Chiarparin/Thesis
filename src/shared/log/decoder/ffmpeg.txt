@@ -393,4 +393,3 @@ out=  0 st=  0 frame=   392 q= -0.0 f_size= 17694720 s_size=  6773760kB time= 13
 out=  0 st=  0 frame=   393 q= -0.0 f_size= 17694720 s_size=  6791040kB time= 13.100 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
 out=  0 st=  0 frame=   394 q= -0.0 f_size= 17694720 s_size=  6808320kB time= 13.133 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
 out=  0 st=  0 frame=   395 q= -0.0 f_size= 17694720 s_size=  6825600kB time= 13.167 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   396 q= -0.0 f_size= 17694720 s_size=  6842880kB time= 13.200 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?

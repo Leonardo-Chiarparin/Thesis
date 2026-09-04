@@ -47,11 +47,12 @@
 
 // Packetization & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80
+#define NETWORK_MTU 1500
+#define MEDIA_PAYLOAD_SIZE 1316
 #define H2D_CHUNK_POINTS 65536
 #define MAX_POINTS 835458
 #define TS_PACKET_SIZE 188
-#define MTU_PAYLOAD_SIZE ( 7 * TS_PACKET_SIZE ) // 7 * 188 = 1316 bytes. The largest complete "MPEG-TS" group fitting the current "MTU" envelope without packet tearing
-#define FFMPEG_READ_SIZE MTU_PAYLOAD_SIZE 
+#define FFMPEG_READ_SIZE ( 7 * TS_PACKET_SIZE )
 
 // Data-offload selection conditions
 #define OFFLOAD_MODE_DISABLED 0
@@ -85,6 +86,15 @@
 #define FFMPEG_CPU 7
 #define GOP "15"
 #define FORCED_IDR "1"
+#define FLUSH_PACKETS "1"
+#define DELAY "0"
+
+#define DEBUG_VISUALS_DISABLED 0
+#define DEBUG_VISUALS_ENABLED 1
+#define DEBUG_VISUALS DEBUG_VISUALS_DISABLED
+#define DEBUG_FRAME_ID 195
+
+#define DEBUG_FOLDER "/shared/log/encoder/debug"
 
 // Functional settings ( projection, "YUV" & "Atlas" dimensions, restricted to multiples of 64 for the selected "H.265" input format )
 #define CAMERA_DISTANCE 1200.0f
@@ -255,9 +265,8 @@ struct telemetry_csv {
     double camera_node_ms;
     double e2e_latency_ms;
 
-    double reference_e2e_ms;
-
     double schedule_delay_ms;
+    double inter_arrival_ms;
     double instant_jitter_ms;
     double desynced_jitter_ms;
 

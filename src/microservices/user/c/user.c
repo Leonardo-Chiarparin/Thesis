@@ -57,10 +57,13 @@
 
 // Packetisation & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80
+#define NETWORK_MTU 1500
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
+
 #define WIDTH 640
 #define HEIGHT 480
 #define MAX_FRAME_POINTS ( 6 * WIDTH * HEIGHT )
-#define MAX_FRAME_PACKETS ( ( MAX_FRAME_POINTS + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET )
+#define MAX_FRAME_PACKETS MAX_FRAME_POINTS
 
 #define MAX_COMMANDS 256
 #define CMD_TYPE_POSE 1
@@ -171,6 +174,7 @@ struct frame_state {
     uint32_t eroded_points;
     uint32_t valid_points;
     uint16_t temporal_skip;
+    uint16_t points_per_packet;
 
     float yaw;
     float pitch;
@@ -243,6 +247,7 @@ struct telemetry_csv {
     double e2e_latency_ms;
     double reference_e2e_ms;
     double schedule_delay_ms;
+    double inter_arrival_ms;
     double instant_jitter_ms;
     double desynced_jitter_ms;
 
@@ -371,6 +376,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *pool ) {
 
     if ( retval != 0 )
         return retval;
+
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
 
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, pool );
 
@@ -813,6 +825,11 @@ static inline void begin_frame( const struct dec_hdr *dec, uint64_t arrival_cycl
     frame_state.eroded_points = rte_be_to_cpu_32( dec -> eroded_points );
     frame_state.valid_points = rte_be_to_cpu_32( dec -> valid_points );
     frame_state.temporal_skip = rte_be_to_cpu_16( dec -> temporal_skip );
+    frame_state.points_per_packet = rte_be_to_cpu_16( dec -> padding );
+
+    if ( frame_state.points_per_packet == 0 )
+        frame_state.points_per_packet = POINTS_PER_PACKET;
+
     frame_state.yaw = be_to_float( dec -> yaw );
     frame_state.pitch = be_to_float( dec -> pitch );
     frame_state.zoom = be_to_float( dec -> zoom );
@@ -840,7 +857,12 @@ static inline bool metadata_matches( const struct dec_hdr *dec ) {
     if ( frame_state.frame_id != rte_be_to_cpu_32( dec -> frame_id ) )
         return false;
 
-    return frame_state.original_points == rte_be_to_cpu_32( dec -> original_points ) && frame_state.arrived_points == rte_be_to_cpu_32( dec -> arrived_points ) && frame_state.eroded_points == rte_be_to_cpu_32( dec -> eroded_points ) && frame_state.valid_points == rte_be_to_cpu_32( dec -> valid_points ) && frame_state.temporal_skip == rte_be_to_cpu_16( dec -> temporal_skip ) && pose_matches( frame_state.yaw, frame_state.pitch, frame_state.zoom, be_to_float( dec -> yaw ), be_to_float( dec -> pitch ), be_to_float( dec -> zoom ) ) && frame_state.camera_tx == rte_be_to_cpu_64( dec -> timestamp );
+    uint16_t points_per_packet = rte_be_to_cpu_16( dec -> padding );
+
+    if ( points_per_packet == 0 )
+        points_per_packet = POINTS_PER_PACKET;
+
+    return frame_state.original_points == rte_be_to_cpu_32( dec -> original_points ) && frame_state.arrived_points == rte_be_to_cpu_32( dec -> arrived_points ) && frame_state.eroded_points == rte_be_to_cpu_32( dec -> eroded_points ) && frame_state.valid_points == rte_be_to_cpu_32( dec -> valid_points ) && frame_state.temporal_skip == rte_be_to_cpu_16( dec -> temporal_skip ) && frame_state.points_per_packet == points_per_packet && pose_matches( frame_state.yaw, frame_state.pitch, frame_state.zoom, be_to_float( dec -> yaw ), be_to_float( dec -> pitch ), be_to_float( dec -> zoom ) ) && frame_state.camera_tx == rte_be_to_cpu_64( dec -> timestamp );
 }
 
 static inline void finalize_frame( uint64_t timer_hz ) {
@@ -854,7 +876,7 @@ static inline void finalize_frame( uint64_t timer_hz ) {
 
     uint32_t frame_id = frame_state.frame_id;
     uint32_t idx = frame_id - 1;
-    uint32_t expected_packets = ( frame_state.valid_points > 0 ) ? ( frame_state.valid_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET : 1;
+    uint32_t expected_packets = ( frame_state.valid_points > 0 ) ? ( frame_state.valid_points + frame_state.points_per_packet - 1 ) / frame_state.points_per_packet : 1;
 
     bool rx_complete = frame_state.sequence_ok && frame_state.rx_packets == expected_packets && ( ( frame_state.valid_points > 0 && frame_state.rx_points == frame_state.valid_points ) || ( frame_state.valid_points == 0 && frame_state.rx_points == 0 ) );
 
@@ -963,10 +985,11 @@ static inline void finalize_frame( uint64_t timer_hz ) {
     if ( previous_arrival > 0 && frame_id > previous_frame ) {
         double real_interval = ( double )( frame_state.first_arrival - previous_arrival ) / timer_hz;
         double expected_interval = ( double )( frame_id - previous_frame ) / TARGET_FPS;
+        t -> inter_arrival_ms = real_interval * 1000.0;
+
         t -> instant_jitter_ms = fabs( real_interval - expected_interval ) * 1000.0;
         jitter_ms += ( t -> instant_jitter_ms - jitter_ms ) / 16.0;
     }
-
     t -> desynced_jitter_ms = jitter_ms;
 
     previous_arrival = frame_state.first_arrival;
@@ -1014,7 +1037,7 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm\n" );
+    fprintf( f, "frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm\n" );
 
     for ( uint32_t i = 0; i < K_FRAMES; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
@@ -1022,7 +1045,7 @@ static void telemetry_to_csv() {
         if ( t -> frame_id == 0 )
             continue;
 
-        fprintf( f, "%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%.3f;%.3f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f\n", t -> frame_id, t -> rx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> rx_points, t -> rx_packets, t -> payload_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> arrival_pct, t -> erosion_pct, t -> valid_pct, t -> web_publish_ms, t -> web_ack_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> camera_node_ms, t -> e2e_latency_ms, t -> reference_e2e_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> cmd_id, t -> reference_cmd_ms, t -> cmd_apply_ms, t -> cmd_photon_ms, t -> quality_save_ms, t -> mean_error, t -> geom_rmse, t -> chamfer, t -> hausdorff, t -> mean_mm, t -> rmse_mm, t -> chamfer_mm, t -> hausdorff_mm );
+        fprintf( f, "%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%.3f;%.3f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f\n", t -> frame_id, t -> rx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> rx_points, t -> rx_packets, t -> payload_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> arrival_pct, t -> erosion_pct, t -> valid_pct, t -> web_publish_ms, t -> web_ack_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> camera_node_ms, t -> e2e_latency_ms, t -> reference_e2e_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> cmd_id, t -> reference_cmd_ms, t -> cmd_apply_ms, t -> cmd_photon_ms, t -> quality_save_ms, t -> mean_error, t -> geom_rmse, t -> chamfer, t -> hausdorff, t -> mean_mm, t -> rmse_mm, t -> chamfer_mm, t -> hausdorff_mm );
     }
 
     fclose( f );
@@ -1119,10 +1142,15 @@ static inline bool parse_packet( struct rte_mbuf *m, uint64_t timer_hz ) {
 
     uint32_t sequence_number = rte_be_to_cpu_32( dec -> sequence_number );
     uint32_t points_in_packet = rte_be_to_cpu_32( dec -> points_in_packet );
+    uint16_t points_per_packet = rte_be_to_cpu_16( dec -> padding );
+
+    if ( points_per_packet == 0 )
+        points_per_packet = POINTS_PER_PACKET;
+
     uint32_t valid_points = rte_be_to_cpu_32( dec -> valid_points );
     uint16_t point_payload_len = udp_payload_len - sizeof( struct dec_hdr );
 
-    bool populated_frame = valid_points > 0 && points_in_packet > 0 && points_in_packet <= POINTS_PER_PACKET && point_payload_len == points_in_packet * sizeof( struct point_tx );
+    bool populated_frame = valid_points > 0 && points_in_packet > 0 && points_in_packet <= points_per_packet && point_payload_len == points_in_packet * sizeof( struct point_tx );
     bool empty_frame = valid_points == 0 && sequence_number == 0 && points_in_packet == 0 && point_payload_len == 0;
 
     if ( unlikely( !populated_frame && !empty_frame ) )
@@ -1159,7 +1187,7 @@ static inline bool parse_packet( struct rte_mbuf *m, uint64_t timer_hz ) {
     if ( sequence_number >= frame_state.expected_seq )
         frame_state.expected_seq = sequence_number + 1;
 
-    uint32_t point_offset = sequence_number * POINTS_PER_PACKET;
+    uint32_t point_offset = sequence_number * frame_state.points_per_packet;
 
     if ( point_offset + points_in_packet > frame_state.valid_points || point_offset + points_in_packet > MAX_FRAME_POINTS ) {
         frame_state.sequence_ok = false;
@@ -1189,7 +1217,7 @@ static inline bool parse_packet( struct rte_mbuf *m, uint64_t timer_hz ) {
     uint64_t active_stop = rte_get_timer_cycles();
     frame_state.active_cycles += active_stop - active_start;
 
-    uint32_t expected_packets = ( frame_state.valid_points > 0 ) ? ( frame_state.valid_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET : 1;
+    uint32_t expected_packets = ( frame_state.valid_points > 0 ) ? ( frame_state.valid_points + frame_state.points_per_packet - 1 ) / frame_state.points_per_packet : 1;
     bool frame_complete = frame_state.rx_packets == expected_packets && ( ( frame_state.valid_points > 0 && frame_state.rx_points == frame_state.valid_points ) || ( frame_state.valid_points == 0 && frame_state.rx_points == 0 ) );
 
     if ( frame_complete )
@@ -1244,6 +1272,11 @@ int main( int argc, char *argv[] ) {
 
     printf( "[SYSTEM] Booting the \"User\" microservice...\n" );
 
+    uint32_t point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct dec_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+
+    if ( point_ipv4_len > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", point_ipv4_len, ( unsigned int )NETWORK_MTU );
+
     const char *quality_env = getenv( "QUALITY_CAPTURE" );
     quality_capture_enabled = ( quality_env != NULL && strcmp( quality_env, "1" ) == 0 );
 
@@ -1256,7 +1289,7 @@ int main( int argc, char *argv[] ) {
     if ( quality_capture_enabled )
         quality_capture_init();
 
-    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
 
     if ( mbuf_pool == NULL )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );

@@ -37,8 +37,8 @@
 
 // Packetisation & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80
-#define TS_PACKET_SIZE 188
-#define MTU_PAYLOAD_SIZE ( 7 * TS_PACKET_SIZE )
+#define NETWORK_MTU 1500
+#define MEDIA_PAYLOAD_SIZE 1316
 #define MAX_SOURCE_POINTS 835458
 
 #define QUEUE_SIZE 16384
@@ -48,6 +48,13 @@
 
 #define DURATION "0"
 #define PROBE_SIZE "32768"
+
+#define DEBUG_VISUALS_DISABLED 0
+#define DEBUG_VISUALS_ENABLED 1
+#define DEBUG_VISUALS DEBUG_VISUALS_DISABLED
+#define DEBUG_FRAME_ID 195
+
+#define DEBUG_FOLDER "/shared/log/decoder/debug"
 
 // Functional settings ( reconstruction, "YUV" & "Atlas" dimensions, restricted to multiples of 64 for the selected "H.265" input format )
 #define CAMERA_DISTANCE 1200.0f
@@ -166,7 +173,7 @@ struct telemetry_csv {
     double data_integrity_pct;
     double internal_throughput_mbs;
 
-    double reference_throughput_mbps;
+    double reference_throughput_mbs;
 
     double logical_bitrate_mbps;
     double network_bitrate_mbps;
@@ -205,6 +212,7 @@ struct telemetry_csv {
     double camera_node_ms;
     double e2e_latency_ms;
     double schedule_delay_ms;
+    double inter_arrival_ms;
     double instant_jitter_ms;
     double desynced_jitter_ms;
     double pose_control_ms;

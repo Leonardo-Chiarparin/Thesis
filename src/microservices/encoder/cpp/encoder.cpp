@@ -29,6 +29,8 @@
 #include <rte_mbuf.h>
 #include <rte_udp.h>
 
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
+
 struct encode_service_sample {
     uint32_t frame_id = 0;
     uint64_t start_cycles = 0;
@@ -40,6 +42,7 @@ struct frame_buffer {
 
     uint32_t original_points = 0;
     uint32_t expected_packets = 0;
+    uint16_t points_per_packet = POINTS_PER_PACKET;
     uint32_t received_points = 0;
     uint32_t rx_packets = 0;
     uint32_t payload_bytes = 0;
@@ -133,6 +136,7 @@ static uint32_t current_mpeg_packet = 0;
 
 static std::vector< uint8_t > ts_pending;
 static std::vector< uint8_t > mpeg_chunk;
+static size_t mpeg_chunk_ts_offset = 0;
 
 static const size_t outer_len = sizeof( struct rte_ether_hdr ) + sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr );
 
@@ -176,6 +180,9 @@ static uint32_t frame_created_packets[ K_FRAMES ] = { 0 };
 
 static std::vector< uint8_t > quality_reference;
 static std::vector< uint8_t > quality_stream;
+
+static std::vector< uint8_t > debug_snapshot;
+static bool debug_snapshot_ready = false;
 
 static size_t quality_stream_size = 0;
 static bool quality_failed = false;
@@ -530,6 +537,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
     if ( retval != 0 ) 
         return retval;
 
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
+
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, mbuf_pool );
         
     if ( retval < 0 ) 
@@ -573,6 +587,67 @@ static inline void main_header_init( struct rte_ether_hdr *eth, struct rte_ipv4_
     ipv4 -> hdr_checksum = rte_ipv4_cksum( ipv4 );
 }
 
+static void debug_write_plane( const char *path, const uint8_t *plane, uint32_t width, uint32_t height ) {
+
+    // Purpose: It exports a given diagnostic element as a directly viewable grayscale image
+
+    FILE *f = fopen( path, "wb" );
+
+    if ( f == NULL )
+        return;
+
+    fprintf( f, "P5\n%u %u\n255\n", width, height );
+    fwrite( plane, 1, ( size_t )width * height, f );
+    fclose( f );
+}
+
+static inline void debug_capture_frame( uint32_t frame_id, const uint8_t *i420 ) {
+
+    // Purpose: It preserves the selected Encoder "I420" "Super-Frame" in memory & postpones persistent visual serialization until the streaming session has completed
+
+    if ( DEBUG_VISUALS != DEBUG_VISUALS_ENABLED || frame_id != DEBUG_FRAME_ID || i420 == NULL || debug_snapshot.size() != TOTAL_YUV_SIZE )
+        return;
+
+    rte_memcpy( debug_snapshot.data(), i420, TOTAL_YUV_SIZE );
+    debug_snapshot_ready = true;
+}
+
+static void debug_dump_frame() {
+
+    // Purpose: It serializes the retained snapshot & its "Geometry", "Texture" & "Occupancy" planes after post-roll, optional quality assessment & sequence termination
+
+    if ( DEBUG_VISUALS != DEBUG_VISUALS_ENABLED || !debug_snapshot_ready || debug_snapshot.size() != TOTAL_YUV_SIZE )
+        return;
+
+    mkdir( TELEMETRY_FOLDER, 0777 );
+    mkdir( DEBUG_FOLDER, 0777 );
+
+    char path[ 256 ];
+    const uint8_t *i420 = debug_snapshot.data();
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_input.i420", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    FILE *raw = fopen( path, "wb" );
+
+    if ( raw != NULL ) {
+        fwrite( i420, 1, TOTAL_YUV_SIZE, raw );
+        fclose( raw );
+    }
+
+    const uint8_t *y = i420;
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_geometry.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y, ENCODER_W, CROSS_H );
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_texture_y.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y + ( size_t )ENCODER_W * CROSS_H, ENCODER_W, CROSS_H );
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_occupancy.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y + ( size_t )ENCODER_W * CROSS_H * 2, ENCODER_W, CROSS_H );
+
+    debug_snapshot_ready = false;
+    std::vector< uint8_t >().swap( debug_snapshot );
+}
+
 static void ffmpeg_init() {
 
     // Purpose: It creates operating-system inter-process communication "pipes" & spawns the persistent hardware-accelerated "H.265" subprocess before timed frame processing.
@@ -614,7 +689,7 @@ static void ffmpeg_init() {
         char res[ 32 ];
         snprintf( res, sizeof( res ), "%dx%d", ENCODER_W, ENCODER_H );
 
-        execlp( "ffmpeg", "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-vcodec", "rawvideo", "-s", res, "-pix_fmt", "yuv420p", "-r", "30", "-i", "-", "-c:v", "hevc_nvenc", "-preset", "p2", "-tune", "ull", "-rc", "cbr", "-b:v", TARGET_BITRATE_MBPS, "-maxrate", TARGET_BITRATE_MBPS, "-bufsize", TARGET_BUFFER_SIZE, "-g", GOP, "-forced-idr", FORCED_IDR, "-vstats_file", FFMPEG_PATH, "-f", "mpegts", "-", NULL );
+        execlp( "ffmpeg", "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-vcodec", "rawvideo", "-s", res, "-pix_fmt", "yuv420p", "-r", "30", "-i", "-", "-c:v", "hevc_nvenc", "-preset", "p2", "-tune", "ull", "-delay", DELAY, "-rc", "cbr", "-b:v", TARGET_BITRATE_MBPS, "-maxrate", TARGET_BITRATE_MBPS, "-bufsize", TARGET_BUFFER_SIZE, "-g", GOP, "-forced-idr", FORCED_IDR, "-vstats_file", FFMPEG_PATH, "-flush_packets", FLUSH_PACKETS, "-f", "mpegts", "-", NULL );
         exit( 1 );
     }
 
@@ -639,7 +714,7 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
+    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
 
     uint32_t limit = ( last_frame_id < K_FRAMES ) ? last_frame_id : K_FRAMES;
 
@@ -705,7 +780,7 @@ static void telemetry_to_csv() {
         t -> logical_bitrate_mbps = ( logical_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
         t -> network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
 
-        fprintf( f, "%u;%u;%u;%u;%s;%.3f;%.3f;%.3f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%.3f;%.3f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> event, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> codec_exit_time, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> processed_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> conversion_ms, t -> geometry_aggregation_ms, t -> max_r_ms, t -> projection_ms, t -> codec_write_ms, t -> active_tx_ms, t -> active_process_ms, t -> reference_process_ms, t -> total_processing_ms, t -> total_residency_ms, t -> reference_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> gpu_transfer_ms, t -> gpu_kernel_ms, t -> gpu_packing_ms, t -> gpu_copyback_ms, t -> host_overhead_ms, t -> camera_node_ms, t -> e2e_latency_ms, t -> reference_e2e_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> reference_jitter_ms, t -> raw_queue_ms, t -> render_queue_ms, t -> workload_ewma_ms, t -> workload_ratio, t -> frame_backlog, t -> codec_backlog, t -> encode_service_ms, t -> encode_h265_ms, t -> mse_y, t -> psnr_y, t -> ssim_y, t -> mpeg_bytes_generated, t -> ffmpeg_write_calls, t -> ffmpeg_write_eagain, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
+        fprintf( f, "%u;%u;%u;%u;%s;%.3f;%.3f;%.3f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%.3f;%.3f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> event, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> codec_exit_time, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> processed_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> conversion_ms, t -> geometry_aggregation_ms, t -> max_r_ms, t -> projection_ms, t -> codec_write_ms, t -> active_tx_ms, t -> active_process_ms, t -> reference_process_ms, t -> total_processing_ms, t -> total_residency_ms, t -> reference_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> gpu_transfer_ms, t -> gpu_kernel_ms, t -> gpu_packing_ms, t -> gpu_copyback_ms, t -> host_overhead_ms, t -> camera_node_ms, t -> e2e_latency_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> reference_jitter_ms, t -> raw_queue_ms, t -> render_queue_ms, t -> workload_ewma_ms, t -> workload_ratio, t -> frame_backlog, t -> codec_backlog, t -> encode_service_ms, t -> encode_h265_ms, t -> mse_y, t -> psnr_y, t -> ssim_y, t -> mpeg_bytes_generated, t -> ffmpeg_write_calls, t -> ffmpeg_write_eagain, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
     }
 
     fclose( f );
@@ -1252,11 +1327,10 @@ static void *ffmpeg_writer_loop( void *arg ) {
             t -> reference_residency_ms = ( frame_arrival_cycles[ idx ] > 0 && write_end >= frame_arrival_cycles[ idx ] ) ? ( ( double )( write_end - frame_arrival_cycles[ idx ] ) / timer_hz ) * 1000.0 : 0.0;
             t -> reference_efficiency_pct = ( t -> reference_residency_ms > 0.0 ) ? ( t -> reference_process_ms / t -> reference_residency_ms ) * 100.0 : 0.0;
 
-            uint64_t camera_tx_cycles = rte_be_to_cpu_64( camera_metadata[ idx ].timestamp );
-            t -> reference_e2e_ms = ( camera_tx_cycles > 0 && write_end >= camera_tx_cycles ) ? ( ( double )( write_end - camera_tx_cycles ) / timer_hz ) * 1000.0 : 0.0;
-            
             if ( written_total == TOTAL_YUV_SIZE )
                 write_reference( job.frame_id, yuv_buffers[ job.slot ].data() );
+
+            debug_capture_frame( job.frame_id, yuv_buffers[ job.slot ].data() );
         }
 
         pthread_mutex_lock( &writer_mutex );
@@ -1684,6 +1758,40 @@ static inline void emit_mpeg_payload( const uint8_t *mpeg_data, uint16_t mpeg_le
     }
 }
 
+static inline void consume_mpeg_chunk_prefix( size_t bytes ) {
+    if ( bytes == 0 )
+        return;
+
+    if ( bytes >= mpeg_chunk.size() ) {
+        mpeg_chunk.clear();
+        mpeg_chunk_ts_offset = 0;
+        return;
+    }
+
+    if ( bytes <= mpeg_chunk_ts_offset )
+        mpeg_chunk_ts_offset -= bytes;
+    else {
+        size_t displaced = bytes - mpeg_chunk_ts_offset;
+        size_t remainder = displaced % TS_PACKET_SIZE;
+        mpeg_chunk_ts_offset = ( remainder == 0 ) ? 0 : TS_PACKET_SIZE - remainder;
+    }
+
+    mpeg_chunk.erase( mpeg_chunk.begin(), mpeg_chunk.begin() + bytes );
+}
+
+static inline void emit_ready_mpeg_payloads( struct rte_mbuf **tx_bufs, int *burst_idx, bool flush_all ) {
+    while ( mpeg_chunk.size() >= MEDIA_PAYLOAD_SIZE ) {
+        emit_mpeg_payload( mpeg_chunk.data(), MEDIA_PAYLOAD_SIZE, tx_bufs, burst_idx );
+        consume_mpeg_chunk_prefix( MEDIA_PAYLOAD_SIZE );
+    }
+
+    if ( flush_all && !mpeg_chunk.empty() ) {
+        emit_mpeg_payload( mpeg_chunk.data(), ( uint16_t )mpeg_chunk.size(), tx_bufs, burst_idx );
+        mpeg_chunk.clear();
+        mpeg_chunk_ts_offset = 0;
+    }
+}
+
 static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, struct rte_mbuf **tx_bufs, int *burst_idx, uint64_t timer_hz ) {
 
     // Purpose: It reconstructs complete 188-byte "MPEG-TS" units from arbitrary "pipe" reads, detecting video-"PES" frontiers & emitting appropriately limited conveyance groups
@@ -1721,16 +1829,15 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
 
             if ( current_frame_id > 0 && !mpeg_chunk.empty() ) {
                 if ( entering_real_stream && mpeg_video_pid != 0xFFFF ) {
-                    for ( size_t offset = 0; offset + TS_PACKET_SIZE <= mpeg_chunk.size(); offset += TS_PACKET_SIZE ) {
+                    for ( size_t offset = mpeg_chunk_ts_offset; offset + TS_PACKET_SIZE <= mpeg_chunk.size(); offset += TS_PACKET_SIZE ) {
                         const uint8_t *pending_ts = mpeg_chunk.data() + offset;
 
-                        if ( mpeg_ts_pid( pending_ts ) != mpeg_video_pid )
+                        if ( pending_ts[ 0 ] == 0x47 && mpeg_ts_pid( pending_ts ) != mpeg_video_pid )
                             transition_prefix.insert( transition_prefix.end(), pending_ts, pending_ts + TS_PACKET_SIZE );
                     }
                 }
 
-                emit_mpeg_payload( mpeg_chunk.data(), ( uint16_t )mpeg_chunk.size(), tx_bufs, burst_idx );
-                mpeg_chunk.clear();
+                emit_ready_mpeg_payloads( tx_bufs, burst_idx, true );
             }
 
             if ( !begin_mpeg_frame( tx_bufs, burst_idx, timer_hz, output_cycles ) )
@@ -1739,11 +1846,7 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
             if ( entering_real_stream ) {
                 for ( size_t offset = 0; offset + TS_PACKET_SIZE <= transition_prefix.size(); offset += TS_PACKET_SIZE ) {
                     mpeg_chunk.insert( mpeg_chunk.end(), transition_prefix.data() + offset, transition_prefix.data() + offset + TS_PACKET_SIZE );
-
-                    if ( mpeg_chunk.size() == MTU_PAYLOAD_SIZE ) {
-                        emit_mpeg_payload( mpeg_chunk.data(), MTU_PAYLOAD_SIZE, tx_bufs, burst_idx );
-                        mpeg_chunk.clear();
-                    }
+                    emit_ready_mpeg_payloads( tx_bufs, burst_idx, false );
                 }
             }
         }
@@ -1751,10 +1854,8 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
         mpeg_chunk.insert( mpeg_chunk.end(), ts, ts + TS_PACKET_SIZE );
         consumed += TS_PACKET_SIZE;
 
-        if ( current_frame_id > 0 && mpeg_chunk.size() == MTU_PAYLOAD_SIZE ) {
-            emit_mpeg_payload( mpeg_chunk.data(), MTU_PAYLOAD_SIZE, tx_bufs, burst_idx );
-            mpeg_chunk.clear();
-        }
+        if ( current_frame_id > 0 )
+            emit_ready_mpeg_payloads( tx_bufs, burst_idx, false );
     }
 
     if ( consumed > 0 )
@@ -1888,6 +1989,11 @@ static inline void process_network_stream() {
             uint32_t frame_id = rte_be_to_cpu_32( cam -> frame_id );
             uint32_t points_in_packet = rte_be_to_cpu_32( cam -> points_in_packet );
             uint32_t original_points = rte_be_to_cpu_32( cam -> original_points );
+            uint16_t points_per_packet = rte_be_to_cpu_16( cam -> padding );
+
+            if ( points_per_packet == 0 )
+                points_per_packet = POINTS_PER_PACKET;
+
             uint64_t packet_arrival = rte_get_timer_cycles();
 
             if ( unlikely( frame_id == END_OF_STREAM ) ) {
@@ -1901,7 +2007,7 @@ static inline void process_network_stream() {
                 continue;
             }
 
-            if ( unlikely( frame_id == 0 || frame_id > K_FRAMES || frame_id <= last_frame_id || original_points == 0 || original_points > MAX_POINTS || points_in_packet == 0 || points_in_packet > POINTS_PER_PACKET ) ) {
+            if ( unlikely( frame_id == 0 || frame_id > K_FRAMES || frame_id <= last_frame_id || original_points == 0 || original_points > MAX_POINTS || points_per_packet == 0 || points_in_packet == 0 || points_in_packet > points_per_packet ) ) {
                 rte_pktmbuf_free( m );
                 continue;
             }
@@ -1928,13 +2034,14 @@ static inline void process_network_stream() {
             if ( fb.rx_packets == 0 ) {
                 fb.cam = *cam;
                 fb.original_points = original_points;
-                fb.expected_packets = ( original_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET;
+                fb.points_per_packet = points_per_packet;
+                fb.expected_packets = ( original_points + fb.points_per_packet - 1 ) / fb.points_per_packet;
                 fb.camera_tx = rte_be_to_cpu_64( cam -> timestamp );
                 fb.first_arrival = packet_arrival;
                 fb.points.reset( new struct host_point[ original_points ] );
                 fb.packet_received.assign( fb.expected_packets, 0 );
             }
-            else if ( unlikely( fb.original_points != original_points || fb.cam.temporal_skip != cam -> temporal_skip ) ) {
+            else if ( unlikely( fb.original_points != original_points || fb.points_per_packet != points_per_packet || fb.cam.temporal_skip != cam -> temporal_skip ) ) {
                 rte_pktmbuf_free( m );
                 continue;
             }
@@ -1946,8 +2053,8 @@ static inline void process_network_stream() {
                 continue;
             }
 
-            uint32_t point_offset = sequence_number * POINTS_PER_PACKET;
-            uint32_t expected_points = std::min( ( uint32_t )POINTS_PER_PACKET, fb.original_points - point_offset );
+            uint32_t point_offset = sequence_number * fb.points_per_packet;
+            uint32_t expected_points = std::min( ( uint32_t )fb.points_per_packet, fb.original_points - point_offset );
 
             if ( unlikely( points_in_packet != expected_points ) ) {
                 rte_pktmbuf_free( m );
@@ -2088,6 +2195,7 @@ static int worker_loop( __rte_unused void *arg ) {
 
                 double diff_sec = real_interval_sec - expected_interval_sec;
 
+                t -> inter_arrival_ms = real_interval_sec * 1000.0;
                 t -> instant_jitter_ms = std::abs( diff_sec ) * 1000.0;
 
                 double reference_interval_sec = ( double )active_temporal_skip / TARGET_FPS;
@@ -2096,6 +2204,7 @@ static int worker_loop( __rte_unused void *arg ) {
                 jitter_ms += ( t -> instant_jitter_ms - jitter_ms ) / 16.0;
             }
             else {
+                t -> inter_arrival_ms = 0.0;
                 t -> instant_jitter_ms = 0.0;
                 t -> reference_jitter_ms = 0.0;
             }
@@ -2125,8 +2234,8 @@ static int worker_loop( __rte_unused void *arg ) {
                     if ( fb.packet_received[ sequence_number ] == 0 )
                         continue;
 
-                    uint32_t point_offset = sequence_number * POINTS_PER_PACKET;
-                    uint32_t point_count = std::min( ( uint32_t )POINTS_PER_PACKET, fb.original_points - point_offset );
+                    uint32_t point_offset = sequence_number * fb.points_per_packet;
+                    uint32_t point_count = std::min( ( uint32_t )fb.points_per_packet, fb.original_points - point_offset );
 
                     compact_points.insert( compact_points.end(), fb.points.get() + point_offset, fb.points.get() + point_offset + point_count );
                 }
@@ -2283,10 +2392,8 @@ static int worker_loop( __rte_unused void *arg ) {
 
             drain_codec_output( tx_bufs, &burst_idx, timer_hz );
 
-            if ( current_frame_id > 0 && !mpeg_chunk.empty() ) {
-                emit_mpeg_payload( mpeg_chunk.data(), ( uint16_t )mpeg_chunk.size(), tx_bufs, &burst_idx );
-                mpeg_chunk.clear();
-            }
+            if ( current_frame_id > 0 && !mpeg_chunk.empty() )
+                emit_ready_mpeg_payloads( tx_bufs, &burst_idx, true );
 
             ts_pending.clear();
 
@@ -2339,6 +2446,8 @@ static int worker_loop( __rte_unused void *arg ) {
                 telemetry_to_csv();
             }
 
+            debug_dump_frame();
+
             csv_written = true;
             printf( "\n[SYSTEM] End of stream detected. Changing to \"idle\" state...\n" );
         }
@@ -2360,7 +2469,12 @@ int main( int argc, char *argv[] ) {
 
     printf( "[SYSTEM] Booting the \"Encoder\" microservice...\n\n" );
 
-    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    uint32_t media_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + sizeof( struct enc_hdr ) + MEDIA_PAYLOAD_SIZE;
+
+    if ( media_ipv4_len > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", media_ipv4_len, ( unsigned int )NETWORK_MTU );
+
+    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
 
     if ( mbuf_pool == NULL )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );
@@ -2375,6 +2489,9 @@ int main( int argc, char *argv[] ) {
 
     if ( quality_capture_enabled )
         quality_capture_init();
+
+    if ( DEBUG_VISUALS == DEBUG_VISUALS_ENABLED )
+        debug_snapshot.resize( TOTAL_YUV_SIZE );
     
     cuda_memory_init( MAX_POINTS );
     cuda_memory_warmup();

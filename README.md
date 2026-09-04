@@ -52,7 +52,7 @@ The "Pose" cycle is likewise functional. Browser-originated `yaw`, `pitch`, & `z
 
 > **Repository Note:** The final topology no longer depends upon "Open vSwitch" or an "OVS"-"DPDK" "PMD". Native components are attached directly through explicit `/tmp/sfc-*` "vhost-user" / "virtio-user" adjacencies. This removes an intermediary switching stage & releases the logical core previously dedicated to the virtual switch for application-level placement.
 
-> **Validation Scope:** Two complementary 300-frame "Loot" conditions are archived. `QUALITY_CAPTURE = 0` enables the asynchronous browser bridge & measures interactive end-to-end / command behaviour; `QUALITY_CAPTURE = 1` removes the browser path, captures objective "luma" & reconstructed-geometry information in memory, & evaluates quality strictly after stream termination. Both final runs sustain 300 / 300 complete frames through every primary-route stage at `current_skip = 1`, with a `Camera` source cadence of approximately `29.997 frames/s`.
+> **Validation Scope:** Two complementary 300-frame "Loot" conditions are archived. `QUALITY_CAPTURE = 0` enables the asynchronous browser bridge & measures interactive end-to-end / command behaviour; `QUALITY_CAPTURE = 1` removes the browser path, captures objective "luma" & reconstructed-geometry information in memory, & evaluates quality strictly after stream termination. Both final runs sustain 300 / 300 complete frames through every primary-route stage at `current_skip = 1`, with a `Camera` source cadence of approximately `30.0 frames / s`.
 
 ---
 
@@ -235,10 +235,10 @@ The virtual topology is intentionally direct:
 
 ```
 Camera <-> SFF1 <-> SFF2 <-> Encoder
-                     | |
-                     | +---- Decoder
-                     |        
-                     +------ SFF3 <-> User
+                    |  |
+                    |  +---- Decoder
+                    |        
+                    +------- SFF3 <-> User
 ```
 
 The exact direct sockets are:
@@ -332,7 +332,7 @@ selected( frame_id ) = ( ( frame_id - 1 ) mod skip ) == 0
 FPS                  = TARGET_FPS / skip
 ```
 
-Consequently, temporal reduction occurs at the earliest useful frontier: skipped source frames do not consume point packetisation, `Camera` Tx descriptors, or any subsequent primary-route service capacity. For example, if a controlled overload experiment requests `skip = 2`, the nominal admitted source rate becomes `15 frames/s`; `skip = 3` yields `10 frames/s`. These are deterministic consequences of the selection rule, not measured outcomes of the final `skip = 1` archives.
+Consequently, temporal reduction occurs at the earliest useful frontier: skipped source frames do not consume point packetisation, `Camera` Tx descriptors, or any subsequent primary-route service capacity. For example, if a controlled overload experiment requests `skip = 2`, the nominal admitted source rate becomes `15 frames / s`; `skip = 3` yields `10 frames / s`. These are deterministic consequences of the selection rule, not measured outcomes of the final `skip = 1` archives.
 
 Reliability is expressed as returned-state convergence. If `workload_controller.requested_skip != active_skip`, `Encoder` suppresses further overload / recovery transitions & re-dispatches the desired factor after `RETRY_FRAMES = 3` observations. The request is considered semantically reflected only when subsequent `cam_hdr.temporal_skip` values return the requested state. A lost control datagram can therefore delay adoption, but cannot permanently orphan the requested state while the pipeline continues to produce complete observations. This mechanism is intentionally distinct from transport retransmission: it verifies the **application effect**, not merely delivery to a socket.
 
@@ -500,7 +500,7 @@ points_in_packet
 padding
 ```
 
-The `Camera` introduces the neutral source pose (`0`, `0`, `1`). `User`-originated pose changes are deliberately applied at `Decoder`, rather than altering the source / `Encoder` projection state.
+The `Camera` introduces the neutral source pose ( `0`, `0`, `1` ). `User`-originated pose changes are deliberately applied at `Decoder`, rather than altering the source / `Encoder` projection state. The legacy `padding` field now transports the configured point capacity in network byte order: `Camera` writes `POINTS_PER_PACKET`, every receiving node derives packet offsets / completion from the advertised value, & a zero field is accepted only as a compatibility fallback to the locally compiled setting. `points_in_packet` continues to carry the actual population, so the final packet is free to contain the natural remainder.
 
 ### 4.5 Geometric Metadata Produced by SFF1
 
@@ -570,7 +570,7 @@ valid_points
 points_in_packet
 ```
 
-`timestamp` retains the original `Camera` timeline. `arrived_points`, `eroded_points`, & `valid_points` distinguish the progressive reconstruction stages, while the pose fields report the stance actually applied by `Decoder`. `SFF2` & `SFF3` therefore need not infer reconstruction population from packet counts alone.
+`timestamp` retains the original `Camera` timeline. `arrived_points`, `eroded_points`, & `valid_points` distinguish the progressive reconstruction stages, while the pose fields report the stance actually applied by `Decoder`. The legacy `padding` member mirrors the negotiated point-packet capacity carried upstream by `cam_hdr`, allowing `SFF2`, `SFF3`, & `User` to validate offsets / final remainders without embedding a hidden compile-time assumption into frame completion. `SFF2` & `SFF3` therefore need not infer reconstruction population from packet counts alone.
 
 ### 4.8 User Shared-Memory & Quality Records
 
@@ -597,6 +597,18 @@ The system targets the conventional:
 ```
 
 All application datagrams remain below that threshold. "Ethernet" framing is reported separately because the "MTU" excludes the 14-byte "Ethernet" header.
+
+Three packetisation parameters are now explicit across the affected native nodes:
+
+```text
+POINTS_PER_PACKET  = 80
+NETWORK_MTU        = 1500
+MEDIA_PAYLOAD_SIZE = 1316
+```
+
+`POINTS_PER_PACKET` determines the maximum point population rather than the mandatory size of every datagram. The chosen capacity is propagated through `cam_hdr.padding` & subsequently `dec_hdr.padding`; the final packet of a frame carries its real `points_in_packet` remainder, while a zero advertised capacity is normalised to the local setting only for compatibility. `NETWORK_MTU` independently controls the maximum accepted "IPv4" datagram, contributes to the native mbuf-data-room calculation, & is checked against the largest constructed packet at startup.
+
+Compressed media is parameterised separately through `MEDIA_PAYLOAD_SIZE`. The current `1316 B` value deliberately equals `7 * 188 B`, but the application parser does not rely upon arbitrary pipe-read boundaries: "MPEG-TS" is reconstructed internally as complete 188-byte units, whereas `SFF2` & `Decoder` concatenate the received media bytes without imposing an unnecessary network-payload modulo-188 rule. This preserves the current efficient seven-packet grouping while keeping transport sizing independent from the internal parser state.
 
 ### 5.1 Camera -> SFF1
 
@@ -642,8 +654,8 @@ Route 0 removes the service base / context while preserving `geo_agg_hdr` for th
 ### 5.3 Encoder -> SFF2 -> Decoder
 
 ```
-TS_PACKET_SIZE   = 188 B
-MTU_PAYLOAD_SIZE = 7 * 188 = 1316 B
+TS_PACKET_SIZE     = 188 B
+MEDIA_PAYLOAD_SIZE = 7 * 188 = 1316 B
 ```
 
 ```
@@ -793,7 +805,7 @@ original_points
 points_in_packet
 ```
 
-The `Camera` timestamp is generated immediately prior to the packet-transmission loop & propagates unchanged across all packets corresponding to the same frame.
+The `Camera` timestamp is generated immediately prior to the packet-transmission loop & propagates unchanged across all packets corresponding to the same frame. `cam_hdr.padding` carries the active `POINTS_PER_PACKET` capacity, while `points_in_packet` remains the exact population of the current datagram; sequence offsets are therefore derived from the advertised capacity rather than from a hard-coded 80-point assumption.
 
 Coordinates transition from the prepared little-endian host representation to network-order "IEEE-754" bit patterns prior to transmission. "RGB" values & the explicit padding byte remain byte-valued fields.
 
@@ -846,10 +858,10 @@ The validated run exhibits numerous zero-accept attempts due to the emission of 
 
 ### 6.6 Camera Telemetry — Complete Semantics
 
-The final `Camera` exports **30 fields**. The schema distinguishes source selection, control application, packet population, logical / network rates, file acquisition, serialization, active Tx execution, full source residence, & local queue-acceptance pressure:
+The final `Camera` exports **31 fields**. The schema distinguishes source selection, control application, packet population, logical / network rates, file acquisition, serialization, active Tx execution, full source residence, & local queue-acceptance pressure:
 
 ```text
-frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;inter_departure_ms;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 
 | Field / Group | Exact Semantics |
@@ -861,6 +873,7 @@ frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_m
 | `last_control_frame`, `temporal_control_ms` | Last accepted control reference & measured local control-handling delay. |
 | `camera_send_timestamp` | Source timing anchor propagated throughout the chain. |
 | `tx_start_timestamp` | Local start of packet submission for the selected frame. |
+| `inter_departure_ms` | Real elapsed interval between the send-start timestamps of two successive **actually transmitted** frames. The first measured shot reports `0`; frame-ID gaps are not divided away, so temporal selection remains visible in the raw departure interval. |
 | `tx_points`, `tx_packets`, `payload_bytes` | Successfully accepted point population, datagram count, & point bytes. |
 | `reference_size_bytes` | Logical frame size used by the reference-throughput calculations. |
 | `internal_throughput_mbs`, `reference_throughput_mbs` | Local logical-source rates under the measured / reference boundaries, both expressed in decimal MB / s. |
@@ -1011,10 +1024,10 @@ Therefore, the project deliberately avoids artificial preprocessing solutions at
 
 ### 7.6 SFF1 Telemetry — Complete Semantics
 
-The final `SFF1` exports **42 fields**, combining frame-integrity, in-path geometry, timing, protocol validation, & Tx-backpressure observability:
+The final `SFF1` exports **43 fields**, combining frame-integrity, in-path geometry, timing, protocol validation, & Tx-backpressure observability:
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
 | Field / Group | Exact Semantics |
@@ -1026,7 +1039,7 @@ frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_t
 | `rx_packets`, `tx_packets` | Valid received / accepted packet counts. |
 | `payload_bytes`, `reference_size_bytes` | Point payload & comparison baseline sizes. |
 | `data_integrity_pct` | `100 * rx_points / original_points` for a populated frame. |
-| throughput / bitrate fields | Distinguish local receive-span throughput, logical frame rate, protocol-inclusive rate, & reference formulation. |
+| throughput / bitrate fields | `internal_throughput_mbs` & `reference_throughput_mbs` divide decimal application bytes by the real first-to-last receive span; `logical_bitrate_mbps`, `network_bitrate_mbps`, & `reference_bitrate_mbps` remain rate formulations expressed in Mbit / s. |
 | `geometry_aggregation_ms` | Accumulated progressive sum / extrema / centroid / extent / raw bounding-box work, plus frame-complete projection-frontier materialisation. |
 | `max_r_ms` | Exact frame-completing radius evaluation after the final centroid becomes available. |
 | `tx_duration_ms`, `active_tx_ms` | Wall-clock egress span versus active Tx-call execution. |
@@ -1036,7 +1049,7 @@ frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_t
 | `node_efficiency_pct` | Active-work ratio against complete node residence, computed as `100 * active_process_ms / total_residency_ms`. |
 | `cycle_occupancy_pct` | Residence-to-cycle ratio, computed as `100 * total_residency_ms / cycle_ms`; it quantifies how much of the observed inter-frame interval is occupied by the frame's node residence. |
 | `camera_node_ms` | `Camera` source timestamp to first `SFF1` arrival. |
-| `schedule_delay_ms`, `instant_jitter_ms`, `desynced_jitter_ms` | Source-cadence drift & frame-gap-aware timing variability. |
+| `schedule_delay_ms`, `inter_arrival_ms`, `instant_jitter_ms`, `desynced_jitter_ms` | Cumulative schedule drift, raw first-packet-to-first-packet shot interval, frame-ID-gap-aware instantaneous deviation, & its smoothed chronology. `inter_arrival_ms` is `0` for the first observed frame. |
 | `eth_errors`, `ipv4_errors`, `udp_errors`, `nsh_errors` | Protocol-validation failures. All remain `0` in the final representative runs. |
 | Tx acceptance counters | Local zero / partial accepts & resubmission activity, independent from "UDP" semantics. |
 
@@ -1114,13 +1127,13 @@ All three route logs contain exactly 300 rows in both final archived conditions.
 
 ### 8.7 SFF2 Telemetry — Complete Semantics
 
-Each route exports the same 42-column schema, allowing cross-route analysis while retaining route-specific point / media interpretations:
+Each route exports the same 43-column schema, allowing cross-route analysis while retaining route-specific point / media interpretations:
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
-`cycle_occupancy_pct` is intentionally distinct from `node_efficiency_pct`: the former expresses `100 * total_residency_ms / cycle_ms`, while the latter expresses `100 * active_process_ms / total_residency_ms`.
+`cycle_occupancy_pct` is intentionally distinct from `node_efficiency_pct`: the former expresses `100 * total_residency_ms / cycle_ms`, while the latter expresses `100 * active_process_ms / total_residency_ms`. Across all three routes, `inter_arrival_ms` measures the raw interval between first valid packets of successive observed application frames. Both measured & reference throughputs use the corresponding frame receive span as denominator; the reference quantity is retained in decimal MB / s rather than being conflated with `reference_bitrate_mbps`.
 
 The resulting files are:
 
@@ -1423,7 +1436,7 @@ projection_ms
 
 ### 9.12 Persistent "FFmpeg" / "NVENC" Process & Pre-Roll
 
-A singular, persistent "FFmpeg" process initiates concurrently with the experiment. Contemporary rate-control & latency-oriented parameters specify:
+A singular, persistent "FFmpeg" process initiates concurrently with the experiment. The final validated live command retains the established rate-control configuration & adds only the two latency-oriented options that proved useful in isolation:
 
 ```text
 "codec"        = hevc_nvenc
@@ -1433,20 +1446,16 @@ rate control   = cbr
 target bitrate = 10M
 buffer size    = 20M
 "GOP"          = 15
-B frames       = 0
-lookahead      = 0
+forced "IDR"   = 1
 delay          = 0
-zero latency   = 1
 flush packets  = 1
 ```
 
-Preceding the measurement of application frames, the `Encoder` propels one "GOP" consisting of private, unrecorded pre-roll frames:
+No additional `zerolatency` option is enabled. `-delay 0` reduces retained Encoder-side pipeline depth, while `-flush_packets 1` requests prompt muxer packet emission. The latter is applied only on the Encoder: adding an analogous flush option to the Decoder was explicitly tested & did not produce a reproducible latency / cadence improvement, so the Decoder remains on its established `low_delay` configuration without it.
 
-```text
-FRAMES = 15
-```
+Preceding the measurement of application frames, the `Encoder` submits private blank `I420` material in `FRAMES = 15` groups until Decoder readiness is observed at a group boundary. The value `15` therefore defines the pre-roll granularity rather than a fixed total count. In the final NON-QUALITY & QUALITY codec logs, readiness required `90` private frames before the `300` genuine application frames began.
 
-This pre-roll sequence traverses the standard writer & parser conduits, propelling the persistent "codec", muxer, & attribution logic into an operational, warmed state. Crucially, pre-roll frames bypass application network transmission entirely & remain omitted from the 300-row `Encoder` telemetry.
+This pre-roll traffic traverses the ordinary Encoder / `SFF2` / Decoder media path under the reserved `FRAME_ID`, warming persistent `NVENC`, `MPEG-TS`, attribution, & `NVDEC` state without populating application telemetry.
 
 A dedicated writer thread & three designated "I420" slots uncouple the projection phase from blocking interactions with "FFmpeg" stdin. In instances where all slots are committed, the `Encoder` perpetually services network / "codec" activities while awaiting slot emancipation.
 
@@ -1454,13 +1463,15 @@ A dedicated writer thread & three designated "I420" slots uncouple the projectio
 
 Pipe reads sourced from "FFmpeg" inherently fail to preserve distinct video-frame boundaries. Thus, the `Encoder` is obliged to reconstruct strictly structured 188-byte "MPEG-TS" packets from variable read sizes & identify precise video "PES" demarcations.
 
-The initial identified video-"PES" boundary corresponds directly to the oldest frame assigned to "FFmpeg". This enables the derivation of:
+Under the validated persistent "FFmpeg" / "MPEG-TS" configuration, the detected video-"PES" frontier is used to attribute output to the oldest shot assigned to "FFmpeg". This enables the derivation of:
 
 ```text
 encode_h265_ms = first_associated_PES - ffmpeg_input_start
 ```
 
-This metric consolidates asynchronous "codec", scheduling, muxing, & pipe-delivery contingencies. It is emphatically **not** promoted as an isolated "NVENC" hardware-kernel execution interval.
+The parser does **not** retain an entire encoded frame until the following "PES" boundary. Once a frame has been attributed, every complete `MEDIA_PAYLOAD_SIZE` group already accumulated in `mpeg_chunk` is emitted immediately; only the final residual fragment below the configured network-media capacity is held until the next video-"PES" frontier confirms that the preceding application frame has ended. The boundary therefore governs frame attribution & residual closure rather than acting as the release trigger for all compressed bytes.
+
+This separation is central to the final latency behaviour. `-flush_packets 1` encourages "FFmpeg" / the "MPEG-TS" muxer to expose available material promptly, while the native parser progressively forwards already complete network chunks instead of introducing a second full-frame buffering policy. `encode_h265_ms` consequently remains a combined asynchronous "codec", scheduling, muxing, & pipe-delivery frontier; it is emphatically **not** promoted as an isolated "NVENC" hardware-kernel execution interval.
 
 ### 9.14 Encoder Output Packetisation
 
@@ -1486,7 +1497,7 @@ Notably, the `Encoder` issues no service-chain headers. Primary-path "NSH" state
 The final `Encoder` exports **69 fields**, making explicit the distinction among raw point reception, offloaded / fallback geometry, "GPU" projection, "codec" submission, asynchronous output attribution, "Temporal" control state, objective "luma" quality, & Tx acceptance:
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 
 | Field / Group | Exact Semantics |
@@ -1496,7 +1507,7 @@ frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_t
 | source / node timestamps | `Camera` source anchor, first `Encoder` arrival, first attributed "codec"-output frontier, & final "DPDK" egress. |
 | `original_points`, `rx_points`, `processed_points` | Declared source population, unique received points, & population projected by the `Encoder`. |
 | `rx_packets`, `tx_packets`, `payload_bytes`, `reference_size_bytes` | Raw input segmentation, compressed output segmentation, point payload, & reference comparison size. |
-| throughput / bitrate fields | Separate receive-span throughput, logical compressed bitrate, protocol-inclusive output bitrate, & reference baseline. |
+| throughput / bitrate fields | `internal_throughput_mbs` & `reference_throughput_mbs` are decimal MB / s over the real first-to-last raw-frame receive span; logical / network / reference bitrate fields remain expressed in Mbit / s. |
 | `conversion_ms` | Network-to-host point conversion & deterministic placement accumulated over input packets. |
 | `geometry_aggregation_ms`, `max_r_ms` | Local fallback geometry work. These remain zero when validated `SFF1` offload metadata is consumed. |
 | `projection_ms` | Host-visible full "CUDA" projection interval. |
@@ -1506,8 +1517,8 @@ frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_t
 | `total_residency_ms`, `reference_residency_ms` | Measured / reference frame residence boundaries. |
 | `node_efficiency_pct`, `reference_efficiency_pct` | Active-work ratios against measured / reference residence. |
 | `gpu_transfer_ms`, `gpu_kernel_ms`, `gpu_packing_ms`, `gpu_copyback_ms`, `host_overhead_ms` | "CUDA" event-derived sub-stages & remaining host-visible projection overhead. |
-| `camera_node_ms`, `e2e_latency_ms`, `reference_e2e_ms` | `Camera`-to-`Encoder` timing frontiers. `reference_e2e_ms` ends at frame readiness & therefore differs from final compressed-output exit. |
-| `schedule_delay_ms`, `instant_jitter_ms`, `desynced_jitter_ms`, `reference_jitter_ms` | Source cadence / gap-aware variability measures. |
+| `camera_node_ms`, `e2e_latency_ms` | `Camera`-to-`Encoder` timing frontiers ending respectively at first Encoder arrival & final compressed-output node exit. |
+| `schedule_delay_ms`, `inter_arrival_ms`, `instant_jitter_ms`, `desynced_jitter_ms`, `reference_jitter_ms` | Cumulative schedule drift, raw first-arrival interval, frame-ID-gap-aware deviation, smoothed jitter, & the active-temporal reference comparison. |
 | `raw_queue_ms` | Frame readiness to `Encoder` service start. |
 | `render_queue_ms` | Projection completion to "codec"-writer submission. |
 | `workload_ewma_ms`, `workload_ratio` | Smoothed service signal & fraction of the active temporal budget. |
@@ -1551,7 +1562,20 @@ This sequential ordering remains essential because encoded bytes frequently ling
 
 The streaming hot path therefore performs bounded memory copies exclusively; serialization to `reference_y.raw` & `encoded.ts`, alongside the subsequent objective analysis, occurs only after "EOS". Two isolated "FFmpeg" filter runs recover frame-associated `MSE-Y`, `PSNR-Y`, & `SSIM-Y`, whose results are merged back into `telemetry_encoder.csv`. Temporary analysis files are deleted only when every captured application frame has received complete indicators.
 
-This mechanism deliberately distinguishes **real-time execution** from **offline quality evaluation**. The quality run must not be interpreted as a browser-interaction benchmark, while the interactive run deliberately leaves these columns unset in order to avoid contaminating the latency experiment with the additional fidelity capture.
+This mechanism deliberately distinguishes **real-time execution** from **offline quality evaluation**. The quality run must not be interpreted as a browser-interaction benchmark, while the interactive run deliberately leaves these columns unset in order to avoid contaminating the latency experiment with the additional fidelity capture. The quality path still performs sizeable "RAM" copies during streaming — notably one complete `Y` reference per real frame — so its sustained 30-fps result validates robustness under instrumentation but does not replace `QUALITY_CAPTURE = 0` as the clean performance condition.
+
+### 9.18 Deferred Encoder Visual Snapshot
+
+A separate compile-time visual diagnostic retains `DEBUG_FRAME_ID = 195`. When enabled, one `TOTAL_YUV_SIZE` snapshot is preallocated before streaming; the selected Encoder `I420` frame is copied into that memory region once, while all persistent `.i420` / `.pgm` creation is postponed until the stream, post-roll, optional quality assessment, & telemetry sequence have completed. The resulting files are:
+
+```text
+frame_195_input.i420
+frame_195_geometry.pgm
+frame_195_texture_y.pgm
+frame_195_occupancy.pgm
+```
+
+The former synchronous file-system work is therefore absent from the selected frame's live path. A single in-memory copy necessarily remains if the three reusable `YUV_BUFFER_COUNT` slots are to continue circulating without changing their ownership model; for that reason visual validation is deliberately executed as a dedicated diagnostic run, while performance archives retain `DEBUG_VISUALS_DISABLED`.
 
 ## 🎞️ 10. Decoder — Persistent Hardware Decode, Reconstruction, & Dynamic "Pose"
 
@@ -1561,7 +1585,7 @@ This mechanism deliberately distinguishes **real-time execution** from **offline
 
 ### 10.2 Persistent "FFmpeg" / Hardware Decode
 
-A persistent "FFmpeg" child is established using "CUDA" hardware acceleration & `hevc_cuvid`. Encoded "MPEG-TS" arrives through a bounded packet queue, while a dedicated writer thread feeds the child pipe. Both the writer & the child are explicitly pinned to logical Core `2`, avoiding scheduler migration into the "DPDK" / reconstruction core.
+A persistent "FFmpeg" child is established using "CUDA" hardware acceleration & `hevc_cuvid`. The live command retains `-flags low_delay` with the existing `PROBE_SIZE` / `DURATION` settings; no Decoder-side `-flush_packets` is applied, because dedicated A / B runs did not establish a repeatable improvement when that option was added. Encoded "MPEG-TS" arrives through a bounded packet queue, while a dedicated writer thread feeds the child pipe. Both the writer & the child are explicitly pinned to logical Core `2`, avoiding scheduler migration into the "DPDK" / reconstruction core.
 
 The internal "codec" queue & decoded-frame staging parameters are:
 
@@ -1614,16 +1638,16 @@ Completed reconstruction is segmented at `POINTS_PER_PACKET = 80`. Every packet 
 
 ### 10.9 Decoder Telemetry
 
-The final 61-column schema is:
+The final 62-column schema is:
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbps;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 The `Decoder`-specific indicators isolate compressed-media ingestion, hardware-decoding behaviour, reconstructed-geometry processing, dynamic pose application, internal queueing, & output generation:
 
 | Field / Group | Exact Semantics |
 |---|---|
-| `rx_media_bytes` | Application-attributed compressed "MPEG-TS" bytes received for the corresponding frame prior to hardware decoding. |
+| `rx_media_bytes` | Application-attributed compressed "MPEG-TS" bytes received for the corresponding frame prior to hardware decoding. `internal_throughput_mbs` includes the logical `cam_hdr + enc_hdr` once per populated frame & divides that logical byte count by the real receive span; `reference_throughput_mbs` uses the same temporal denominator for its reference-size comparator. |
 | `arrived_points` | Loose-threshold occupancy population recovered from the decoded representation prior to morphological erosion. |
 | `eroded_points` | Loose-threshold occupancy population remaining after erosion. Despite the field name, this value records the post-erosion population, not the number of points removed. |
 | `valid_points` | Final point population admitted by the stricter reconstruction threshold after erosion & emitted toward the downstream path. |
@@ -1635,6 +1659,7 @@ The `Decoder`-specific indicators isolate compressed-media ingestion, hardware-d
 | `gpu_copyback_ms` | Time required to recover the completed reconstructed point population from device-visible memory to the host-side output representation. |
 | `host_overhead_ms` | Portion of `reconstruction_pipeline_ms` not directly accounted for by the individually measured "GPU" transfer, erosion, reconstruction, pose, & copy-back intervals. |
 | `pose_control_ms` | Delay from the timestamp of a newly accepted `User` "Pose" directive to completion of its corresponding transformation inside the reconstruction pipeline. It is populated only when an actual pending pose generation is measured. |
+| `inter_arrival_ms` | Raw first-media-packet interval between successive observed application frames. The initial frame reports `0`, while jitter compares the measured interval with the frame-ID-derived expected spacing. |
 | `codec_queue_ms` | Delay from the first arrival of the attributed compressed frame at `Decoder` until the associated media begins submission toward the persistent "FFmpeg" decoder. |
 | `frame_queue_ms` | Delay between availability of a decoded frame & the instant at which the native reconstruction service begins processing that decoded output. |
 | `codec_backlog` | Maximum compressed-packet queue occupancy observed while receiving the application frame, exposing pressure between "DPDK" ingestion & the dedicated "FFmpeg" writer. |
@@ -1647,6 +1672,19 @@ The `Decoder`-specific indicators isolate compressed-media ingestion, hardware-d
 | `reference_residency_ms` | Reference residency terminating at reconstruction completion rather than final downstream packet transmission. |
 | `reference_efficiency_pct` | Ratio between `reference_process_ms` & `reference_residency_ms`, retained as a comparison frontier distinct from the complete node-efficiency definition. |
 | `total_processing_ms` | Full frame-associated `Decoder` interval extending from the first attributed "codec" submission to the final node-exit frontier. Unlike `active_process_ms`, it intentionally includes intervening asynchronous waiting periods. |
+
+### 10.10 Deferred Decoder Visual Snapshot
+
+The Decoder mirrors the Encoder diagnostic without introducing persistent I / O into the reconstructed-frame service interval. With `DEBUG_VISUALS_ENABLED`, the fully decoded frame `195` is copied once after its native evaluation & before its reusable `I420` slot is released; serialization occurs only after "codec" input closure, output drain, downstream "EOS" dispatch, & telemetry export. The artefacts are:
+
+```text
+frame_195_output.i420
+frame_195_geometry.pgm
+frame_195_texture_y.pgm
+frame_195_occupancy.pgm
+```
+
+No additional debug thread is introduced. On the current fully allocated host such a thread would merely relocate contention onto another scheduled context, while eliminating the remaining one-off "RAM" copy would require changing the three-slot lifetime or retaining an application buffer beyond its present ownership frontier. The validated design therefore keeps diagnostics methodologically separate rather than complicating the real-time Decoder path.
 
 ---
 
@@ -1680,10 +1718,10 @@ The original application command is preserved byte-for-byte behind the service b
 
 ### 11.4 Telemetry
 
-`telemetry_sff3.csv` contains 40 fields:
+`telemetry_sff3.csv` contains 41 fields:
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
 `cycle_occupancy_pct` preserves the same residence-to-cycle definition adopted by the other `SFF` stages, remaining distinct from the active-work `node_efficiency_pct`.
@@ -1794,10 +1832,10 @@ All `cKDTree` operations explicitly employ one worker. The serial design is a po
 
 ### 12.8 User Telemetry
 
-The final 47-column schema is:
+The final 48-column schema is:
 
 ```text
-frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm
+frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm
 ```
 
 The final eight geometry columns remain unset in the interactive run & are populated by `Gauge` only in quality mode.
@@ -1813,6 +1851,7 @@ Moreover, `User`-specific indicators describe the terminal reconstruction popula
 | `web_ack_ms` | Delay from native publication of a frame to reception by `User` of the corresponding browser render acknowledgment through the asynchronous control mapping. |
 | `reference_e2e_ms` | `Camera`-to-`User` latency terminating when the complete reconstructed frame becomes available natively, before optional Web publication extends the final node-exit frontier. |
 | `schedule_delay_ms` | Cumulative drift against the ideal frame-ID schedule, using `node_exit_timestamp` as the real completion frontier & the first observed shot arrival as the fixed session origin. |
+| `inter_arrival_ms` | Raw interval between the first packets of successive completed-frame observations; the first accepted shot reports `0`, while jitter remains corrected by the actual frame-ID gap. |
 | `cmd_id` | Identifier of the "Pose" directive whose requested state is first observed on the corresponding returned reconstructed frame. Zero identifies frames not associated with a newly matched directive. |
 | `reference_cmd_ms` | Delay from native dispatch of a "Pose" directive to arrival of the first subsequently observed complete frame used as the command-reference frontier, independently from whether its pose already matches the request. |
 | `cmd_apply_ms` | Delay from directive dispatch until the first complete returned frame whose `yaw`, `pitch`, & `zoom` values actually match the requested pose. |
@@ -1956,16 +1995,16 @@ Each service mounts:
 
 ### Build-Time Specialisation
 
-The project treats compiler configuration, `"CUDA"` architecture, `"GPU"` model / driver, `"FFmpeg"` / `"NVENC"` stack, & `"DPDK"` version as constituent elements of the experimental condition. The final native compilation profile includes:
+The project treats compiler configuration, `CUDA` architecture, `GPU` model / driver, `FFmpeg` / `NVENC` stack, & `DPDK` version as constituent elements of the experimental condition. The final native compilation profile includes:
 
 ```text
 "C++"  : -O3 -march=native -ffast-math -funroll-loops -std=c++14
 "CUDA" : -O3 -arch=sm_61 -std=c++14
 ```
 
-The `-arch=sm_61` specification fixes the generated `"CUDA"` device-code target to Compute Capability `6.1`, rather than defining an architecture-neutral numerical implementation. Consequently, cross-platform bit-level equivalence cannot be presumed when a comparison changes the `"GPU"` architecture, `"CUDA"` compiler / toolkit, or execution-driver environment. The same reproducibility constraint applies independently to the hardware `"H.265"` path, whose `"NVENC"` / `"NVDEC"` execution additionally depends upon the available `"GPU"`, NVIDIA driver, `"FFmpeg"` build, & hardware codec generation.
+The `-arch=sm_61` specification fixes the generated `CUDA` device-code target to Compute Capability `6.1`, rather than defining an architecture-neutral numerical implementation. Consequently, cross-platform bit-level equivalence cannot be presumed when a comparison changes the `GPU` architecture, `CUDA` compiler / toolkit, or execution-driver environment. The same reproducibility constraint applies independently to the hardware `H.265` path, whose `NVENC` / `NVDEC` execution additionally depends upon the available `GPU`, NVIDIA driver, `FFmpeg` build, & hardware codec generation.
 
-These factors do not invalidate cross-implementation performance or fidelity comparisons, but they prevent small numerical or codec-output differences from being attributed exclusively to the `"SFC"` / transport decomposition unless the complete hardware & software execution environment is held constant.
+These factors do not invalidate cross-implementation performance or fidelity comparisons, but they prevent small numerical or codec-output differences from being attributed exclusively to the `SFC` / transport decomposition unless the complete hardware & software execution environment is held constant.
 
 ### Direct "SFC" Topology
 
@@ -2066,7 +2105,7 @@ redandblack
 soldier
 ```
 
-Each sequence presents a comprehensive human subject meticulously captured via 42 "RGB" cameras systematically configured within 14 clusters, capturing at 30 frames/s for an approximate duration of 10 s. The depth-10 structure necessitates a `1024 x 1024 x 1024` voxel grid, wherein "RGB" colour attributes are rigorously assigned to occupied voxels.
+Each sequence presents a comprehensive human subject meticulously captured via 42 "RGB" cameras systematically configured within 14 clusters, capturing at 30 frames / s for an approximate duration of 10 s. The depth-10 structure necessitates a `1024 x 1024 x 1024` voxel grid, wherein "RGB" colour attributes are rigorously assigned to occupied voxels.
 
 The focal experiment employs the absolute 300-frame depth-10 "Loot" sequence:
 
@@ -2324,65 +2363,71 @@ The final repository produces a complete per-node observation chain:
 | Component | File | Final column count |
 |---|---|---:|
 | Converter | `log/converter/telemetry_converter.csv` | `8` |
-| `Camera` | `log/camera/telemetry_camera.csv` | `30` |
-| `SFF1` | `log/sff1/telemetry_sff1.csv` | `42` |
-| `SFF2` Route 0 | `log/sff2/telemetry_sff1_enc.csv` | `42` |
+| `Camera` | `log/camera/telemetry_camera.csv` | `31` |
+| `SFF1` | `log/sff1/telemetry_sff1.csv` | `43` |
+| `SFF2` Route 0 | `log/sff2/telemetry_sff1_enc.csv` | `43` |
 | `Encoder` | `log/encoder/telemetry_encoder.csv` | `69` |
-| `SFF2` Route 1 | `log/sff2/telemetry_enc_dec.csv` | `42` |
-| `Decoder` | `log/decoder/telemetry_decoder.csv` | `61` |
-| `SFF2` Route 2 | `log/sff2/telemetry_dec_sff3.csv` | `42` |
-| `SFF3` | `log/sff3/telemetry_sff3.csv` | `40` |
-| `User` | `log/user/telemetry_user.csv` | `47` |
+| `SFF2` Route 1 | `log/sff2/telemetry_enc_dec.csv` | `43` |
+| `Decoder` | `log/decoder/telemetry_decoder.csv` | `62` |
+| `SFF2` Route 2 | `log/sff2/telemetry_dec_sff3.csv` | `43` |
+| `SFF3` | `log/sff3/telemetry_sff3.csv` | `41` |
+| `User` | `log/user/telemetry_user.csv` | `48` |
 | `Encoder` "codec" | `log/encoder/ffmpeg.txt` | `vstats` text |
 | `Decoder` "codec" | `log/decoder/ffmpeg.txt` | `vstats` text |
 
 ### 20.1 Exact CSV Schema Reference
 
-**`Camera` — 30 columns**
+**`Camera` — 31 columns**
 
 ```text
-frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;selected;tx_complete;current_skip;last_control_frame;temporal_control_ms;camera_send_timestamp;tx_start_timestamp;inter_departure_ms;tx_points;tx_packets;payload_bytes;reference_size_bytes;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;disk_io_ms;serialization_ms;tx_duration_ms;active_tx_ms;active_process_ms;total_residency_ms;node_efficiency_pct;reference_efficiency_pct;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 
-**`SFF1` — 42 columns**
+**`SFF1` — 43 columns**
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
-**`SFF2` Routes 0 / 1 / 2 — 42 columns each**
+**`SFF2` Routes 0 / 1 / 2 — 43 columns each**
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
 **`Encoder` — 69 columns**
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;rx_complete;tx_complete;current_skip;event;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;codec_exit_time;node_exit_timestamp;original_points;rx_points;processed_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;conversion_ms;geometry_aggregation_ms;max_r_ms;projection_ms;codec_write_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_kernel_ms;gpu_packing_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;reference_jitter_ms;raw_queue_ms;render_queue_ms;workload_ewma_ms;workload_ratio;frame_backlog;codec_backlog;encode_service_ms;encode_h265_ms;mse_y;psnr_y;ssim_y;mpeg_bytes_generated;ffmpeg_write_calls;ffmpeg_write_eagain;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 
-**`Decoder` — 61 columns**
+**`Decoder` — 62 columns**
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbps;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
+frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation
 ```
 
-**`SFF3` — 40 columns**
+**`SFF3` — 41 columns**
 
 ```text
-frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
+frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets
 ```
 
-**`User` — 47 columns**
+**`User` — 48 columns**
 
 ```text
-frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm
+frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm
 ```
+
+#### 20.1.1 Cadence & Reference-Throughput Semantics
+
+Cadence is now observable without reconstructing it retrospectively from unrelated residence fields. `Camera.inter_departure_ms` measures send-start to send-start across successive transmitted frames, while every receiving native stage exposes `inter_arrival_ms` from first valid packet to first valid packet. The first sample is explicitly `0`. Neither field divides the elapsed interval by a frame-ID gap: a deliberately skipped source frame therefore remains visible in the raw spacing. Jitter is handled separately, comparing the real interval with `( frame_id - previous_frame_id ) / TARGET_FPS`; intentional temporal selection is consequently not misclassified as network jitter.
+
+The reference-throughput correction follows the same boundary discipline. `SFF1`, all three `SFF2` routes, `SFF3`, & `Decoder` compute `reference_throughput_mbs` from logical reference bytes divided by the **real first-to-last receive duration** of the frame, using decimal `1,000,000 B = 1 MB`. The corresponding `internal_throughput_mbs` uses the same receive span with measured logical bytes. `reference_bitrate_mbps` remains a distinct Mbit / s quantity based upon effective frame rate & must not be compared numerically as though it were another spelling of throughput.
 
 ### 20.2 "FFmpeg" `vstats` Field Semantics
 
-The `Encoder` & `Decoder` `ffmpeg.txt` files are diagnostic "codec" chronologies, not one-to-one application-frame logs. The final archives each contain 396 statistics rows because persistent pre-roll, authentic application material, & drain / post-roll operations share the "codec" timeline. Native CSV `frame_id` attribution remains authoritative for the 300 application frames.
+The `Encoder` & `Decoder` `ffmpeg.txt` files are diagnostic "codec" chronologies, not one-to-one application-frame logs. The final NON-QUALITY isolation & QUALITY archives each contain `395` statistics rows. In these runs the chronology resolves to `90` private pre-roll frames, `300` authentic application frames, & `5` post-roll / drain frames. Those private counts are observations of the readiness / terminal handshake rather than application constants; native CSV `frame_id` attribution remains authoritative for the 300 real frames.
 
 Accordingly, `vstats` rows must not be naively joined by ordinal position to `telemetry_encoder.csv` or `telemetry_decoder.csv`. "codec"-level rate / frame counters complement the native telemetry but occupy a distinct measurement domain.
 
@@ -2400,13 +2445,15 @@ The most appropriate end-to-end frontier is the timestamp already propagated fro
 
 Native per-frame telemetry is accumulated within bounded in-memory structures throughout the active stream & is serialised to the corresponding `.csv` artefacts only after the terminal condition has been resolved. Consequently, native CSV file I / O is excluded from the 300-frame real-time measurement path. The quality mechanisms preserve the identical principle: `Encoder` retains "luma" references / attributed compressed material in memory, while `User` retains complete reconstructed snapshots in `quality_buffer`; persistent quality artefacts & objective evaluation are deferred until after "EOS".
 
+The visual path follows the same rule. With `DEBUG_VISUALS_ENABLED`, Encoder & Decoder preserve only frame `195` through a preallocated full-`I420` snapshot; `.i420` / `.pgm` serialization occurs after stream finalisation. The remaining one-shot memory copy is intentionally not hidden behind another thread: all logical cores already participate in the validated deployment, & an asynchronous writer would move scheduler / cache / memory pressure rather than eliminate it. Visual runs are therefore diagnostic archives, whereas clean performance runs use `DEBUG_VISUALS_DISABLED`.
+
 The `ffmpeg.txt` files constitute a deliberate exception in **measurement domain**, not in CSV semantics. They are "FFmpeg"-originated diagnostic chronologies associated with the persistent "codec" processes & remain analytically separate from the authoritative native per-frame CSVs. They must therefore neither be interpreted as application-frame tables nor be used to redefine the native timing frontiers documented above.
 
 ---
 
 ## 🧪 21. Relevant Outcomes from the Validated Snapshot
 
-Two final 300-frame archives are used deliberately for different questions. The NON-QUALITY run validates the complete interactive data / control path with the browser enabled. The QUALITY run removes Web presentation & appends post-stream coding / geometry fidelity indicators. They must not be merged into a single statistical population.
+The final validation evidence is deliberately split by purpose. `QUALITY_CAPTURE = 1` provides the current complete-chain quality archive under the final "codec" configuration, while `QUALITY_CAPTURE = 0` remains the clean performance / interaction condition. The final no-quality "codec" behaviour was additionally reproduced in two debug-disabled isolation runs after the last Encoder / Decoder changes; the earlier complete interactive archive remains authoritative only for browser / "Command-to-Photon" observations that cannot exist in quality mode. These populations must not be merged blindly.
 
 ### 21.1 Dataset & Streaming Population
 
@@ -2415,8 +2462,8 @@ Both conditions operate upon the same 300-frame "Loot" binary sequence containin
 | Quantity | NON-QUALITY | QUALITY |
 |---|---:|---:|
 | Original points | `238,146,391` | `238,146,391` |
-| Arrived reconstruction candidates | `49,509,484` | `49,514,561` |
-| Eroded points | `46,551,443` | `46,549,878` |
+| Arrived reconstruction candidates | `49,509,484` | `49,529,462` |
+| Eroded points | `46,551,443` | `46,557,014` |
 | Valid reconstructed points | `43,620,972` | `43,620,972` |
 
 The final valid population is identical across both modes: `43,620,972` points, corresponding to approximately `18.317 %` of the original source population. The intermediate `arrived_points` & post-erosion `eroded_points` totals differ slightly between validation conditions, whereas the stricter final reconstruction population remains identical.
@@ -2447,14 +2494,17 @@ Therefore the final primary route is complete in both conditions:
 
 No final `SFF1`, `SFF2`, `Encoder`, `Decoder`, or `SFF3` primary Tx path reports partial accepts, exhausted retries, or `mbuf` starvation in either representative archive. `Camera` preserves complete source transmission despite its separately reported local zero-accept pressure, while `User` is a terminal receive endpoint & therefore exposes `rx_complete` rather than an application-frame `tx_complete` predicate.
 
-### 21.3 Camera — Nominal 30-fps Source Operation & Local Backpressure
+### 21.3 Camera — Nominal 30-FPS Source Operation & Local Backpressure
 
-Measured source intervals are:
+Using the steady-state `10 -> 285` frame window, the final source cadence is:
 
 ```text
-NON-QUALITY mean interval = 33.337 ms -> 29.997 frames/s
-QUALITY     mean interval = 33.336 ms -> 29.997 frames/s
+NON-QUALITY terminal validation : approximately 29.9996 frames / s
+QUALITY                         : 30.0002 frames / s
+QUALITY inter_departure_ms      : 33.331 + / - 0.286 ms
 ```
+
+The direct span measurement is preferred to inverting one noisy per-frame interval because it preserves the entire observed time base.
 
 For NON-QUALITY, `Camera` processing exhibits approximately:
 
@@ -2470,9 +2520,27 @@ For NON-QUALITY, `Camera` processing exhibits approximately:
 | Condition | Frames with zero accepts | Zero-accept sum | Maximum / frame | Re-presented packets | Partial accepts | `mbuf` starvation |
 |---|---:|---:|---:|---:|---:|---:|
 | NON-QUALITY | `297` | `321,881` | `2,063` | `10,118,147` | `0` | `0` |
-| QUALITY | `300` | `624,223` | `3,003` | `19,801,505` | `0` | `0` |
+| QUALITY | `300` | `542,402` | `2,952` | `17,166,597` | `0` | `0` |
 
 These counts describe repeated local `rte_eth_tx_burst()` presentation attempts. They are **not "UDP" retransmissions**, & they do not imply data-plane loss because frame completion remains 300 / 300.
+
+#### 21.3.1 30-FPS Cadence Across the Complete QUALITY Route
+
+Absolute `recv_start_timestamp` / source timestamps over frames `10 -> 285` establish the following rate continuity:
+
+| Observation Frontier | Measured Rate | Mean Raw Interval |
+|---|---:|---:|
+| `Camera` departure | `30.000 frames / s` | `33.331 ms` |
+| `SFF1` input | `30.002 frames / s` | `33.331 ms` |
+| `SFF2 Route 0` input | `30.002 frames / s` | `33.331 ms` |
+| `Encoder` input | `30.002 frames / s` | `33.331 ms` |
+| `SFF2 Route 1` input | `30.018 frames / s` | `33.313 ms` |
+| `Decoder` input | `30.018 frames / s` | `33.313 ms` |
+| `SFF2 Route 2` input | `30.001 frames / s` | `33.330 ms` |
+| `SFF3` input | `30.001 frames / s` | `33.330 ms` |
+| `User` input | `30.001 frames / s` | `33.330 ms` |
+
+All 300 frames remain complete at `current_skip = 1`. The latest no-quality terminal validation independently measured approximately `29.994 frames / s` at `User` reception over the same steady-state window, so the approximately 30-fps result is not specific to quality mode.
 
 ### 21.4 SFF1 / "GAC" — In-Path Geometry Cost
 
@@ -2488,80 +2556,93 @@ total_residency_ms      mean = 16.870 ms
 In the QUALITY archive, the same reference-compatible final projection frontier remains materialised inside `SFF1`:
 
 ```text
-geometry_aggregation_ms mean = 6.340 ms
-max_r_ms                mean = 2.827 ms
-active_process_ms       mean = 11.386 ms
-total_residency_ms      mean = 17.841 ms
+geometry_aggregation_ms mean = 7.171 ms
+max_r_ms                mean = 3.706 ms
+active_process_ms       mean = 13.174 ms
+total_residency_ms      mean = 19.967 ms
 ```
 
 The entire primary input / output population remains at 100 % network integrity while the "GAC" performs packet-progressive aggregation, exact frame-completing radius evaluation, & final projection-metadata offloading.
 
 ### 21.5 SFF2 — Three Validated Proxy Transitions
 
-The three route mean active costs in NON-QUALITY are:
+The final debug-disabled NON-QUALITY replication reports the following steady-state active costs:
 
 ```text
-Route 0 SFF1 -> Encoder    : 4.591 ms
-Route 1 Encoder -> Decoder : 0.018 ms
-Route 2 Decoder -> SFF3    : 0.591 ms
+Route 0 SFF1 -> Encoder    : 5.317 ms
+Route 1 Encoder -> Decoder : 0.008 ms
+Route 2 Decoder -> SFF3    : 0.631 ms
 ```
+
+The complete QUALITY archive produces `4.389 ms`, `0.010 ms`, & `0.557 ms` respectively.
 
 Route 1 is predominantly compressed-media relay, Route 2 is reconstructed-point re-encapsulation, & Route 0 additionally handles the geometric service context. All three preserve 300 / 300 frames & 100 % integrity.
 
 ### 21.6 Encoder — Geometry Offload, "GPU", Workload Control, & "H.265"
 
-NON-QUALITY representative values are:
+The final debug-disabled NON-QUALITY replication (`10 -> 285`) reports:
 
 | Metric | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|
-| `conversion_ms` | `3.266` | `3.200` | `3.636` | `11.344` |
-| `projection_ms` | `4.907` | `4.856` | `5.219` | `11.680` |
-| `codec_write_ms` | `6.811` | `6.698` | `8.014` | `9.017` |
-| `encode_service_ms` | `10.376` | `9.957` | `10.998` | `73.778` |
-| `encode_h265_ms` | `76.550` | `76.754` | `78.293` | `81.802` |
-| `workload_ratio` | `0.149` | `0.147` | `0.150` | `0.351` |
+| `conversion_ms` | `4.005` | `4.003` | `4.359` | `12.020` |
+| `projection_ms` | `4.762` | `4.236` | `5.992` | `6.661` |
+| `codec_write_ms` | `7.601` | `7.729` | `9.023` | `10.054` |
+| `encode_service_ms` | `29.537` | `28.107` | `33.470` | `35.069` |
+| `encode_h265_ms` | `29.539` | `28.109` | `33.471` | `35.072` |
+| `workload_ratio` | `0.143` | `0.136` | `0.180` | `0.185` |
 
-`frame_backlog` remains `0`, `ffmpeg_write_eagain` remains `0`, & `mbuf_starvation` remains `0`. The workload ratio never reaches the configured overload threshold, so all 300 frames retain `current_skip = 1`. In both final reference-compatible archives, `Encoder.geometry_aggregation_ms = 0` & `Encoder.max_r_ms = 0` for all 300 complete frames, confirming that local geometry scans are avoided when validated `SFF1` projection metadata is consumed. Application-attributed compressed output exceeds `10.34 MB` over 300 frames in both final modes.
+`frame_backlog = 0`, the observed `codec_backlog` remains bounded to `1 -> 2`, `ffmpeg_write_eagain = 0`, & `mbuf_starvation = 0`. The workload ratio stays below the configured overload frontier, preserving `current_skip = 1` for all 300 frames. `geometry_aggregation_ms = 0` & `max_r_ms = 0` on complete offloaded frames, confirming that validated `SFF1` projection geometry avoids redundant local scans.
+
+The quality run deliberately exercises a heavier capture path. Over the same steady window it reports `codec_write_ms = 16.392 ms`, `encode_service_ms = 40.004 ms`, & `encode_h265_ms = 40.067 ms`, while still preserving a `30.002 frames / s` Encoder input cadence & 300 / 300 completion. This difference is consistent with the additional in-memory `Y` reference / compressed-stream copies & is why quality results are not substituted for the clean performance baseline.
+
+The formerly observed three-frame periodicity is not structural in the final configuration. Across two independent debug-disabled NON-QUALITY replications, `SFF2 Route 1` yields:
+
+| Run | Rate | `inter_arrival_ms` Std. Dev. | Lag-3 Correlation | `% 3 = 0 / 1 / 2` Mean ( ms ) |
+|---|---:|---:|---:|---:|
+| Replica A | `29.993 frames / s` | `3.284` | `-0.201` | `33.466 / 33.499 / 33.066` |
+| Replica B | `29.978 frames / s` | `2.255` | `-0.006` | `33.275 / 33.730 / 33.065` |
+| QUALITY | `30.018 frames / s` | `1.501` | `0.006` | `32.890 / 33.551 / 33.497` |
+
+The previous approximately `26 / 40 / 33 ms` sequence is therefore not reproducible after restoring the ordinary progressive `mpeg_chunk` path. No additional pacing, eager pipe-read flush, or Decoder-side muxer option is justified by the final evidence.
 
 ### 21.7 Decoder — Hardware Decode & Reconstruction
 
-NON-QUALITY:
+The final debug-disabled NON-QUALITY replication remains cadence-limited by the source rather than by the reported broader codec latency:
 
 | Metric | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|
-| `erosion_ms` | `0.187` | `0.179` | `0.221` | `0.343` |
-| `reconstruction_ms` | `0.105` | `0.105` | `0.108` | `0.117` |
-| `pose_ms` | `0.065` | `0.065` | `0.067` | `0.072` |
-| `reconstruction_pipeline_ms` | `2.137` | `2.041` | `2.615` | `3.229` |
-| `decode_service_ms` | `33.313` | `33.301` | `36.006` | `76.979` |
-| `decode_h265_ms` | `123.445` | `123.197` | `125.885` | `164.169` |
-| `e2e_latency_ms` | `230.379` | `229.863` | `232.769` | `271.787` |
+| `erosion_ms` | `0.196` | `0.187` | `0.197` | `1.212` |
+| `reconstruction_ms` | `0.108` | `0.108` | `0.112` | `0.116` |
+| `pose_ms` | `0.067` | `0.067` | `0.071` | `0.073` |
+| `reconstruction_pipeline_ms` | `2.428` | `2.359` | `2.734` | `4.602` |
+| `decode_service_ms` | `33.372` | `33.207` | `38.910` | `42.331` |
+| `decode_h265_ms` | `125.921` | `125.885` | `133.532` | `137.267` |
+| `e2e_latency_ms` | `188.009` | `186.921` | `196.577` | `199.094` |
 
-The median "codec"-queue delay is only `0.047 ms`; there are no "codec" queue drops, "FFmpeg" write failures, or downstream frame losses.
+The distinction between `decode_service_ms` & `decode_h265_ms` is essential: the former remains approximately one `30-fps` period, whereas the latter describes a pipelined source-to-decoded-output latency with multiple frames concurrently resident in the persistent hardware path. Median `codec_queue_ms` is `0.028 ms`, `frame_queue_ms` is effectively zero, & no "codec" queue drop, "FFmpeg" write failure, mbuf starvation, or downstream frame loss is observed.
+
+QUALITY confirms the same throughput property with `decode_service_ms = 33.323 + / - 0.938 ms`, `decode_h265_ms = 123.997 + / - 1.698 ms`, 300 / 300 complete outputs, & zero `codec_queue_drops`. Decoder-side `-flush_packets` is consequently excluded from the final command: repeated tests did not expose a reproducible benefit over `-flags low_delay` alone.
 
 ### 21.8 SFF3 & User Terminal Delivery
 
-`SFF3` primary forwarding remains light relative to the "codec" stages:
+The current complete QUALITY archive confirms a light terminal forwarding boundary:
 
 ```text
-SFF3 active_process_ms mean  = 1.263 ms
-SFF3 total_residency_ms mean = 1.639 ms
+SFF3 active_process_ms mean  = 0.748 ms
+SFF3 total_residency_ms mean = 1.292 ms
+User reference_e2e_ms mean   = 198.294 ms
+User reference_e2e_ms median = 197.104 ms
+User reference_e2e_ms P95    = 205.945 ms
+User native receive rate     = 30.001 frames / s
 ```
 
-The NON-QUALITY `User` end-to-end distribution is:
+A separate final NON-QUALITY terminal validation likewise sustains approximately `29.994 frames / s` at `User` reception with 300 / 300 complete frames & `100 %` integrity; its steady complete-frame latency remains predominantly within the approximately `180 -> 195 ms` region. The older complete interactive archive is retained below only where browser acknowledgments / "CTP" are required, because those measurements are intentionally unavailable in quality mode.
 
-```text
-mean   = 245.585 ms
-median = 245.737 ms
-P95    = 252.846 ms
-max    = 280.085 ms
-```
-
-The browser returns positive frame acknowledgments for `110` rendered frames over a `Camera` timestamp span of approximately `9.967 s`, corresponding to approximately `11.04` acknowledged renders/s. This is explicitly a **viewer consumption rate**, not the 30-fps native data-path rate; all 300 `User` frames remain successfully received.
+The browser returns positive frame acknowledgments for `110` rendered frames over a `Camera` timestamp span of approximately `9.967 s`, corresponding to approximately `11.04` acknowledged renders / s. This is explicitly a **viewer consumption rate**, not the 30-fps native data-path rate; all 300 `User` frames remain successfully received.
 
 ### 21.9 Interactive "Pose" / "Command-to-Photon" Results
 
-The final NON-QUALITY run contains 56 command identifiers matched to returning pose states. The timing populations are:
+The archived browser-enabled NON-QUALITY run contains 56 command identifiers matched to returning pose states. The timing populations are:
 
 | Frontier | Samples | Mean ( ms ) | Median ( ms ) | P95 ( ms ) | Max ( ms ) |
 |---|---:|---:|---:|---:|---:|
@@ -2579,8 +2660,8 @@ The 300-frame quality run produces complete "luma" indicators:
 | Metric | Samples | Mean | Median | P95 | Max |
 |---|---:|---:|---:|---:|---:|
 | `MSE-Y` | `300` | `0.242` | `0.220` | `0.320` | `0.340` |
-| `PSNR-Y` ( dB ) | `300` | `54.353` | `54.670` | `55.110` | `55.230` |
-| `SSIM-Y` | `300` | `0.997359` | `0.998214` | `0.998592` | `0.998720` |
+| `PSNR-Y` ( dB ) | `300` | `54.355` | `54.660` | `55.110` | `55.230` |
+| `SSIM-Y` | `300` | `0.997356` | `0.998199` | `0.998592` | `0.998694` |
 
 These values measure the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
 
@@ -2595,25 +2676,42 @@ These values measure the custom projected "luma" representation, not a standards
 | Symmetric Chamfer | `11.164` | `10.883` | `13.029` | `13.583` | `mm` |
 | Symmetric Hausdorff | `121.113` | `104.598` | `260.253` | `520.389` | `mm` |
 
-The relatively larger Hausdorff tail records sparse worst-case spatial deviations & should therefore be interpreted alongside mean / RMSE / Chamfer rather than in isolation.
+The geometry values are intentionally retained from the already validated post-`Gauge` archive rather than being overwritten by the newly supplied pre-merge `telemetry_user.csv`. The relatively larger Hausdorff tail records sparse worst-case spatial deviations & should therefore be interpreted alongside mean / RMSE / Chamfer rather than in isolation; no additional frame is discarded without the corresponding merged frame-level metric required to identify it reproducibly.
 
 ### 21.12 Quality-Capture Runtime Cost
 
 The final stable `User` quality capture retains the reconstructed frame in the ordinary `web_points` region & copies only complete frames into the 1-GiB capture buffer. The measured `quality_save_ms` distribution is:
 
 ```text
-mean   = 3.015 ms
-median = 2.585 ms
-P95    = 4.271 ms
-P99    = 11.106 ms
-max    = 28.886 ms
+mean   = 2.785 ms
+median = 2.234 ms
+P95    = 5.594 ms
+P99    = 14.453 ms
+max    = 17.307 ms
 ```
 
-The maximum of `28.886 ms` remains below the nominal `33.333 ms` source period in this representative run, & the final `SFF3` -> `User` path reports no Tx zero-accept pressure. Objective `Gauge` computation itself begins only after "EOS" & therefore is excluded from these stream-time values.
+The maximum of `17.307 ms` remains below the nominal `33.333 ms` source period in this representative run, & the final `SFF3` -> `User` path reports no Tx zero-accept pressure. Objective `Gauge` computation itself begins only after "EOS" & therefore is excluded from these stream-time values.
 
 `quality_save_ms` is intentionally retained as an independent instrumentation cost rather than being folded into `User` `node_exit_timestamp`, `e2e_latency_ms`, `total_residency_ms`, or `active_process_ms`. In the quality path, the native frame-ready frontier remains the terminal timing reference while the subsequent complete-frame memory copy is exposed separately; the two quantities should therefore be interpreted jointly when evaluating capture pressure, but not silently summed into a redefined end-to-end metric.
 
-### 21.13 Active-Processing Statistical View — NON-QUALITY
+#### 21.12.1 Deferred Frame-195 Visual Cross-Check
+
+The dedicated visual run serialises the deferred Encoder / Decoder snapshots only after the streaming phase & produces exactly eight artefacts: one complete `I420` frame plus `Geometry`, `Texture-Y`, & `Occupancy` grayscale planes on each side of the "H.265" path. Each `.pgm` is `2560 x 1536`; the full `I420` frame is `2560 x 4608`, with the `Y` plane containing the three atlas stripes in the expected vertical order.
+
+The post-codec comparison is intentionally not byte-identical, because the live "H.265" configuration is lossy. Frame `195` nevertheless yields:
+
+| Comparison | MAE | PSNR | Exact Samples | Maximum Difference |
+|---|---:|---:|---:|---:|
+| Complete `I420` | `0.0397` | `56.08 dB` | `98.29 %` | `25` |
+| `Geometry` | `0.0334` | `58.81 dB` | `97.84 %` | `25` |
+| `Texture-Y` | `0.1089` | `50.85 dB` | `96.52 %` | `22` |
+| `Occupancy` | `0.0098` | `63.32 dB` | `99.50 %` | `13` |
+
+`Encoder` Occupancy contains `148,516` active pixels. Thresholding the decoded Occupancy above `16` recovers exactly the same `148,516`-pixel binary support, giving `IoU = 1.0`, precision `= 1.0`, & recall `= 1.0`; the small non-zero values below that threshold are codec ringing rather than a topological change.
+
+The diagnostic run is not promoted as a performance archive. Persistent image I / O is now entirely post-run, but retaining frame `195` still requires one `17,694,720 B` "RAM" copy per diagnostic node. Eliminating even that copy would require altering the validated three-buffer lifetime, adding a competing asynchronous resource, or retaining a reusable slot until "EOS"; none improves the clean `DEBUG_VISUALS_DISABLED` datapath, so no further debug-path modification is justified.
+
+### 21.13 Active-Processing Statistical View — Archived Interactive NON-QUALITY
 
 | Node / Route | Mean ( ms ) | Median ( ms ) | P95 ( ms ) | Max ( ms ) |
 |---|---:|---:|---:|---:|
@@ -2627,11 +2725,27 @@ The maximum of `28.886 ms` remains below the nominal `33.333 ms` source period i
 | `SFF3` | `1.263` | `1.152` | `1.796` | `1.972` |
 | `User` | `4.390` | `3.415` | `11.632` | `18.180` |
 
-The table is not an additive latency decomposition: several values represent nested or asynchronous work, especially around the persistent "codec" processes.
+The table is retained for the complete browser-enabled archive & is not an additive latency decomposition: several values represent nested or asynchronous work, especially around the persistent "codec" processes. The final "codec" values superseding its older Encoder / Decoder latency configuration are reported explicitly in Sections 21.6 & 21.7.
+
+For completeness, the current full-chain QUALITY steady-state (`10 -> 285`) active view is:
+
+| Node / Route | Mean ( ms ) | Median ( ms ) | P95 ( ms ) | Max ( ms ) |
+|---|---:|---:|---:|---:|
+| `Camera` | `12.867` | `12.803` | `13.880` | `16.341` |
+| `SFF1` | `13.174` | `13.187` | `13.801` | `14.355` |
+| `SFF2 Route 0` | `4.389` | `4.478` | `4.900` | `5.091` |
+| `Encoder` | `25.292` | `24.740` | `29.132` | `31.935` |
+| `SFF2 Route 1` | `0.010` | `0.008` | `0.032` | `0.044` |
+| `Decoder` | `37.413` | `37.226` | `39.104` | `46.367` |
+| `SFF2 Route 2` | `0.557` | `0.542` | `0.652` | `0.732` |
+| `SFF3` | `0.748` | `0.736` | `0.887` | `1.018` |
+| `User` | `0.879` | `0.658` | `1.512` | `10.755` |
+
+The higher quality-mode Encoder active value includes the deliberate in-memory fidelity-capture copies discussed above & must not be read as a regression of the clean streaming configuration.
 
 ### 21.14 "FFmpeg" Cross-Check
 
-Both final `Encoder` & `Decoder` `ffmpeg.txt` archives contain 396 `vstats` rows. These rows include private warm-up / drain chronology in addition to authentic application frames. The count therefore must not be described as `15 + 300`, nor should it be used as a surrogate for native 300-frame completion. Application CSVs remain authoritative for frame identity & correctness.
+The current NON-QUALITY isolation & QUALITY `Encoder` / `Decoder` `ffmpeg.txt` archives each contain `395` `vstats` rows: `90` private pre-roll outputs, `300` real frames, & `5` terminal post-roll outputs in these specific executions. The 300 real Encoder rows resolve to `20 I + 280 P` pictures under `GOP = 15`. Private warm-up / drain counts remain handshake-dependent diagnostic chronology & must not be used as a surrogate for native frame completion; the application CSVs remain authoritative.
 
 
 ### 21.15 Direct Comparison with the Application-Level Reference Baseline
@@ -2648,19 +2762,19 @@ Across all 300 supplied reference rows, this produces:
 
 ```text
 Reference median Camera -> Client reception = 341.785 ms
-Current median Camera   -> User frame-ready = 245.737 ms
-Relative median reduction                   = 28.1 %
+Current median Camera   -> User frame-ready = 197.104 ms
+Relative median reduction                   = 42.3 %
 ```
 
-The current value uses `User.reference_e2e_ms`, deliberately terminating at the native complete-frame frontier rather than at browser rendering. The median is selected because the supplied reference trace contains both a pronounced startup transient & a late stall; it is therefore more robust than comparing raw full-run means. The current archive simultaneously retains 300 / 300 complete native frames, 56 matched "Pose" directives, & an approximately `29.997 frames/s` source cadence. The supported conclusion is consequently a **lower representative end-to-end latency at the same 300-frame / nominal-30-fps service objective**, not a claim of universally lower latency under every workload.
+The current value uses the final complete QUALITY archive's `User.reference_e2e_ms`, deliberately terminating at the native complete-frame frontier rather than at post-frame quality copying or browser rendering. This is a conservative current-system comparison because quality instrumentation remains active upstream while the metric itself ends before `quality_save_ms`. The median is selected because the supplied reference trace contains both a pronounced startup transient & a late stall; it is therefore more robust than comparing raw full-run means. The current archive simultaneously retains 300 / 300 complete native frames, `100 %` integrity, & an approximately `30.001 frames / s` terminal receive cadence. Interactive "Pose" / "CTP" evidence remains reported separately from the archived NON-QUALITY browser run. The supported conclusion is consequently a **lower representative end-to-end latency at the same 300-frame / nominal-30-fps service objective**, not a claim of universally lower latency under every workload.
 
 Selected application-stage comparisons additionally expose where the paradigm shift redistributes work:
 
 | Semantically Related Frontier | Reference Median | Current Median | Relative Change | Interpretation |
 |---|---:|---:|---:|---|
-| Encoder point conversion | `8.667 ms` | `3.200 ms` | `-63.1 %` | Current point conversion is packet-progressive; part of geometric preparation is externalised upstream |
-| Encoder projection | `10.882 ms` | `4.856 ms` | `-55.4 %` | Encoder-local projection is materially shorter, but `SFF1` now performs real geometric work & must not be treated as zero-cost |
-| Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.041 ms` | `-66.6 %` | Reference value is `unpack_ms + erode_ms + render_ms`; current value is `Decoder.reconstruction_pipeline_ms`, so the comparison is indicative rather than bit-identical |
+| Encoder point conversion | `8.667 ms` | `3.224 ms` | `-62.8 %` | Current point conversion is packet-progressive; part of geometric preparation is externalised upstream |
+| Encoder projection | `10.882 ms` | `5.486 ms` | `-49.6 %` | Encoder-local projection is materially shorter, but `SFF1` now performs real geometric work & must not be treated as zero-cost |
+| Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.604 ms` | `-57.4 %` | Reference value is `unpack_ms + erode_ms + render_ms`; current value is `Decoder.reconstruction_pipeline_ms`, so the comparison is indicative rather than bit-identical |
 
 These reductions are **not** equivalent to a statement that every node became faster. The service boundaries changed: for example, current `Encoder.total_residency_ms` includes persistent asynchronous "codec" chronology under a different timing frontier, while geometry previously hidden within application processing is now explicitly charged to `SFF1`. The defensible advantage is therefore that selected computational frontiers & the end-to-end path are lower while costs are distributed into independently measurable functions.
 
@@ -2676,11 +2790,11 @@ Difference                  = 0.007 points / frame
 
 Across the full 300-frame sequence, the current implementation reconstructs `43,620,972` valid points, only `2` aggregate points above the reference total implied by `145,403.233` points / frame. The mean final-population ratio is approximately `18.317 %` of the original cloud in both implementations. This is strong evidence that service decomposition, additional `SFF` traversal, & reference-compatible offloading do **not** introduce systematic reconstruction-population loss.
 
-Signal & geometric quality must be stated more carefully. At the common 10-Mbit/s condition, the reference thesis reports approximately `MSE-Y = 0.129`, `PSNR-Y = 56.06 dB`, & `SSIM-Y = 0.997`; the current 300-frame quality run reports `0.242`, `54.353 dB`, & `0.997359`, respectively. Thus, structural similarity remains effectively in the same high-fidelity regime, while `PSNR-Y` is approximately `1.707 dB` lower & `MSE-Y` is higher. Exact "luma"-fidelity invariance is therefore **not** claimed.
+Signal & geometric quality must be stated more carefully. At the common 10-Mbit/s condition, the reference thesis reports approximately `MSE-Y = 0.129`, `PSNR-Y = 56.06 dB`, & `SSIM-Y = 0.997`; the current 300-frame quality run reports `0.242`, `54.355 dB`, & `0.997356`, respectively. Thus, structural similarity remains effectively in the same high-fidelity regime, while `PSNR-Y` is approximately `1.705 dB` lower & `MSE-Y` is higher. Exact "luma"-fidelity invariance is therefore **not** claimed.
 
-An additional comparability constraint originates from the execution environment itself. The current `"CUDA"` kernels are compiled explicitly for `sm_61`, while the host-side build additionally enables `-ffast-math`; the resulting numerical path is therefore tied to a specific compilation target rather than being guaranteed to reproduce bit-identical floating-point operations across heterogeneous `"GPU"` architectures. At the same time, the compressed representation is produced by the hardware `"NVENC"` path, whose concrete execution environment includes the `"GPU"` generation, NVIDIA driver, `"FFmpeg"` build, & encoder implementation available during the run.
+An additional comparability constraint originates from the execution environment itself. The current `CUDA` kernels are compiled explicitly for `sm_61`, while the host-side build additionally enables `-ffast-math`; the resulting numerical path is therefore tied to a specific compilation target rather than being guaranteed to reproduce bit-identical floating-point operations across heterogeneous `GPU` architectures. At the same time, the compressed representation is produced by the hardware `NVENC` path, whose concrete execution environment includes the `GPU` generation, NVIDIA driver, `FFmpeg` build, & encoder implementation available during the run.
 
-The observed `PSNR-Y` / `MSE-Y` difference must consequently not be interpreted as a distortion introduced by `"SFC"` or `"UDP"` alone. The present comparison changes several variables simultaneously, including service decomposition, `"CUDA"` compilation / execution conditions, persistent `"codec"` handling, & the hardware-software video stack. Establishing causal attribution for the residual quality difference would require rebuilding & executing both architectures under an identical `"GPU"`, driver, `"CUDA"` toolchain, `"FFmpeg"` / `"NVENC"` configuration, source representation, & metric implementation.
+The observed `PSNR-Y` / `MSE-Y` difference must consequently not be interpreted as a distortion introduced by `SFC` or `UDP` alone. The present comparison changes several variables simultaneously, including service decomposition, `CUDA` compilation / execution conditions, persistent `codec` handling, & the hardware-software video stack. Establishing causal attribution for the residual quality difference would require rebuilding & executing both architectures under an identical `GPU`, driver, `CUDA` toolchain, `FFmpeg` / `NVENC` configuration, source representation, & metric implementation.
 
 The same caution applies to robust post-erosion geometry. Converting the reference thesis's 10-Mbit/s robust values through the common `1 voxel = 1.820 mm` scale gives:
 
@@ -2691,7 +2805,7 @@ The same caution applies to robust post-erosion geometry. Converting the referen
 | Symmetric Chamfer | `10.025 mm` | `11.164 mm` | Same order of magnitude |
 | Symmetric Hausdorff | `87.364 mm` | `121.113 mm` | Current worst-case tail is higher |
 
-The scientifically supportable statement is therefore **fidelity preservation at the same high-quality operating regime, not numerical identity**. Network / service decomposition preserves all 300 frames, the final reconstructed population is essentially unchanged, `SSIM-Y` remains approximately `0.997`, & geometric errors remain comparable in scale; however, the current quality metrics are not universally equal to or better than the reference. A claim that "quality is unaltered" in the strict numerical sense would exceed the evidence because the implementations do not constitute an isolated transport-only A / B experiment.
+The scientifically supportable statement is therefore **fidelity preservation at the same high-quality operating regime, not numerical identity**. Network / service decomposition preserves all 300 frames, the final reconstructed population is essentially unchanged, `SSIM-Y` remains approximately `0.997`, & geometric errors remain comparable in scale; however, the current quality metrics are not universally equal to or better than the reference.
 
 #### Orchestration & Request-Handling Consequences
 
@@ -2703,7 +2817,7 @@ This improves **orchestration flexibility**, but present evidence does not yet e
 
 #### Presentation-Level Claim Boundaries
 
-For thesis slides, the comparison should be framed through four compact messages rather than through an excessively tall topology: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) the complete primary route preserves 300 / 300 application frames; ( iii ) representative median end-to-end latency decreases from `341.785 ms` to `245.737 ms` under the compatible application-level frontier; & ( iv ) fidelity remains in the same high-quality regime, but strict numerical equality is not claimed because the "GPU", driver, "CUDA", "FFmpeg" / "NVENC", persistent "codec" handling, & metric paths are not a controlled transport-only A / B condition. This wording preserves the scientific advantage of the work without overstating the quality comparison.
+For thesis slides, the comparison should be framed through four compact messages rather than through an excessively tall topology: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) the complete primary route preserves 300 / 300 application frames; ( iii ) the current complete QUALITY archive places the median native Camera-to-User frame-ready frontier at `197.104 ms` versus `341.785 ms` for Camera-to-Client reception in the supplied reference trace; & ( iv ) fidelity remains in the same high-quality regime, but strict numerical equality is not claimed because the "GPU", driver, "CUDA", "FFmpeg" / "NVENC", persistent "codec" handling, & metric paths are not a controlled transport-only A / B condition. This wording preserves the scientific advantage of the work without overstating either the quality or causal comparison.
 
 ---
 
@@ -2774,6 +2888,14 @@ In particular, a lower current `Encoder` sub-stage does not imply that the corre
 
 The current "UDP" rationale is valid for the closed "DPDK" / "SFC" experiment because message identity, application pacing, returned-state confirmation, queue pressure, & integrity are explicitly controlled. "RFC 8085" should be treated as a boundary condition rather than ignored: a deployment over the unrestricted Internet would require an appropriate congestion-control / fairness strategy, checksum policy, path-"MTU" consideration, security treatment, & potentially a different transport. The project therefore claims **semantic suitability within its controlled domain**, not universal transport superiority over "TCP".
 
+### 22.15 Frame-Global Projection & "ISC" Boundary
+
+`ISC` ( `Independent Slice Coding` ) was considered explicitly as a possible next encoding refinement. Dividing the already formed Super-Frame into independent "HEVC" slices could improve within-picture isolation & may expose additional codec parallelism, but it does not remove the principal latency boundary of the current application. `Encoder` must first resolve frame-complete geometry, execute the joint six-view G-buffer / visibility pipeline, pack `Geometry`, `Texture`, & `Occupancy` into one complete `I420` picture, & only then submit raw video to `hevc_nvenc`. A slice configuration applied after that point cannot make the earlier point-cloud projection operate packet by packet.
+
+The present packaged "FFmpeg" build also rejects the tested `-constrained-encoding` option as unrecognised. Merely replacing that binary or adding a generic slice-count option would still leave the rawvideo input, "MPEG-TS" attribution, Decoder full-`I420` read, & reconstruction frontiers frame based. Genuine sub-frame latency would instead require a coordinated redesign involving an "NVENC" interface capable of slice-level bitstream readback, incremental muxing / frame association, & a Decoder / reconstruction path able to consume useful partial output. That is a qualitatively different architecture, not another low-risk `execlp()` flag.
+
+Accordingly, no "ISC" change is included in the validated baseline. The current implementation already addresses the latency mechanisms **evaluated within the present scope** that can be modified without changing frame semantics — prompt Encoder muxer flushing, zero Encoder delay, progressive `MEDIA_PAYLOAD_SIZE` emission, persistent low-delay Decoder state, & bounded asynchronous application queues. Additional slice work remains a separate research extension rather than an omitted correction to the involved 30-fps chain.
+
 ---
 
 ## 🛠️ 23. Main Engineering Challenges & Current Solutions
@@ -2790,11 +2912,11 @@ The current "UDP" rationale is valid for the closed "DPDK" / "SFC" experiment be
 
 **Current approach:** Bounded local re-presentation, explicit zero / partial counters, 4096-descriptor queues, & strict distinction between local ring acceptance & "UDP"-level semantics.
 
-### Sustaining the Nominal 30-fps Operating Point
+### Sustaining the Nominal 30-FPS Operating Point
 
 **Challenge:** Source disk access, serialisation, packet submission, in-path geometry, projection, encode, decode, reconstruction, & terminal delivery must coexist without progressive frame loss.
 
-**Current approach:** Middle-cache / warm source condition, persistent "GPU" / "codec" state, direct adjacency, cooperative polling, bounded queues, & complete per-node telemetry. Both final modes sustain approximately 29.997 source frames/s with 300 / 300 final completion.
+**Current approach:** Middle-cache / warm source condition, persistent "GPU" / "codec" state, direct adjacency, cooperative polling, bounded queues, & complete per-node telemetry. Both final modes sustain approximately 30.0 source frames / s with 300 / 300 final completion.
 
 ### Performing Useful Work In-Network
 
@@ -2877,6 +2999,8 @@ Camera WARM_MODE
 TARGET_FPS
 K_FRAMES
 POINTS_PER_PACKET
+NETWORK_MTU
+MEDIA_PAYLOAD_SIZE
 BURST_SIZE
 MAX_ZERO_ACCEPTS
 Rx / Tx descriptor depth
@@ -2906,6 +3030,9 @@ YUV_BUFFER_COUNT
 QUALITY_STREAM_SIZE
 target "H.265" bitrate / buffer
 "GOP" / "IDR" configuration
+Encoder delay / flush-packets configuration
+Decoder low-delay configuration
+DEBUG_VISUALS / DEBUG_FRAME_ID when diagnostic snapshots are enabled
 
 Decoder QUEUE_SIZE
 WRITE_BATCH_SIZE
@@ -2934,6 +3061,8 @@ TEMPORAL_ADAPTATION = TEMPORAL_ADAPTATION_ENABLED
 TARGET_FPS          = 30
 K_FRAMES            = 300
 POINTS_PER_PACKET   = 80
+NETWORK_MTU         = 1500
+MEDIA_PAYLOAD_SIZE  = 1316
 BURST_SIZE          = 32
 MAX_ZERO_ACCEPTS    = 2048
 Rx / Tx descriptors = 4096
@@ -2961,7 +3090,22 @@ A benchmark attains reproducibility only when the result files & the exact mode 
 
 ## 🚧 25. Future Extensions
 
-The functional `Camera`-to-`User` chain is complete, including the `"Main"` service path, the reverse `"Temporal"` & `"Pose"` control paths, the quality condition, native per-frame telemetry, browser-side `"Command-to-Photon"` tracking, & the final validated CPU-affinity arrangement. Future work should therefore concern **broader deployment conditions**, **protocol interoperability**, **multi-stream scalability**, & **additional platform-level characterisation**, rather than completion or re-validation of mechanisms already consolidated within the present implementation.
+The functional `Camera`-to-`User` chain is complete, including the `Main` service path, the reverse `Temporal` & `Pose` control paths, the quality condition, native per-frame telemetry, browser-side `Command-to-Photon` tracking, & the final validated CPU-affinity arrangement. Future work should therefore concern **broader deployment conditions**, **protocol interoperability**, **multi-stream scalability**, & **additional platform-level characterisation**, rather than completion or re-validation of mechanisms already consolidated within the present implementation.
+
+### "Independent Slice Coding" ( "ISC" ) & Sub-Frame Experimentation
+
+`ISC` remains an investigated but deliberately uncommitted extension. The current Super-Frame contains three semantically distinct `2560 x 1536` `Y`-plane stripes (`Geometry`, `Texture`, & `Occupancy`), making independent "HEVC" regions conceptually attractive for error isolation or codec-side parallelism. Nevertheless, the present projection kernel produces these representations from the complete point-cloud frame before `FFmpeg` receives any raw video, & the current Decoder does not reconstruct until a complete `I420` picture is available. Slice partitioning alone therefore offers no demonstrated end-to-end latency or quality advantage under the validated architecture; independent boundaries may additionally reduce compression efficiency by restricting prediction across slice frontiers.
+
+A future proof of concept should consequently remain isolated from the stable baseline:
+
+```text
+1. build a reproducible "FFmpeg" / "NVENC" environment that actually exposes constrained independent-slice controls
+2. verify exact slice boundaries & resulting bitrate / quality before modifying application framing
+3. evaluate native sub-frame bitstream readback only if first-slice latency is an explicit research objective
+4. redesign "MPEG-TS" attribution & Decoder consumption only if a measurable partial-frame benefit survives the first three steps
+```
+
+This ordering prevents a codec flag from being presented as packet-wise projection when the mathematically frame-global geometry / visibility stages remain unchanged.
 
 ### Portability & Deployment
 
@@ -2983,7 +3127,7 @@ These experiments would establish how strongly the current operating point depen
 4. assess compatibility with external service-chain classifiers / orchestrators without altering the internal behaviour of "SFC"-unaware functions
 ```
 
-The current packet representation remains intentionally `"NSH"-inspired` & closed within the experimental topology; interoperability with generic RFC-compliant service-chain infrastructures is therefore a distinct extension rather than a missing element of the present implementation.
+The current packet representation remains intentionally `NSH"-inspired` & closed within the experimental topology; interoperability with generic RFC-compliant service-chain infrastructures is therefore a distinct extension rather than a missing element of the present implementation.
 
 ### Multi-Stream Scalability & Orchestration
 
@@ -3017,7 +3161,7 @@ This extension would allow the currently measured latency, throughput, & quality
 
 These experiments would test the generality of the current implementation beyond the `Loot` sequence without changing the architectural principles validated in the present work.
 
-The immediate research priority is therefore no longer architectural completion or re-validation of the current service chain; it is the extension of an already complete & experimentally characterised `"SFC"` pipeline toward **portable deployment**, **standards-oriented interoperability**, **multi-stream orchestration**, & **broader resource-aware evaluation**.
+The immediate research priority is therefore no longer architectural completion or re-validation of the current service chain; it is the extension of an already complete & experimentally characterised `SFC` pipeline toward **portable deployment**, **standards-oriented interoperability**, **multi-stream orchestration**, **broader resource-aware evaluation**, & — only where independently justified — **sub-frame codec experimentation**.
 
 ---
 
@@ -3051,9 +3195,9 @@ The use of "UDP" is therefore not justified by an undifferentiated claim that it
 
 The two final 300-frame "Loot" archives establish complementary outcomes. In both modes, the entire primary route preserves 300 / 300 frame completion with 100 % recorded data integrity at every native forwarding / application frontier & a `Camera` cadence of approximately 30 frames / s. The interactive run further exercises 56 matched "Pose" directives & browser `Command-to-Photon` acknowledgments, while the isolated quality run evaluates all 300 reconstructed frames & recovers complete `PSNR-Y`, `SSIM-Y`, mean / `RMSE` / `Chamfer` / `Hausdorff` geometry indicators.
 
-Against the supplied probe-disabled application-level reference logs, the current native complete-frame frontier exhibits a median Camera-to-User latency of approximately `245.737 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `28.1 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
+Against the supplied probe-disabled application-level reference logs, the current complete QUALITY archive exhibits a median native Camera-to-User frame-ready latency of approximately `197.104 ms` versus `341.785 ms` for Camera-to-Client reception in the reference, corresponding to an observed median reduction of approximately `42.3 %`. This comparison is deliberately conservative with respect to the current implementation because quality instrumentation remains enabled upstream, yet it still does not constitute a transport-only A / B experiment. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. These comparisons do not imply that every per-node residency is lower; function boundaries & asynchronous "codec" timing definitions have changed.
 
-Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences (`145,403.233` versus `145,403.240` mean points / frame; `2` aggregate points of difference over 300 frames), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact quality invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
+Fidelity is preserved in the more defensible sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. The final valid reconstructed population is essentially invariant across the aligned 300-frame sequences ( `145,403.233` versus `145,403.240` mean points / frame; `2` aggregate points of difference over 300 frames ), & `SSIM-Y` remains approximately `0.997`. Some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit/s results; therefore exact quality invariance is deliberately **not** claimed without a controlled transport-only A / B experiment.
 
 The orchestration contribution is similarly structural rather than rhetorical. The reference thesis identifies its monolithic `Encoder` & Client blocks as an obstacle to fine-grained placement & proposes their decomposition as future work. The current primary graph exposes seven native placement units rather than four coarse services — `75 %` more graph-level placement points — while the removal of one former switch-only "PMD" reservation makes `12.5 %` of this eight-thread host's logical scheduling capacity available for application placement. Neither percentage is presented as a measured reduction in total "CPU" consumption; the former quantifies granularity & the latter quantifies reallocation.
 

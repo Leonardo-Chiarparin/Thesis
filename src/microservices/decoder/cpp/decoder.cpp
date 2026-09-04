@@ -27,6 +27,8 @@
 #include <rte_mbuf.h>
 #include <rte_udp.h>
 
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
+
 struct decoder_frame_context {
     bool initialized = false;
     bool input_closed = false;
@@ -51,7 +53,7 @@ struct decoder_frame_context {
 struct codec_packet_job {
     uint32_t frame_id = 0;
     uint16_t media_len = 0;
-    uint8_t media[ MTU_PAYLOAD_SIZE ] = { 0 };
+    uint8_t media[ MEDIA_PAYLOAD_SIZE ] = { 0 };
 };
 
 struct decoded_frame_job {
@@ -91,6 +93,9 @@ static struct telemetry_csv telemetry_log[ K_FRAMES ];
 static std::vector< uint8_t > decoded_i420_buffers[ I420_BUFFER_COUNT ];
 static bool decoded_i420_slot_free[ I420_BUFFER_COUNT ] = { true, true, true };
 static struct decoded_frame_job decoded_frame_jobs[ I420_BUFFER_COUNT ];
+
+static std::vector< uint8_t > debug_snapshot;
+static bool debug_snapshot_ready = false;
 
 static uint32_t decoded_frame_head = 0;
 static uint32_t decoded_frame_tail = 0;
@@ -235,7 +240,7 @@ static inline bool enqueue_codec_packet( uint32_t frame_id, const uint8_t *media
     
     // Purpose: It introduces a compressed sequence chunk into the "codec" "worker" context
     
-    if ( media == NULL || media_len == 0 || media_len > MTU_PAYLOAD_SIZE )
+    if ( media == NULL || media_len == 0 || media_len > MEDIA_PAYLOAD_SIZE )
         return false;
 
     pthread_mutex_lock( &codec_mutex );
@@ -273,6 +278,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *pool ) {
 
     if ( retval != 0 )
         return retval;
+
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
 
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, mbuf_pool );
 
@@ -314,6 +326,58 @@ static inline void main_header_init( struct rte_ether_hdr *eth, struct rte_ipv4_
 
     ipv4 -> hdr_checksum = 0;
     ipv4 -> hdr_checksum = rte_ipv4_cksum( ipv4 );
+}
+
+static void debug_write_plane( const char *path, const uint8_t *plane, uint32_t width, uint32_t height ) {
+    FILE *f = fopen( path, "wb" );
+
+    if ( f == NULL )
+        return;
+
+    fprintf( f, "P5\n%u %u\n255\n", width, height );
+    fwrite( plane, 1, ( size_t )width * height, f );
+    fclose( f );
+}
+
+static inline void debug_capture_frame( uint32_t frame_id, const uint8_t *i420 ) {
+    if ( DEBUG_VISUALS != DEBUG_VISUALS_ENABLED || frame_id != DEBUG_FRAME_ID || i420 == NULL || debug_snapshot.size() != TOTAL_YUV_SIZE )
+        return;
+
+    rte_memcpy( debug_snapshot.data(), i420, TOTAL_YUV_SIZE );
+    debug_snapshot_ready = true;
+}
+
+static void debug_dump_frame() {
+    if ( DEBUG_VISUALS != DEBUG_VISUALS_ENABLED || !debug_snapshot_ready || debug_snapshot.size() != TOTAL_YUV_SIZE )
+        return;
+
+    mkdir( TELEMETRY_FOLDER, 0777 );
+    mkdir( DEBUG_FOLDER, 0777 );
+
+    char path[ 256 ];
+    const uint8_t *i420 = debug_snapshot.data();
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_output.i420", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    FILE *raw = fopen( path, "wb" );
+
+    if ( raw != NULL ) {
+        fwrite( i420, 1, TOTAL_YUV_SIZE, raw );
+        fclose( raw );
+    }
+
+    const uint8_t *y = i420;
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_geometry.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y, DECODER_W, CROSS_H );
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_texture_y.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y + ( size_t )DECODER_W * CROSS_H, DECODER_W, CROSS_H );
+
+    snprintf( path, sizeof( path ), "%s/frame_%u_occupancy.pgm", DEBUG_FOLDER, ( unsigned int )DEBUG_FRAME_ID );
+    debug_write_plane( path, y + ( size_t )DECODER_W * CROSS_H * 2, DECODER_W, CROSS_H );
+
+    debug_snapshot_ready = false;
+    std::vector< uint8_t >().swap( debug_snapshot );
 }
 
 static void ffmpeg_init() {
@@ -373,7 +437,7 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbps;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
+    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_media_bytes;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;arrived_points;eroded_points;valid_points;erosion_ms;reconstruction_ms;pose_ms;reconstruction_pipeline_ms;tx_duration_ms;active_tx_ms;active_process_ms;reference_process_ms;total_processing_ms;total_residency_ms;reference_residency_ms;node_efficiency_pct;reference_efficiency_pct;gpu_transfer_ms;gpu_copyback_ms;host_overhead_ms;camera_node_ms;e2e_latency_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;pose_control_ms;codec_queue_ms;frame_queue_ms;codec_backlog;decode_service_ms;decode_h265_ms;ffmpeg_write_calls;ffmpeg_write_failures;codec_queue_drops;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets;mbuf_starvation\n" );
 
     for ( uint32_t i = 0; i < K_FRAMES; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
@@ -387,7 +451,7 @@ static void telemetry_to_csv() {
         t -> ffmpeg_write_failures = frame_ffmpeg_failures[ idx ].load( std::memory_order_relaxed );
         t -> codec_queue_drops = codec_drops[ idx ].load( std::memory_order_relaxed );
 
-        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%llu;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_media_bytes, t -> tx_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, ( unsigned long long )t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbps, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> erosion_ms, t -> reconstruction_ms, t -> pose_ms, t -> reconstruction_pipeline_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> reference_process_ms, t -> total_processing_ms, t -> total_residency_ms, t -> reference_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> gpu_transfer_ms, t -> gpu_copyback_ms, t -> host_overhead_ms, t -> camera_node_ms, t -> e2e_latency_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> pose_control_ms, t -> codec_queue_ms, t -> frame_queue_ms, t -> codec_backlog, t -> decode_service_ms, t -> decode_h265_ms, t -> ffmpeg_write_calls, t -> ffmpeg_write_failures, t -> codec_queue_drops, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
+        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%llu;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_media_bytes, t -> tx_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, ( unsigned long long )t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> erosion_ms, t -> reconstruction_ms, t -> pose_ms, t -> reconstruction_pipeline_ms, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> reference_process_ms, t -> total_processing_ms, t -> total_residency_ms, t -> reference_residency_ms, t -> node_efficiency_pct, t -> reference_efficiency_pct, t -> gpu_transfer_ms, t -> gpu_copyback_ms, t -> host_overhead_ms, t -> camera_node_ms, t -> e2e_latency_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> pose_control_ms, t -> codec_queue_ms, t -> frame_queue_ms, t -> codec_backlog, t -> decode_service_ms, t -> decode_h265_ms, t -> ffmpeg_write_calls, t -> ffmpeg_write_failures, t -> codec_queue_drops, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets, t -> mbuf_starvation );
     }
 
     fclose( f );
@@ -776,7 +840,7 @@ static inline void process_network_stream() {
                 uint16_t media_len = udp_payload_length - sizeof( struct cam_hdr ) - sizeof( struct enc_hdr );
                 uint32_t packet_id = rte_be_to_cpu_32( enc -> packet_id );
 
-                if ( unlikely( rte_be_to_cpu_32( enc -> frame_id ) != FRAME_ID || cam -> sequence_number != 0 || rte_be_to_cpu_32( cam -> original_points ) != 0 || rte_be_to_cpu_32( cam -> points_in_packet ) != 0 || media_len == 0 || media_len > MTU_PAYLOAD_SIZE || media_len % TS_PACKET_SIZE != 0 ) ) {
+                if ( unlikely( rte_be_to_cpu_32( enc -> frame_id ) != FRAME_ID || cam -> sequence_number != 0 || rte_be_to_cpu_32( cam -> original_points ) != 0 || rte_be_to_cpu_32( cam -> points_in_packet ) != 0 || media_len == 0 || media_len > MEDIA_PAYLOAD_SIZE ) ) {
                     rte_pktmbuf_free( m );
                     continue;
                 }
@@ -858,7 +922,7 @@ static inline void process_network_stream() {
 
             uint16_t media_len = udp_payload_length - sizeof( struct cam_hdr ) - sizeof( struct enc_hdr );
 
-            if ( unlikely( media_len == 0 || media_len > MTU_PAYLOAD_SIZE || media_len % TS_PACKET_SIZE != 0 ) ) {
+            if ( unlikely( media_len == 0 || media_len > MEDIA_PAYLOAD_SIZE ) ) {
                 rte_pktmbuf_free( m );
                 continue;
             }
@@ -932,7 +996,7 @@ static inline void process_network_stream() {
 
 static inline void process_node_reception() {
     
-    // Purpose: It uniformly coordinates data-path polling and asynchronous pipe drainage, ensuring no execution deadlock occurs
+    // Purpose: It uniformly coordinates data-path polling & asynchronous pipe drainage, ensuring no execution deadlock occurs
     
     process_network_stream();
     drain_codec_output();
@@ -1031,7 +1095,7 @@ static inline bool dispatch_reconstructed_frame( uint32_t frame_id, const struct
     output_dec.arrived_points = rte_cpu_to_be_32( t -> arrived_points );
     output_dec.eroded_points = rte_cpu_to_be_32( t -> eroded_points );
     output_dec.valid_points = rte_cpu_to_be_32( point_count );
-    output_dec.padding = 0;
+    output_dec.padding = rte_cpu_to_be_16( POINTS_PER_PACKET );
 
     if ( point_count == 0 ) {
         struct rte_mbuf *m = rte_pktmbuf_alloc( mbuf_pool );
@@ -1214,11 +1278,14 @@ static inline void compile_input_metrics( uint32_t frame_id, const struct decode
         double expected_interval_sec = ( double )( frame_id - previous_frame_id ) / TARGET_FPS;
         double diff_sec = real_interval_sec - expected_interval_sec;
 
+        t -> inter_arrival_ms = real_interval_sec * 1000.0;
         t -> instant_jitter_ms = std::abs( diff_sec ) * 1000.0;
         jitter_ms += ( t -> instant_jitter_ms - jitter_ms ) / 16.0;
     }
-    else
+    else {
+        t -> inter_arrival_ms = 0.0;
         t -> instant_jitter_ms = 0.0;
+    }
 
     t -> desynced_jitter_ms = jitter_ms;
 
@@ -1240,7 +1307,7 @@ static inline void compile_input_metrics( uint32_t frame_id, const struct decode
     uint64_t reference_frame_bytes = ( uint64_t )ctx.rx_media_bytes + ( ( uint64_t )ctx.rx_packets * ( sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + sizeof( struct enc_hdr ) ) );
 
     t -> reference_size_bytes = reference_frame_bytes;
-    t -> reference_throughput_mbps = ( receive_sec > 0.0 ) ? ( ( double )reference_frame_bytes * 8.0 / 1000000.0 ) / receive_sec : 0.0;
+    t -> reference_throughput_mbs = ( receive_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / receive_sec : 0.0;
     t -> reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * TARGET_FPS ) / 1000000.0;
 }
 
@@ -1422,6 +1489,7 @@ static inline void drain_ready_frames( uint64_t timer_hz ) {
             break;
 
         evaluate_decoded_frame( job.frame_id, timer_hz, decoded_i420_buffers[ job.slot ].data(), job.service_start_cycles, job.ready_cycles );
+        debug_capture_frame( job.frame_id, decoded_i420_buffers[ job.slot ].data() );
 
         pthread_mutex_lock( &decoded_mutex );
         decoded_i420_slot_free[ job.slot ] = true;
@@ -1476,6 +1544,7 @@ static int worker_loop( __rte_unused void *arg ) {
                 printf( "\n" );
 
             telemetry_to_csv();
+            debug_dump_frame();
             csv_written = true;
 
             printf( "\n[SYSTEM] End of stream detected. Changing to \"idle\" state...\n" );
@@ -1502,7 +1571,14 @@ int main( int argc, char *argv[] ) {
 
     unlink( POSTROLL_PATH );
 
-    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    uint32_t point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct dec_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+    uint32_t media_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + sizeof( struct enc_hdr ) + MEDIA_PAYLOAD_SIZE;
+    uint32_t required_mtu = ( point_ipv4_len > media_ipv4_len ) ? point_ipv4_len : media_ipv4_len;
+
+    if ( required_mtu > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", required_mtu, ( unsigned int )NETWORK_MTU );
+
+    mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
 
     if ( mbuf_pool == NULL )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );
@@ -1512,6 +1588,9 @@ int main( int argc, char *argv[] ) {
 
     for ( uint8_t slot = 0; slot < I420_BUFFER_COUNT; slot++ )
         decoded_i420_buffers[ slot ].resize( TOTAL_YUV_SIZE );
+
+    if ( DEBUG_VISUALS == DEBUG_VISUALS_ENABLED )
+        debug_snapshot.resize( TOTAL_YUV_SIZE );
 
     reconstructed_points.resize( MAX_RECONSTRUCTED_POINTS );
 

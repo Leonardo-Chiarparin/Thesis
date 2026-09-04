@@ -79,8 +79,9 @@
 
 // Packetization & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80
-#define TS_PACKET_SIZE 188
-#define MTU_PAYLOAD_SIZE ( 7 * TS_PACKET_SIZE )
+#define NETWORK_MTU 1500
+#define MEDIA_PAYLOAD_SIZE 1316
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
 
 #define MD_CLASS_EXPERIMENTAL 0xFFF6
 #define MD_TYPE_GEOMETRY 0x01
@@ -270,6 +271,7 @@ struct telemetry_csv {
 
     double camera_node_ms;
     double schedule_delay_ms;
+    double inter_arrival_ms;
     double instant_jitter_ms;
     double desynced_jitter_ms;
 
@@ -421,6 +423,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
     if ( retval != 0 )
         return retval;
 
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
+
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, mbuf_pool );
 
     if ( retval < 0 )
@@ -559,7 +568,7 @@ static void write_single_csv( const char *path, struct telemetry_csv *data_array
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
+    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_media_bytes;tx_media_bytes;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
 
     for ( uint32_t i = 0; i < max_logged_frames; i++ ) {
         struct telemetry_csv *t = &data_array[ i ];
@@ -567,7 +576,7 @@ static void write_single_csv( const char *path, struct telemetry_csv *data_array
         if ( t -> frame_id == 0 )
             continue;
 
-        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_media_bytes, t -> tx_media_bytes, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> cycle_occupancy_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
+        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_media_bytes, t -> tx_media_bytes, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> cycle_occupancy_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
     }
 
     fclose( f );
@@ -1040,7 +1049,7 @@ static inline void flush_port( uint16_t tx_port, struct rte_mbuf **tx_bufs, uint
     *owner_route = -1;
 }
 
-static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t_frame_arrival[ TOTAL_ROUTES ], uint64_t last_rx_cycle[ TOTAL_ROUTES ], uint64_t t_session_start[ TOTAL_ROUTES ], uint32_t first_arrival_frame[ TOTAL_ROUTES ], uint32_t current_frame_id[ TOTAL_ROUTES ], uint16_t frame_temporal_skip[ TOTAL_ROUTES ], uint64_t first_tx_cycle[ TOTAL_ROUTES ], uint64_t last_tx_cycle[ TOTAL_ROUTES ], uint64_t last_activity_cycles[ TOTAL_ROUTES ], uint64_t active_process_cycles[ TOTAL_ROUTES ], uint64_t active_tx_cycles[ TOTAL_ROUTES ], uint64_t t_cycle_start[ TOTAL_ROUTES ], double current_latency_ms[ TOTAL_ROUTES ], double current_jitter_ms[ TOTAL_ROUTES ], double jitter_ms[ TOTAL_ROUTES ], bool frame_sequence_ok[ TOTAL_ROUTES ], uint32_t frame_valid_points[ TOTAL_ROUTES ], uint32_t eth_errors_start[ TOTAL_ROUTES ], uint32_t ipv4_errors_start[ TOTAL_ROUTES ], uint32_t udp_errors_start[ TOTAL_ROUTES ], uint32_t nsh_errors_start[ TOTAL_ROUTES ] ) {
+static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t_frame_arrival[ TOTAL_ROUTES ], uint64_t last_rx_cycle[ TOTAL_ROUTES ], uint64_t t_session_start[ TOTAL_ROUTES ], uint32_t first_arrival_frame[ TOTAL_ROUTES ], uint32_t current_frame_id[ TOTAL_ROUTES ], uint16_t frame_temporal_skip[ TOTAL_ROUTES ], uint16_t frame_points_per_packet[ TOTAL_ROUTES ], uint64_t first_tx_cycle[ TOTAL_ROUTES ], uint64_t last_tx_cycle[ TOTAL_ROUTES ], uint64_t last_activity_cycles[ TOTAL_ROUTES ], uint64_t active_process_cycles[ TOTAL_ROUTES ], uint64_t active_tx_cycles[ TOTAL_ROUTES ], uint64_t t_cycle_start[ TOTAL_ROUTES ], double current_latency_ms[ TOTAL_ROUTES ], double current_jitter_ms[ TOTAL_ROUTES ], double jitter_ms[ TOTAL_ROUTES ], bool frame_sequence_ok[ TOTAL_ROUTES ], uint32_t frame_valid_points[ TOTAL_ROUTES ], uint32_t eth_errors_start[ TOTAL_ROUTES ], uint32_t ipv4_errors_start[ TOTAL_ROUTES ], uint32_t udp_errors_start[ TOTAL_ROUTES ], uint32_t nsh_errors_start[ TOTAL_ROUTES ] ) {
 
     // Purpose: It derives per-route timing, throughput, bitrate & data completeness indicators from accumulated counters
 
@@ -1094,7 +1103,7 @@ static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t
 
         t -> data_integrity_pct = ( t -> original_points > 0 ) ? ( ( double )t -> rx_points / ( double )t -> original_points ) * 100.0 : 0.0;
 
-        uint32_t expected_packets = ( t -> original_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET;
+        uint32_t expected_packets = ( t -> original_points + frame_points_per_packet[ route_id ] - 1 ) / frame_points_per_packet[ route_id ];
         
         bool rx_complete = t -> original_points > 0 && t -> rx_points == t -> original_points && t -> rx_packets == expected_packets && frame_sequence_ok[ route_id ];
         bool tx_complete = rx_complete && t -> tx_points == t -> rx_points && t -> tx_packets == t -> rx_packets;
@@ -1138,7 +1147,7 @@ static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t
         if ( expected_points > 0 ) {
             t -> data_integrity_pct = ( ( double )t -> rx_points / ( double )expected_points ) * 100.0;
 
-            uint32_t expected_packets = ( expected_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET;
+            uint32_t expected_packets = ( expected_points + frame_points_per_packet[ route_id ] - 1 ) / frame_points_per_packet[ route_id ];
             
             bool rx_complete = t -> rx_points == expected_points && t -> rx_packets == expected_packets && frame_sequence_ok[ route_id ];
             bool tx_complete = rx_complete && t -> tx_points == t -> rx_points && t -> tx_packets == t -> rx_packets;
@@ -1188,7 +1197,7 @@ static inline void finalize_metrics( int route_id, uint64_t timer_hz, uint64_t t
     t -> network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
 
     t -> reference_size_bytes = ( uint32_t )reference_frame_bytes;
-    t -> reference_throughput_mbs = ( residency_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / residency_sec : 0.0;
+    t -> reference_throughput_mbs = ( receive_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / receive_sec : 0.0;
     t -> reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
     t -> cycle_occupancy_pct = ( cycle_sec > 0.0 ) ? ( residency_sec / cycle_sec ) * 100.0 : 0.0;
 
@@ -1229,6 +1238,7 @@ static int worker_loop( __rte_unused void *arg ) {
     uint32_t frame_valid_points[ TOTAL_ROUTES ] = { 0, 0, 0 };
     
     uint16_t frame_temporal_skip[ TOTAL_ROUTES ] = { 1, 1, 1 };
+    uint16_t frame_points_per_packet[ TOTAL_ROUTES ] = { POINTS_PER_PACKET, POINTS_PER_PACKET, POINTS_PER_PACKET };
 
     uint64_t t_frame_arrival[ TOTAL_ROUTES ] = { 0, 0, 0 };
     uint64_t last_rx_cycle[ TOTAL_ROUTES ] = { 0, 0, 0 };
@@ -1238,6 +1248,7 @@ static int worker_loop( __rte_unused void *arg ) {
     double current_latency_ms[ TOTAL_ROUTES ] = { 0.0, 0.0, 0.0 };
     double current_jitter_ms[ TOTAL_ROUTES ] = { 0.0, 0.0, 0.0 };
     double jitter_ms[ TOTAL_ROUTES ] = { 0.0, 0.0, 0.0 };
+    double current_inter_arrival_ms[ TOTAL_ROUTES ] = { 0.0, 0.0, 0.0 };
 
     uint32_t frame_expected_sequence[ TOTAL_ROUTES ] = { 0, 0, 0 };
     bool frame_sequence_ok[ TOTAL_ROUTES ] = { true, true, true };
@@ -1310,7 +1321,7 @@ static int worker_loop( __rte_unused void *arg ) {
                         struct enc_hdr *preroll_enc = ( struct enc_hdr * )( preroll_cam + 1 );
                         uint16_t preroll_media_len = udp_payload_length - sizeof( struct cam_hdr ) - sizeof( struct enc_hdr );
 
-                        if ( unlikely( rte_be_to_cpu_32( preroll_enc -> frame_id ) != FRAME_ID || preroll_cam -> sequence_number != 0 || rte_be_to_cpu_32( preroll_cam -> original_points ) != 0 || rte_be_to_cpu_32( preroll_cam -> points_in_packet ) != 0 || preroll_media_len == 0 || preroll_media_len > MTU_PAYLOAD_SIZE || preroll_media_len % TS_PACKET_SIZE != 0 ) ) {
+                        if ( unlikely( rte_be_to_cpu_32( preroll_enc -> frame_id ) != FRAME_ID || preroll_cam -> sequence_number != 0 || rte_be_to_cpu_32( preroll_cam -> original_points ) != 0 || rte_be_to_cpu_32( preroll_cam -> points_in_packet ) != 0 || preroll_media_len == 0 || preroll_media_len > MEDIA_PAYLOAD_SIZE ) ) {
                             rte_pktmbuf_free( m );
                             continue;
                         }
@@ -1420,13 +1431,19 @@ static int worker_loop( __rte_unused void *arg ) {
                 uint32_t packet_valid_points = 0;
                 uint64_t packet_camera_timestamp = 0;
                 uint16_t packet_temporal_skip = 1;
+                uint16_t packet_points_per_packet = POINTS_PER_PACKET;
 
                 if ( type == MAIN_SFF1_ENCODER ) {
                     uint32_t points_in_packet = rte_be_to_cpu_32( cam -> points_in_packet );
+                    packet_points_per_packet = rte_be_to_cpu_16( cam -> padding );
+
+                    if ( packet_points_per_packet == 0 )
+                        packet_points_per_packet = POINTS_PER_PACKET;
+
                     uint32_t expected_application_bytes = sizeof( struct cam_hdr ) + points_in_packet * sizeof( struct point_tx );
 
                     if ( f_id != END_OF_STREAM ) {
-                        if ( unlikely( points_in_packet > POINTS_PER_PACKET || actual_application_bytes != expected_application_bytes ) ) {
+                        if ( unlikely( points_in_packet > packet_points_per_packet || actual_application_bytes != expected_application_bytes ) ) {
                             rte_pktmbuf_free( m );
                             nsh_errors[ rx_port ]++;
                             continue;
@@ -1454,6 +1471,12 @@ static int worker_loop( __rte_unused void *arg ) {
                         }
 
                         current_media_bytes = actual_application_bytes - sizeof( struct cam_hdr ) - sizeof( struct enc_hdr );
+
+                        if ( unlikely( current_media_bytes == 0 || current_media_bytes > MEDIA_PAYLOAD_SIZE ) ) {
+                            rte_pktmbuf_free( m );
+                            nsh_errors[ rx_port ]++;
+                            continue;
+                        }
                     }
                     else if ( unlikely( actual_application_bytes != sizeof( struct cam_hdr ) ) ) {
                         rte_pktmbuf_free( m );
@@ -1468,6 +1491,11 @@ static int worker_loop( __rte_unused void *arg ) {
                 }
                 else {
                     uint32_t points_in_packet = rte_be_to_cpu_32( dec -> points_in_packet );
+                    packet_points_per_packet = rte_be_to_cpu_16( dec -> padding );
+
+                    if ( packet_points_per_packet == 0 )
+                        packet_points_per_packet = POINTS_PER_PACKET;
+
                     uint32_t original_points = rte_be_to_cpu_32( dec -> original_points );
                     uint32_t arrived_points = rte_be_to_cpu_32( dec -> arrived_points );
                     uint32_t eroded_points = rte_be_to_cpu_32( dec -> eroded_points );
@@ -1477,7 +1505,7 @@ static int worker_loop( __rte_unused void *arg ) {
                     if ( f_id != END_OF_STREAM ) {
                         bool counters_valid = valid_points <= eroded_points && eroded_points <= arrived_points;
                         bool empty_frame = valid_points == 0 && points_in_packet == 0 && rte_be_to_cpu_32( dec -> sequence_number ) == 0 && actual_application_bytes == sizeof( struct dec_hdr );
-                        bool populated_frame = valid_points > 0 && points_in_packet > 0 && points_in_packet <= POINTS_PER_PACKET && actual_application_bytes == expected_application_bytes;
+                        bool populated_frame = valid_points > 0 && points_in_packet > 0 && points_in_packet <= packet_points_per_packet && actual_application_bytes == expected_application_bytes;
 
                         if ( unlikely( !counters_valid || ( !empty_frame && !populated_frame ) ) ) {
                             rte_pktmbuf_free( m );
@@ -1510,7 +1538,7 @@ static int worker_loop( __rte_unused void *arg ) {
                         if ( burst_idx[ target_tx_port ] > 0 )
                             flush_port( target_tx_port, tx_bufs[ target_tx_port ], tx_points_buf[ target_tx_port ], tx_media_bytes_buf[ target_tx_port ], &burst_idx[ target_tx_port ], &burst_owner_t[ target_tx_port ], &burst_owner_route[ target_tx_port ], first_tx_cycle, last_tx_cycle, active_tx_cycles, active_process_cycles, last_activity_cycles );
 
-                        finalize_metrics( route_id, timer_hz, t_frame_arrival, last_rx_cycle, t_session_start, first_arrival_frame, current_frame_id, frame_temporal_skip, first_tx_cycle, last_tx_cycle, last_activity_cycles, active_process_cycles, active_tx_cycles, t_cycle_start, current_latency_ms, current_jitter_ms, jitter_ms, frame_sequence_ok, frame_valid_points, eth_errors_start, ipv4_errors_start, udp_errors_start, nsh_errors_start );
+                        finalize_metrics( route_id, timer_hz, t_frame_arrival, last_rx_cycle, t_session_start, first_arrival_frame, current_frame_id, frame_temporal_skip, frame_points_per_packet, first_tx_cycle, last_tx_cycle, last_activity_cycles, active_process_cycles, active_tx_cycles, t_cycle_start, current_latency_ms, current_jitter_ms, jitter_ms, frame_sequence_ok, frame_valid_points, eth_errors_start, ipv4_errors_start, udp_errors_start, nsh_errors_start );
                     }
 
                     if ( is_eos_packet ) {
@@ -1536,9 +1564,12 @@ static int worker_loop( __rte_unused void *arg ) {
                             double expected_interval_sec = ( double )( f_id - prev_arrival_frame[ route_id ] ) / TARGET_FPS;
                             double diff = real_interval_sec - expected_interval_sec;
 
+                            current_inter_arrival_ms[ route_id ] = real_interval_sec * 1000.0;
+
                             current_jitter_ms[ route_id ] = ( diff < 0.0 ) ? -diff * 1000.0 : diff * 1000.0;
                         }
                         else {
+                            current_inter_arrival_ms[ route_id ] = 0.0;
                             current_jitter_ms[ route_id ] = 0.0;
                         }
 
@@ -1562,6 +1593,9 @@ static int worker_loop( __rte_unused void *arg ) {
                         frame_arrived_points[ route_id ] = packet_arrived_points;
                         frame_eroded_points[ route_id ] = packet_eroded_points;
                         frame_valid_points[ route_id ] = packet_valid_points;
+
+                        if ( route_id == ROUTE_SFF1_ENCODER || route_id == ROUTE_DECODER_SFF3 )
+                            frame_points_per_packet[ route_id ] = packet_points_per_packet;
 
                         uint16_t temporal_skip = packet_temporal_skip;
 
@@ -1589,6 +1623,7 @@ static int worker_loop( __rte_unused void *arg ) {
                             new_t -> camera_send_timestamp = ( double )cam_tx_cycles / timer_hz;
                             new_t -> recv_start_timestamp = ( double )arrival_cycles / timer_hz;
                             new_t -> original_points = frame_original_points[ route_id ];
+                            new_t -> inter_arrival_ms = current_inter_arrival_ms[ route_id ];
 
                             update_logged_frame( route_id, f_id );
                         }
@@ -1629,6 +1664,9 @@ static int worker_loop( __rte_unused void *arg ) {
                     t -> rx_packets++;
 
                     bool metadata_mismatch = packet_original_points != frame_original_points[ route_id ] || packet_valid_points != frame_valid_points[ route_id ];
+
+                    if ( route_id == ROUTE_SFF1_ENCODER || route_id == ROUTE_DECODER_SFF3 )
+                        metadata_mismatch = metadata_mismatch || packet_points_per_packet != frame_points_per_packet[ route_id ];
 
                     if ( route_id == ROUTE_DECODER_SFF3 )
                         metadata_mismatch = metadata_mismatch || packet_arrived_points != frame_arrived_points[ route_id ] || packet_eroded_points != frame_eroded_points[ route_id ];
@@ -1759,7 +1797,16 @@ int main( int argc, char *argv[] ) {
 
     printf( "[SYSTEM] Booting the \"SFF2\" microservice...\n" );
 
-    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    uint32_t sff1_point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct nsh_hdr ) + sizeof( struct nsh_md2_ctx_hdr ) + sizeof( struct geo_agg_hdr ) + sizeof( struct cam_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+    uint32_t decoder_point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct nsh_hdr ) + sizeof( struct dec_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+    uint32_t media_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + sizeof( struct enc_hdr ) + MEDIA_PAYLOAD_SIZE;
+    uint32_t point_ipv4_len = ( sff1_point_ipv4_len > decoder_point_ipv4_len ) ? sff1_point_ipv4_len : decoder_point_ipv4_len;
+    uint32_t required_mtu = ( point_ipv4_len > media_ipv4_len ) ? point_ipv4_len : media_ipv4_len;
+
+    if ( required_mtu > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", required_mtu, ( unsigned int )NETWORK_MTU );
+
+    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
 
     if ( mbuf_pool == NULL )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );

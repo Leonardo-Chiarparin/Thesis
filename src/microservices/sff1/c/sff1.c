@@ -56,6 +56,9 @@
 
 // Packetization & "Maximum Transmission Unit" ( "MTU" ) constraints
 #define POINTS_PER_PACKET 80
+#define NETWORK_MTU 1500
+#define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
+
 #define MAX_FRAME_POINTS 835458
 
 #define CAMERA_DISTANCE 1200.0f
@@ -214,6 +217,7 @@ struct telemetry_csv {
 
     double camera_node_ms;
     double schedule_delay_ms;
+    double inter_arrival_ms;
     double instant_jitter_ms;
     double desynced_jitter_ms;
 
@@ -372,6 +376,13 @@ static inline int port_init( uint16_t port, struct rte_mempool *mbuf_pool ) {
     if ( retval != 0 )
         return retval;
 
+    if ( NETWORK_MTU != 1500 ) {
+        retval = rte_eth_dev_set_mtu( port, NETWORK_MTU );
+
+        if ( retval < 0 )
+            return retval;
+    }
+
     retval = rte_eth_rx_queue_setup( port, 0, 4096, rte_eth_dev_socket_id( port ), NULL, mbuf_pool );
 
     if ( retval < 0 )
@@ -466,7 +477,7 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
+    fprintf( f, "frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;rx_points;tx_points;rx_packets;tx_packets;payload_bytes;reference_size_bytes;data_integrity_pct;internal_throughput_mbs;reference_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;reference_bitrate_mbps;tx_duration_ms;active_tx_ms;active_process_ms;geometry_aggregation_ms;max_r_ms;cycle_ms;header_wait_ms;total_residency_ms;node_efficiency_pct;cycle_occupancy_pct;camera_node_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;eth_errors;ipv4_errors;udp_errors;nsh_errors;tx_zero_accepts;tx_partial_accepts;tx_resubmit_calls;tx_resubmitted_packets\n" );
 
     for ( int i = 0; i < logged_frames; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
@@ -474,7 +485,7 @@ static void telemetry_to_csv() {
         if ( t -> frame_id == 0 )
             continue;
 
-        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> geometry_aggregation_ms, t -> max_r_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> cycle_occupancy_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
+        fprintf( f, "%u;%u;%u;%u;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%u;%u;%u;%u;%u;%u;%u\n", t -> frame_id, t -> rx_complete, t -> tx_complete, t -> current_skip, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> rx_points, t -> tx_points, t -> rx_packets, t -> tx_packets, t -> payload_bytes, t -> reference_size_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> reference_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> reference_bitrate_mbps, t -> tx_duration_ms, t -> active_tx_ms, t -> active_process_ms, t -> geometry_aggregation_ms, t -> max_r_ms, t -> cycle_ms, t -> header_wait_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> cycle_occupancy_pct, t -> camera_node_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> eth_errors, t -> ipv4_errors, t -> udp_errors, t -> nsh_errors, t -> tx_zero_accepts, t -> tx_partial_accepts, t -> tx_resubmit_calls, t -> tx_resubmitted_packets );
     }
 
     fclose( f );
@@ -758,12 +769,14 @@ static int worker_loop( __rte_unused void *arg ) {
     double current_latency_ms = 0.0;
     double current_jitter_ms = 0.0;
     double jitter_ms = 0.0;
+    double current_inter_arrival_ms = 0.0;
 
     uint64_t prev_arrival_cycles = 0;
     uint32_t prev_arrival_frame = 0;
     uint32_t first_arrival_frame = 0;
 
     uint16_t frame_temporal_skip = 1;
+    uint16_t frame_points_per_packet = POINTS_PER_PACKET;
 
     const size_t outer_len = sizeof( struct main_hdr );
     const size_t camera_net_len = sizeof( struct rte_ether_hdr ) + sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr );
@@ -846,15 +859,25 @@ static int worker_loop( __rte_unused void *arg ) {
             uint32_t f_id = rte_be_to_cpu_32( old_cam -> frame_id );
             uint32_t packet_sequence = rte_be_to_cpu_32( old_cam -> sequence_number );
             uint32_t packet_points = rte_be_to_cpu_32( old_cam -> points_in_packet );
+            uint16_t packet_points_per_packet = rte_be_to_cpu_16( old_cam -> padding );
+
+            if ( packet_points_per_packet == 0 )
+                packet_points_per_packet = POINTS_PER_PACKET;
+
             uint32_t packet_payload_len = old_udp_length - sizeof( struct rte_udp_hdr ) - sizeof( struct cam_hdr );
 
             if ( f_id != END_OF_STREAM ) {
-                if ( unlikely( packet_points > POINTS_PER_PACKET || packet_payload_len != packet_points * sizeof( struct point_tx ) ) ) {
+                if ( unlikely( packet_points > packet_points_per_packet || packet_payload_len != packet_points * sizeof( struct point_tx ) ) ) {
                     rte_pktmbuf_free( m );
                     continue;
                 }
             }
             else if ( unlikely( packet_points != 0 || packet_payload_len != 0 ) ) {
+                rte_pktmbuf_free( m );
+                continue;
+            }
+
+            if ( f_id != END_OF_STREAM && f_id == current_frame_id && packet_points_per_packet != frame_points_per_packet ) {
                 rte_pktmbuf_free( m );
                 continue;
             }
@@ -906,7 +929,7 @@ static int worker_loop( __rte_unused void *arg ) {
                     uint64_t network_frame_bytes = transmitted_payload_bytes + ( ( uint64_t )frame_tx_packets * ( sizeof( struct main_hdr ) + sizeof( struct cam_hdr ) ) );
 
                     uint64_t reference_frame_bytes = ( ( uint64_t )frame_original_points * sizeof( struct point_tx ) ) + ( frame_original_points > 0 ? sizeof( struct cam_hdr ) : 0 );
-                    uint32_t expected_packets = ( frame_original_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET;
+                    uint32_t expected_packets = ( frame_original_points + frame_points_per_packet - 1 ) / frame_points_per_packet;
 
                     double effective_fps = TARGET_FPS / frame_temporal_skip;
 
@@ -950,6 +973,7 @@ static int worker_loop( __rte_unused void *arg ) {
                     double ideal_start_sec = ( double )schedule_frame_offset / TARGET_FPS;
 
                     telemetry_log[ logged_frames ].schedule_delay_ms = ( real_exit_sec - ideal_start_sec ) * 1000.0;
+                    telemetry_log[ logged_frames ].inter_arrival_ms = current_inter_arrival_ms;
                     telemetry_log[ logged_frames ].instant_jitter_ms = current_jitter_ms;
                     telemetry_log[ logged_frames ].desynced_jitter_ms = jitter_ms;
 
@@ -958,7 +982,7 @@ static int worker_loop( __rte_unused void *arg ) {
                     telemetry_log[ logged_frames ].network_bitrate_mbps = ( network_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
 
                     telemetry_log[ logged_frames ].reference_size_bytes = ( uint32_t )reference_frame_bytes;
-                    telemetry_log[ logged_frames ].reference_throughput_mbs = ( residency_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / residency_sec : 0.0;
+                    telemetry_log[ logged_frames ].reference_throughput_mbs = ( receive_sec > 0.0 ) ? ( ( double )reference_frame_bytes / 1000000.0 ) / receive_sec : 0.0;
                     telemetry_log[ logged_frames ].reference_bitrate_mbps = ( reference_frame_bytes * 8.0 * effective_fps ) / 1000000.0;
                     telemetry_log[ logged_frames ].cycle_occupancy_pct = ( cycle_sec > 0.0 ) ? ( residency_sec / cycle_sec ) * 100.0 : 0.0;
 
@@ -1003,9 +1027,12 @@ static int worker_loop( __rte_unused void *arg ) {
                         double expected_interval_sec = ( double )( f_id - prev_arrival_frame ) / TARGET_FPS;
                         double diff_sec = real_interval_sec - expected_interval_sec;
 
+                        current_inter_arrival_ms = real_interval_sec * 1000.0;
+
                         current_jitter_ms = ( diff_sec < 0.0 ) ? -diff_sec * 1000.0 : diff_sec * 1000.0;
                     }
                     else {
+                        current_inter_arrival_ms = 0.0;
                         current_jitter_ms = 0.0;
                     }
 
@@ -1017,6 +1044,10 @@ static int worker_loop( __rte_unused void *arg ) {
                 }
 
                 current_frame_id = f_id;
+
+                if ( f_id != END_OF_STREAM )
+                    frame_points_per_packet = packet_points_per_packet;
+
                 t_frame_arrival = arrival_cycles;
                 last_rx_cycles = arrival_cycles;
 
@@ -1315,7 +1346,12 @@ int main( int argc, char *argv[] ) {
 
     printf( "[SYSTEM] Booting the \"SFF1\" microservice...\n" );
 
-    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id() );
+    uint32_t point_ipv4_len = sizeof( struct main_hdr ) - sizeof( struct rte_ether_hdr ) + sizeof( struct cam_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
+
+    if ( point_ipv4_len > NETWORK_MTU )
+        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Packetization exceeded \"MTU\" size ( %u > %u )...\n", point_ipv4_len, ( unsigned int )NETWORK_MTU );
+
+    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create( "MBUF_POOL", NUM_MBUFS, MBUF_CACHE_SIZE, 0, MBUF_DATA_SIZE, rte_socket_id() );
 
     if ( mbuf_pool == NULL )
         rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Memory pool allocation failed...\n" );
