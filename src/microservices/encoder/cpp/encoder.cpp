@@ -840,7 +840,7 @@ static inline bool geometry_from_sff1( const frame_buffer &fb, const struct host
     result -> projection_geometry_ready = false;
 
     uint64_t t_max_r_start = rte_get_timer_cycles();
-    float max_r2 = 0.0f;
+    float max_r = 0.0f;
 
     for ( uint32_t i = 0; i < active_point_count; i++ ) {
         if ( i > 0 && i % 4096 == 0 )
@@ -849,13 +849,14 @@ static inline bool geometry_from_sff1( const frame_buffer &fb, const struct host
         float dx = active_points[ i ].x - result -> centroid_x;
         float dy = active_points[ i ].y - result -> centroid_y;
         float dz = active_points[ i ].z - result -> centroid_z;
-        float r2 = dx * dx + dy * dy + dz * dz;
 
-        if ( r2 > max_r2 )
-            max_r2 = r2;
+        float dist = sqrtf( ( dx * dx ) + ( dy * dy ) + ( dz * dz ) );
+
+        if ( dist > max_r )
+            max_r = dist;
     }
 
-    result -> max_r = std::sqrt( max_r2 );
+    result -> max_r = max_r;
 
     uint64_t t_max_r_end = rte_get_timer_cycles();
 
@@ -866,13 +867,14 @@ static inline bool geometry_from_sff1( const frame_buffer &fb, const struct host
 
 static inline bool compute_geometry_locally( const struct host_point *active_points, uint32_t active_point_count, geometry_result *result, uint64_t timer_hz ) {
     
-    // Purpose: It constructs the full geometry metrics locally via "CPU" if hardware offloading is disabled or upstream states are incorrect
+    // Purpose: It reconstructs the complete spatial frontier exported by "SFF1" when computational offloading is unavailable or disabled
     
     if ( active_points == NULL || active_point_count == 0 )
         return false;
 
     result -> projection_geometry_ready = false;
 
+    uint64_t geometry_cycles = 0;
     uint64_t t_geometry_start = rte_get_timer_cycles();
 
     double sum_x = 0.0;
@@ -917,11 +919,10 @@ static inline bool compute_geometry_locally( const struct host_point *active_poi
     result -> bbox_center_z = ( min_z + max_z ) * 0.5f;
 
     uint64_t t_geometry_end = rte_get_timer_cycles();
-
-    result -> geometry_aggregation_ms = ( ( double )( t_geometry_end - t_geometry_start ) / timer_hz ) * 1000.0;
+    geometry_cycles += t_geometry_end - t_geometry_start;
 
     uint64_t t_max_r_start = rte_get_timer_cycles();
-    float max_r2 = 0.0f;
+    float max_r = 0.0f;
 
     for ( uint32_t i = 0; i < active_point_count; i++ ) {
         if ( i > 0 && i % 1024 == 0 )
@@ -930,19 +931,78 @@ static inline bool compute_geometry_locally( const struct host_point *active_poi
         float dx = active_points[ i ].x - result -> centroid_x;
         float dy = active_points[ i ].y - result -> centroid_y;
         float dz = active_points[ i ].z - result -> centroid_z;
-        float r2 = dx * dx + dy * dy + dz * dz;
 
-        if ( r2 > max_r2 )
-            max_r2 = r2;
+        float dist = sqrtf( ( dx * dx ) + ( dy * dy ) + ( dz * dz ) );
+
+        if ( dist > max_r )
+            max_r = dist;
     }
 
-    result -> max_r = std::sqrt( max_r2 );
+    result -> max_r = max_r;
 
     uint64_t t_max_r_end = rte_get_timer_cycles();
-
     result -> max_r_ms = ( ( double )( t_max_r_end - t_max_r_start ) / timer_hz ) * 1000.0;
 
-    return std::isfinite( result -> max_r );
+    if ( !std::isfinite( result -> max_r ) || result -> max_r < 0.0f )
+        return false;
+
+    uint64_t t_projection_frontier_start = rte_get_timer_cycles();
+
+    float final_scale = 1.0f;
+
+    if ( result -> max_r > 0.0f )
+        final_scale = ( CAMERA_DISTANCE * 0.2f ) / result -> max_r;
+
+    float projected_min_x = FLT_MAX;
+    float projected_min_y = FLT_MAX;
+    float projected_min_z = FLT_MAX;
+    float projected_max_x = -FLT_MAX;
+    float projected_max_y = -FLT_MAX;
+    float projected_max_z = -FLT_MAX;
+
+    for ( uint32_t i = 0; i < active_point_count; i++ ) {
+        float tx = ( active_points[ i ].x - result -> centroid_x ) * final_scale;
+        float ty = ( active_points[ i ].y - result -> centroid_y ) * final_scale;
+        float tz = ( active_points[ i ].z - result -> centroid_z ) * final_scale + CAMERA_DISTANCE;
+
+        if ( tx < projected_min_x ) projected_min_x = tx;
+        if ( tx > projected_max_x ) projected_max_x = tx;
+        if ( ty < projected_min_y ) projected_min_y = ty;
+        if ( ty > projected_max_y ) projected_max_y = ty;
+        if ( tz < projected_min_z ) projected_min_z = tz;
+        if ( tz > projected_max_z ) projected_max_z = tz;
+    }
+
+    float projected_extent_x = projected_max_x - projected_min_x;
+    float projected_extent_y = projected_max_y - projected_min_y;
+    float projected_extent_z = projected_max_z - projected_min_z;
+
+    float projected_bbox_x = ( projected_min_x + projected_max_x ) * 0.5f;
+    float projected_bbox_y = ( projected_min_y + projected_max_y ) * 0.5f;
+    float projected_bbox_z = ( projected_min_z + projected_max_z ) * 0.5f;
+
+    float scale_x = projected_extent_x / ( float )WIDTH;
+    float scale_y = projected_extent_y / ( float )HEIGHT;
+    float scale_z = projected_extent_z / ( float )WIDTH;
+    float global_scale = fmaxf( fmaxf( scale_x, scale_y ), scale_z ) * 1.10f;
+
+    if ( !std::isfinite( global_scale ) || global_scale <= 0.0f )
+        global_scale = 1.0f;
+
+    result -> final_scale = final_scale;
+    result -> global_scale = global_scale;
+    result -> projected_bbox_x = projected_bbox_x;
+    result -> projected_bbox_y = projected_bbox_y;
+    result -> projected_bbox_z = projected_bbox_z;
+
+    result -> projection_geometry_ready = std::isfinite( result -> final_scale ) && result -> final_scale > 0.0f && std::isfinite( result -> global_scale ) && result -> global_scale > 0.0f && std::isfinite( result -> projected_bbox_x ) && std::isfinite( result -> projected_bbox_y ) && std::isfinite( result -> projected_bbox_z );
+
+    uint64_t t_projection_frontier_end = rte_get_timer_cycles();
+    geometry_cycles += t_projection_frontier_end - t_projection_frontier_start;
+
+    result -> geometry_aggregation_ms = ( ( double )geometry_cycles / timer_hz ) * 1000.0;
+
+    return result -> projection_geometry_ready;
 }
 
 static inline bool resolve_geometry( const frame_buffer &fb, const struct host_point *active_points, uint32_t active_point_count, geometry_result *result, uint64_t timer_hz ) {

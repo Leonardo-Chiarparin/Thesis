@@ -1,6 +1,7 @@
 #include "encoder.h"
 #include <cuda_runtime.h>
 #include <cmath>
+#include <cfloat>
 #include <cstdlib>
 #include <iostream>
 #include <rte_cycles.h>
@@ -337,24 +338,43 @@ extern "C" void run_projection_pipeline( const struct host_point *points, uint32
     float global_scale = 1.0f;
 
     if ( use_projection_geometry && isfinite( projected_global_scale ) && projected_global_scale > 0.0f && isfinite( projected_bbox_x ) && isfinite( projected_bbox_y ) && isfinite( projected_bbox_z ) ) {
-
         global_scale = projected_global_scale;
         bbox_center_x = projected_bbox_x;
         bbox_center_y = projected_bbox_y;
         bbox_center_z = projected_bbox_z;
     }
     else {
-        bbox_center_x = ( raw_center_x - centroid_x ) * final_scale;
-        bbox_center_y = ( raw_center_y - centroid_y ) * final_scale;
-        bbox_center_z = ( raw_center_z - centroid_z ) * final_scale + cam_dist;
+        float projected_min_x = FLT_MAX;
+        float projected_min_y = FLT_MAX;
+        float projected_min_z = FLT_MAX;
+        float projected_max_x = -FLT_MAX;
+        float projected_max_y = -FLT_MAX;
+        float projected_max_z = -FLT_MAX;
 
-        float transformed_extent_x = extent_x * final_scale;
-        float transformed_extent_y = extent_y * final_scale;
-        float transformed_extent_z = extent_z * final_scale;
+        for ( uint32_t point = 0; point < num_pts; point++ ) {
+            float tx = ( points[ point ].x - centroid_x ) * final_scale;
+            float ty = ( points[ point ].y - centroid_y ) * final_scale;
+            float tz = ( points[ point ].z - centroid_z ) * final_scale + cam_dist;
 
-        float scale_x = transformed_extent_x / ( float )WIDTH;
-        float scale_y = transformed_extent_y / ( float )HEIGHT;
-        float scale_z = transformed_extent_z / ( float )WIDTH;
+            if ( tx < projected_min_x ) projected_min_x = tx;
+            if ( tx > projected_max_x ) projected_max_x = tx;
+            if ( ty < projected_min_y ) projected_min_y = ty;
+            if ( ty > projected_max_y ) projected_max_y = ty;
+            if ( tz < projected_min_z ) projected_min_z = tz;
+            if ( tz > projected_max_z ) projected_max_z = tz;
+        }
+
+        float projected_extent_x = projected_max_x - projected_min_x;
+        float projected_extent_y = projected_max_y - projected_min_y;
+        float projected_extent_z = projected_max_z - projected_min_z;
+
+        bbox_center_x = ( projected_min_x + projected_max_x ) * 0.5f;
+        bbox_center_y = ( projected_min_y + projected_max_y ) * 0.5f;
+        bbox_center_z = ( projected_min_z + projected_max_z ) * 0.5f;
+
+        float scale_x = projected_extent_x / ( float )WIDTH;
+        float scale_y = projected_extent_y / ( float )HEIGHT;
+        float scale_z = projected_extent_z / ( float )WIDTH;
         global_scale = fmaxf( fmaxf( scale_x, scale_y ), scale_z ) * 1.10f;
 
         if ( !isfinite( global_scale ) || global_scale <= 0.0f )
