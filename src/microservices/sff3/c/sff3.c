@@ -57,7 +57,6 @@
 #define NETWORK_MTU 1500
 #define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
 
-
 #define MD_TYPE_2 0x02
 #define NEXT_PROTOCOL_EXPERIMENT_1 0xFE
 #define DEFAULT_TTL 63

@@ -1818,7 +1818,7 @@ static inline void emit_mpeg_payload( const uint8_t *mpeg_data, uint16_t mpeg_le
     }
 }
 
-static inline void consume_mpeg_chunk_prefix( size_t bytes ) {
+static inline void consume_mpeg_prefix( size_t bytes ) {
     if ( bytes == 0 )
         return;
 
@@ -1839,10 +1839,10 @@ static inline void consume_mpeg_chunk_prefix( size_t bytes ) {
     mpeg_chunk.erase( mpeg_chunk.begin(), mpeg_chunk.begin() + bytes );
 }
 
-static inline void emit_ready_mpeg_payloads( struct rte_mbuf **tx_bufs, int *burst_idx, bool flush_all ) {
+static inline void emit_ready_media( struct rte_mbuf **tx_bufs, int *burst_idx, bool flush_all ) {
     while ( mpeg_chunk.size() >= MEDIA_PAYLOAD_SIZE ) {
         emit_mpeg_payload( mpeg_chunk.data(), MEDIA_PAYLOAD_SIZE, tx_bufs, burst_idx );
-        consume_mpeg_chunk_prefix( MEDIA_PAYLOAD_SIZE );
+        consume_mpeg_prefix( MEDIA_PAYLOAD_SIZE );
     }
 
     if ( flush_all && !mpeg_chunk.empty() ) {
@@ -1897,7 +1897,7 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
                     }
                 }
 
-                emit_ready_mpeg_payloads( tx_bufs, burst_idx, true );
+                emit_ready_media( tx_bufs, burst_idx, true );
             }
 
             if ( !begin_mpeg_frame( tx_bufs, burst_idx, timer_hz, output_cycles ) )
@@ -1906,7 +1906,7 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
             if ( entering_real_stream ) {
                 for ( size_t offset = 0; offset + TS_PACKET_SIZE <= transition_prefix.size(); offset += TS_PACKET_SIZE ) {
                     mpeg_chunk.insert( mpeg_chunk.end(), transition_prefix.data() + offset, transition_prefix.data() + offset + TS_PACKET_SIZE );
-                    emit_ready_mpeg_payloads( tx_bufs, burst_idx, false );
+                    emit_ready_media( tx_bufs, burst_idx, false );
                 }
             }
         }
@@ -1915,7 +1915,7 @@ static inline void process_mpeg_bytes( const uint8_t *data, size_t data_len, str
         consumed += TS_PACKET_SIZE;
 
         if ( current_frame_id > 0 )
-            emit_ready_mpeg_payloads( tx_bufs, burst_idx, false );
+            emit_ready_media( tx_bufs, burst_idx, false );
     }
 
     if ( consumed > 0 )
@@ -2453,7 +2453,7 @@ static int worker_loop( __rte_unused void *arg ) {
             drain_codec_output( tx_bufs, &burst_idx, timer_hz );
 
             if ( current_frame_id > 0 && !mpeg_chunk.empty() )
-                emit_ready_mpeg_payloads( tx_bufs, &burst_idx, true );
+                emit_ready_media( tx_bufs, &burst_idx, true );
 
             ts_pending.clear();
 
