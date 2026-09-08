@@ -64,6 +64,8 @@ This project investigates the feasibility of migrating selected functions within
 
 The objective extends beyond merely substituting kernel sockets with a faster packet-I / O "API". The principal research question addresses whether the forwarding path can function as an active computational component without overloading the Data Plane or compromising the semantic correctness of frame-level processing. This approach aims to preserve bounded queuing behaviour, data integrity, & sufficient observability to accurately attribute latency to the responsible components.
 
+> **Real-Time Scope:** Within this repository, **real-time-oriented** denotes preservation of the absolute `TARGET_FPS = 30` source schedule, bounded queue / backlog behaviour, & complete frame semantics throughout the nominal 300-frame operating condition. It does **not** denote a hard real-time deadline guarantee: multiple frames can coexist within the persistent "codec" pipeline, native frame-ready latency remains an independently measured end-to-end quantity, & browser "Command-to-Photon" remains a render-completion proxy rather than a physical display-latency measurement.
+
 ### 1.1 Why "DPDK" & "UDP" Are Design Requirements
 
 
@@ -381,6 +383,18 @@ The browser remains fire-&-forget from an interaction standpoint: command issuan
 
 
 The architecture employs an 8-byte `nsh_hdr`, the "SPI" / "SI" paradigm, a "TTL" field, & a project-defined "MD-Type-2"-like geometric context. The implementation is accurately described as **experimental / "NSH"-inspired**, rather than as a universally interoperable "RFC 8300" implementation. "RFC 7665" is relevant at the architectural level because it defines SFFs, "SFC"-aware / unaware functions, proxies, classification, metadata exchange, & topology-independent service paths; "RFC 8300" motivates the `SPI` / `SI` progression & proxy behaviour. Neither referenced specification requires the project to employ "UDP" as its transport, so transport uniformity is an implementation choice rather than a standards-compliance claim.
+
+#### 3.4.1 Project Labels & "RFC 7665" Role Mapping
+
+The executable names `SFF1`, `SFF2`, & `SFF3` are **project placement labels**, not assertions that each process corresponds one-to-one with a single abstract "RFC 7665" role. The implementation deliberately co-locates compatible forwarding, classification, proxy, & service-function responsibilities inside a constrained software Data Plane:
+
+| Project Node | "RFC 7665"-Oriented Logical Roles | Concrete Project Interpretation |
+|---|---|---|
+| `SFF1` | Classifier + "SFF" responsibilities + co-located "SFC"-aware geometry "SF" | Classifies the source-side primary path, imposes / validates experimental service state, executes the "GAC" geometric treatment while forwarding, & terminates the reverse "Temporal" aware envelope before `Camera` |
+| `SFF2` | "SFF" + "SFC Proxy" responsibilities | Retains / advances service-path state around the intentionally "SFC"-unaware `Encoder` & `Decoder`, removes the aware envelope before those functions, & reconstructs the required state when traffic re-enters the aware chain |
+| `SFF3` | Final primary-path "SFF" / declassification boundary + reverse-path Classifier | Validates / removes the final primary service state before `User`, while independently classifying plain 24-byte "Pose" commands & imposing the reverse `SPI 300 / SI 255` service state |
+
+This mapping preserves the architectural vocabulary without pretending that software-process boundaries must mirror the abstract role boundaries literally. In particular, the geometry treatment performed inside `SFF1` is the service-function computation, while the same process also owns forwarding / classification duties required by the experimental placement.
 
 The service-plane constants are fixed as part of the experiment:
 
@@ -2636,28 +2650,51 @@ All 52 requests are observed in the returning native pose state; one does not ac
 
 Both 300-frame capture-enabled runs produce complete "luma" indicators:
 
-| Metric | `BQ` Mean | `BQ` Median | `BQ` P95 | `OQ-OFF` Mean | `OQ-OFF` Median | `OQ-OFF` P95 |
-|---|---:|---:|---:|---:|---:|---:|
-| `MSE-Y` | `0.241633` | `0.220` | `0.320` | `0.241500` | `0.220` | `0.320` |
-| `PSNR-Y` ( dB ) | `54.3579` | `54.660` | `55.120` | `54.3538` | `54.660` | `55.110` |
-| `SSIM-Y` | `0.997368` | `0.998205` | `0.998609` | `0.997358` | `0.998187` | `0.998595` |
+| Metric | `BQ` Mean | `BQ` Median | `BQ` P5 | `BQ` P95 | `OQ-OFF` Mean | `OQ-OFF` Median | `OQ-OFF` P5 | `OQ-OFF` P95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `MSE-Y` | `0.241633` | `0.220` | `0.200` | `0.320` | `0.241500` | `0.220` | `0.200` | `0.320` |
+| `PSNR-Y` ( dB ) | `54.3579` | `54.660` | `53.030` | `55.120` | `54.3538` | `54.660` | `53.030` | `55.110` |
+| `SSIM-Y` | `0.997368` | `0.998205` | `0.991364` | `0.998609` | `0.997358` | `0.998187` | `0.991190` | `0.998595` |
 
-The aggregate ON / OFF differences are extremely small ( approximately `-0.000133` "MSE", `-0.0041 dB` "PSNR", & `-9.38e-6` "SSIM" in `OQ-OFF` relative to `BQ` ). They do not establish bit-identical encoded pictures, but they support fidelity equivalence at the reported quality resolution when the same geometric frontier is produced at a different computational location. These values describe the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
+Because larger "PSNR" / "SSIM" values indicate better fidelity, the added `P5` values expose their adverse lower tail while `P95` remains visible for distribution completeness. `MSE-Y` retains both tails under the same tabular convention.
+
+The aggregate ON / OFF differences are extremely small ( approximately `-0.000133` "MSE", `-0.0041 dB` "PSNR", & `-9.38e-6` "SSIM" in `OQ-OFF` relative to `BQ` ). They do not establish bit-identical encoded pictures; rather, **no material systematic fidelity shift is observed at the reported sequence-level measurement resolution** when the same geometric frontier is produced at a different computational location. These values describe the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
+
+The common 300 `frame_id` values also permit a direct paired comparison instead of relying solely upon aggregate summaries. Defining `Delta = OQ-OFF - BQ` for each aligned frame gives:
+
+| Paired "luma" Metric | Median `Delta` | P95 `abs( Delta )` | Maximum `abs( Delta )` |
+|---|---:|---:|---:|
+| `MSE-Y` | `0.000` | `0.010` | `0.010` |
+| `PSNR-Y` | `0.000 dB` | `0.060 dB` | `0.160 dB` |
+| `SSIM-Y` | `-6.50e-6` | `1.34e-4` | `2.12e-4` |
+
+The paired view reinforces the aggregate observation: frame-aligned "luma" deviations remain extremely small, while the nonzero maxima explicitly prevent the result from being misrepresented as byte-identical encoded output.
 
 ### 21.11 Objective Reconstructed Geometry Quality
 
-`Gauge` evaluates all 300 complete frames in both quality controls:
+`Gauge` evaluates all 300 complete frames in both quality controls. Its millimetre indicators are **post-registration shape-fidelity quantities**: inverse-pose normalisation, statistical filtering, & robust "ICP" precede nearest-neighbour evaluation, so these values do not independently quantify residual global pose / rigid-registration error. The telemetry field `mean_error` is consequently named in the prose below as **directed reconstructed -> reference mean error** rather than as an unqualified geometric mean:
 
 | Metric | `BQ` Mean | `OQ-OFF` Mean | Relative Difference | Unit |
 |---|---:|---:|---:|---|
-| Mean geometric error | `6.3859` | `6.3862` | `+0.004 %` | `mm` |
+| Directed reconstructed -> reference mean error | `6.3859` | `6.3862` | `+0.004 %` | `mm` |
 | Geometric "RMSE" | `6.2590` | `6.2581` | `-0.014 %` | `mm` |
 | Symmetric Chamfer | `11.1645` | `11.1605` | `-0.036 %` | `mm` |
 | Symmetric Hausdorff | `121.1533` | `120.8072` | `-0.286 %` | `mm` |
 
-The corresponding `BQ` medians are `6.145 / 6.142 / 10.922 / 105.444 mm`; `OQ-OFF` records `6.115 / 6.115 / 10.908 / 107.937 mm`. The Hausdorff metric retains the expected larger tail & must be interpreted together with the mean / "RMSE" / Chamfer measures rather than in isolation.
+The corresponding `BQ` medians are `6.145 / 6.142 / 10.922 / 105.444 mm`; `OQ-OFF` records `6.115 / 6.115 / 10.908 / 107.937 mm`. The Hausdorff metric retains the expected larger tail & must be interpreted together with the directed mean / "RMSE" / Chamfer measures rather than in isolation.
 
-The equality of `valid_points` for every aligned frame, together with nearly unchanged "luma" & post-`Gauge` metrics, provides the completed targeted fidelity control for the corrected offload fallback. The result supports the statement that **moving the same geometric frontier from `SFF1` consumption to equivalent local recomputation does not introduce a material fidelity change in the measured implementation**; it does not imply byte-for-byte identity of all intermediate atlas or compressed-stream representations.
+The same aligned 300-frame population permits a paired geometric comparison with `Delta = OQ-OFF - BQ`:
+
+| Paired Post-"ICP" Geometry Metric | Median `Delta` | P95 `abs( Delta )` | Maximum `abs( Delta )` |
+|---|---:|---:|---:|
+| Directed reconstructed -> reference mean error | `-0.007 mm` | `0.246 mm` | `0.524 mm` |
+| Geometric "RMSE" | `+0.002 mm` | `0.227 mm` | `0.433 mm` |
+| Symmetric Chamfer | `-0.015 mm` | `0.384 mm` | `0.796 mm` |
+| Symmetric Hausdorff | `+0.859 mm` | `36.533 mm` | `172.233 mm` |
+
+The paired mean / "RMSE" / Chamfer deviations remain tightly concentrated. Hausdorff, as an extreme-value metric, exhibits substantially wider frame-level excursions despite its nearly unchanged sequence mean; this tail behaviour is therefore retained explicitly rather than being hidden behind the aggregate `-0.286 %` difference.
+
+The equality of `valid_points` for every aligned frame, together with nearly unchanged "luma" & post-`Gauge` aggregate metrics, provides the completed targeted fidelity control for the corrected offload fallback. The result supports the narrower statement that **no systematic material fidelity shift is observed when the same geometric frontier moves from `SFF1` consumption to equivalent local recomputation within the measured implementation**; it does not imply frame-wise identity of every extreme-value metric or byte-for-byte identity of intermediate atlas / compressed-stream representations.
 
 ### 21.12 Quality-Capture Runtime Cost
 
@@ -2773,7 +2810,7 @@ The same caution applies to robust post-erosion geometry. Converting the referen
 
 | Metric | Reference Robust Post-Erosion | Current `BQ` Gauge | Difference in Interpretation |
 |---|---:|---:|---|
-| Mean geometric error | `4.472 mm` | `6.386 mm` | Current value is higher; both remain millimetre-scale |
+| Directed reconstructed -> reference mean error | `4.472 mm` | `6.386 mm` | Current value is higher; both remain millimetre-scale |
 | Geometric "RMSE" | `5.586 mm` | `6.259 mm` | Same order of magnitude |
 | Symmetric Chamfer | `10.025 mm` | `11.165 mm` | Same order of magnitude |
 | Symmetric Hausdorff | `87.364 mm` | `121.153 mm` | Current worst-case tail is higher |
@@ -3110,7 +3147,7 @@ The repeated baseline remains the correct denominator for stable full-rate runti
 
 #### Fidelity Scope
 
-`BQ` supplies objective fidelity for the common configuration, while the now-completed `OQ-OFF` run supplies the targeted implementation control for the aligned local geometry path. Both contain all 300 frame IDs at `current_skip = 1`; their final `valid_points` vectors are identical, while aggregate "luma" & `Gauge` differences are negligible at the reported resolution. This is the appropriate evidence for offload **fidelity equivalence**, distinct from the runtime headroom experiment.
+`BQ` supplies objective fidelity for the common configuration, while the now-completed `OQ-OFF` run supplies the targeted implementation control for the aligned local geometry path. Both contain all 300 frame IDs at `current_skip = 1`; their final `valid_points` vectors are identical, while aggregate "luma" & `Gauge` differences remain small at the reported resolution. The frame-aligned deltas in Sections 21.10 & 21.11 additionally expose the residual per-frame spread rather than collapsing it into sequence means. This is the appropriate evidence that **no systematic material offload-related fidelity shift is observed within the present implementation**, distinct from the runtime headroom experiment.
 
 Repeating "PSNR", "SSIM", & `Gauge` for every packetisation level is unnecessary when the corresponding runtime execution preserves frame completion, final point population, codec-drop counters, & `current_skip = 1`. `P84` & `M1000` satisfy those invariants & remain packetisation tests rather than rate-distortion experiments.
 
@@ -3171,7 +3208,7 @@ Persistent pre-roll / post-roll deliberately injects private chronology into `ff
 
 ### 22.11 Objective Geometry Depends upon the Stated Gauge Procedure
 
-The millimetre metrics include pose reversal, statistical filtering, robust "ICP" alignment, & nearest-neighbour comparison using `VOXEL_MM = 1.820`. They are therefore metrics of the documented evaluation pipeline, not unqualified raw point-index differences.
+The millimetre metrics include pose reversal, statistical filtering, robust "ICP" alignment, & nearest-neighbour comparison using `VOXEL_MM = 1.820`. They are therefore **post-registration shape-fidelity metrics** of the documented evaluation pipeline, not unqualified raw point-index differences & not independent measurements of residual global pose / rigid-registration error.
 
 ### 22.12 Dataset Artefacts Are External to Git
 
