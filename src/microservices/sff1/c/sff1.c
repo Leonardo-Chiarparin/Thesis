@@ -29,6 +29,12 @@
 
 #define END_OF_STREAM 0xFFFFFFFF
 
+// In-network geometric-processing selection conditions
+#define NETWORK_PROCESSING_DISABLED 0
+#define NETWORK_PROCESSING_ENABLED 1
+
+#define NETWORK_PROCESSING NETWORK_PROCESSING_ENABLED
+
 // "DPDK" packet-buffer pool settings
 #define NUM_MBUFS 16383
 #define MBUF_CACHE_SIZE 256
@@ -294,7 +300,7 @@ static inline uint16_t nsh_length_bytes( struct nsh_hdr *nsh ) {
 static inline float calculate_maximum_radius( const struct geometry_point *points, uint32_t point_count, float centroid_x, float centroid_y, float centroid_z ) {
 
     // Purpose: It follows the reference numerical order more closely by
-    //          evaluating sqrt() per point before selecting the maximum.
+    //          evaluating "sqrt()" per point before selecting the maximum.
 
     float max_r = 0.0f;
 
@@ -707,13 +713,15 @@ static inline void dispatch_temporal_control( struct rte_mbuf *m ) {
 static int worker_loop( __rte_unused void *arg ) {
     struct worker_context *worker_ctx = ( struct worker_context * )arg;
 
-    if ( worker_ctx == NULL || worker_ctx -> frame_geometry_points == NULL || worker_ctx -> frame_geometry_capacity == 0 )
-        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Invalid geometry context...\n" );
+    struct geometry_point *frame_geometry_points = worker_ctx != NULL ? worker_ctx -> frame_geometry_points : NULL;
+    const size_t frame_geometry_capacity = worker_ctx != NULL ? worker_ctx -> frame_geometry_capacity : 0;
 
-    struct geometry_point *frame_geometry_points = worker_ctx -> frame_geometry_points;
-    const size_t frame_geometry_capacity = worker_ctx -> frame_geometry_capacity;
+    if ( NETWORK_PROCESSING ) {
+        if ( frame_geometry_points == NULL || frame_geometry_capacity == 0 )
+            rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Invalid geometry context...\n" );
 
-    geometry_workspace_init( frame_geometry_points, frame_geometry_capacity );
+        geometry_workspace_init( frame_geometry_points, frame_geometry_capacity );
+    }
 
     uint64_t timer_hz = rte_get_timer_hz();
 
@@ -1131,7 +1139,7 @@ static int worker_loop( __rte_unused void *arg ) {
                 continue;
             }
 
-            uint64_t t_active_process_start = rte_get_timer_cycles();
+            uint64_t active_process_start = rte_get_timer_cycles();
 
             last_rx_cycles = packet_arrival_cycles;
 
@@ -1146,47 +1154,6 @@ static int worker_loop( __rte_unused void *arg ) {
 
             bool frame_complete = frame_original_points > 0 && frame_rx_points == frame_original_points;
 
-            if ( unlikely( frame_original_points > frame_geometry_capacity ) )
-                rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Frame %u declares %u points, exceeding the preallocated maximum of %zu...\n", f_id, frame_original_points, frame_geometry_capacity );
-
-            if ( unlikely( ( size_t )frame_point_count + packet_points > frame_geometry_capacity ) )
-                rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Frame %u geometry overflow detected...\n", f_id );
-
-            uint64_t t_geometry_start = rte_get_timer_cycles();
-
-            if ( likely( packet_payload_len > 0 ) ) {
-                struct point_tx *points = ( struct point_tx * )( old_cam + 1 );
-
-                for ( uint32_t point = 0; point < packet_points; point++ ) {
-                    float x = be_to_float( points[ point ].x );
-                    float y = be_to_float( points[ point ].y );
-                    float z = be_to_float( points[ point ].z );
-
-                    frame_geometry_points[ frame_point_count ].x = x;
-                    frame_geometry_points[ frame_point_count ].y = y;
-                    frame_geometry_points[ frame_point_count ].z = z;
-
-                    frame_sum_x += x;
-                    frame_sum_y += y;
-                    frame_sum_z += z;
-
-                    frame_point_count++;
-
-                    if ( x < min_x )
-                        min_x = x;
-                    if ( x > max_x )
-                        max_x = x;
-                    if ( y < min_y )
-                        min_y = y;
-                    if ( y > max_y )
-                        max_y = y;
-                    if ( z < min_z )
-                        min_z = z;
-                    if ( z > max_z )
-                        max_z = z;
-                }
-            }
-
             float centroid_x = 0.0f;
             float centroid_y = 0.0f;
             float centroid_z = 0.0f;
@@ -1199,23 +1166,6 @@ static int worker_loop( __rte_unused void *arg ) {
             float bbox_center_y = 0.0f;
             float bbox_center_z = 0.0f;
 
-            if ( frame_point_count > 0 ) {
-                centroid_x = ( float )( frame_sum_x / frame_point_count );
-                centroid_y = ( float )( frame_sum_y / frame_point_count );
-                centroid_z = ( float )( frame_sum_z / frame_point_count );
-
-                extent_x = max_x - min_x;
-                extent_y = max_y - min_y;
-                extent_z = max_z - min_z;
-
-                bbox_center_x = ( min_x + max_x ) * 0.5f;
-                bbox_center_y = ( min_y + max_y ) * 0.5f;
-                bbox_center_z = ( min_z + max_z ) * 0.5f;
-            }
-
-            uint64_t t_geometry_end = rte_get_timer_cycles();
-            geometry_cycles += t_geometry_end - t_geometry_start;
-
             float packet_max_r = 0.0f;
             float packet_final_scale = 0.0f;
             float packet_global_scale = 0.0f;
@@ -1223,36 +1173,90 @@ static int worker_loop( __rte_unused void *arg ) {
             float packet_bbox_y = 0.0f;
             float packet_bbox_z = 0.0f;
 
-            bool final_geometry = frame_original_points > 0 && frame_point_count == frame_original_points;
+            if ( NETWORK_PROCESSING ) {
+                if ( unlikely( frame_original_points > frame_geometry_capacity ) )
+                    rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Frame %u declares %u points, exceeding the preallocated maximum of %zu...\n", f_id, frame_original_points, frame_geometry_capacity );
 
-            if ( final_geometry ) {
-                uint64_t t_max_r_start = rte_get_timer_cycles();
+                if ( unlikely( ( size_t )frame_point_count + packet_points > frame_geometry_capacity ) )
+                    rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Frame %u geometry overflow detected...\n", f_id );
 
-                packet_max_r = calculate_maximum_radius(
-                    frame_geometry_points,
-                    frame_point_count,
-                    centroid_x,
-                    centroid_y,
-                    centroid_z
-                );
+                uint64_t t_geometry_start = rte_get_timer_cycles();
 
-                uint64_t t_max_r_end = rte_get_timer_cycles();
-                max_r_cycles += t_max_r_end - t_max_r_start;
+                if ( likely( packet_payload_len > 0 ) ) {
+                    struct point_tx *points = ( struct point_tx * )( old_cam + 1 );
 
-                uint64_t t_projection_frontier_start = rte_get_timer_cycles();
+                    for ( uint32_t point = 0; point < packet_points; point++ ) {
+                        float x = be_to_float( points[ point ].x );
+                        float y = be_to_float( points[ point ].y );
+                        float z = be_to_float( points[ point ].z );
 
-                calculate_projection_metadata( frame_geometry_points, frame_point_count, centroid_x, centroid_y, centroid_z, packet_max_r, &packet_final_scale, &packet_global_scale, &packet_bbox_x, &packet_bbox_y, &packet_bbox_z );
+                        frame_geometry_points[ frame_point_count ].x = x;
+                        frame_geometry_points[ frame_point_count ].y = y;
+                        frame_geometry_points[ frame_point_count ].z = z;
 
-                uint64_t t_projection_frontier_end = rte_get_timer_cycles();
-                geometry_cycles += t_projection_frontier_end - t_projection_frontier_start;
+                        frame_sum_x += x;
+                        frame_sum_y += y;
+                        frame_sum_z += z;
+
+                        frame_point_count++;
+
+                        if ( x < min_x )
+                            min_x = x;
+                        if ( x > max_x )
+                            max_x = x;
+                        if ( y < min_y )
+                            min_y = y;
+                        if ( y > max_y )
+                            max_y = y;
+                        if ( z < min_z )
+                            min_z = z;
+                        if ( z > max_z )
+                            max_z = z;
+                    }
+                }
+
+                if ( frame_point_count > 0 ) {
+                    centroid_x = ( float )( frame_sum_x / frame_point_count );
+                    centroid_y = ( float )( frame_sum_y / frame_point_count );
+                    centroid_z = ( float )( frame_sum_z / frame_point_count );
+
+                    extent_x = max_x - min_x;
+                    extent_y = max_y - min_y;
+                    extent_z = max_z - min_z;
+
+                    bbox_center_x = ( min_x + max_x ) * 0.5f;
+                    bbox_center_y = ( min_y + max_y ) * 0.5f;
+                    bbox_center_z = ( min_z + max_z ) * 0.5f;
+                }
+
+                uint64_t t_geometry_end = rte_get_timer_cycles();
+                geometry_cycles += t_geometry_end - t_geometry_start;
+
+                bool final_geometry = frame_original_points > 0 && frame_point_count == frame_original_points;
+
+                if ( final_geometry ) {
+                    uint64_t max_r_start = rte_get_timer_cycles();
+
+                    packet_max_r = calculate_maximum_radius( frame_geometry_points, frame_point_count, centroid_x, centroid_y, centroid_z );
+
+                    uint64_t max_r_end = rte_get_timer_cycles();
+                    max_r_cycles += max_r_end - max_r_start;
+
+                    uint64_t projection_frontier_start = rte_get_timer_cycles();
+
+                    calculate_projection_metadata( frame_geometry_points, frame_point_count, centroid_x, centroid_y, centroid_z, packet_max_r, &packet_final_scale, &packet_global_scale, &packet_bbox_x, &packet_bbox_y, &packet_bbox_z );
+
+                    uint64_t projection_frontier_end = rte_get_timer_cycles();
+                    geometry_cycles += projection_frontier_end - projection_frontier_start;
+                }
             }
 
             if ( unlikely( rte_pktmbuf_adj( m, camera_net_len ) == NULL ) ) {
                 rte_pktmbuf_free( m );
 
-                uint64_t t_active_process_end = rte_get_timer_cycles();
-                active_process_cycles += t_active_process_end - t_active_process_start;
-                last_activity_cycles = t_active_process_end;
+                uint64_t active_process_end = rte_get_timer_cycles();
+                active_process_cycles += active_process_end - active_process_start;
+                last_activity_cycles = active_process_end;
 
                 if ( frame_complete )
                     frame_completion_cycles = last_activity_cycles;
@@ -1265,9 +1269,9 @@ static int worker_loop( __rte_unused void *arg ) {
             if ( unlikely( new_hdr_start == NULL ) ) {
                 rte_pktmbuf_free( m );
 
-                uint64_t t_active_process_end = rte_get_timer_cycles();
-                active_process_cycles += t_active_process_end - t_active_process_start;
-                last_activity_cycles = t_active_process_end;
+                uint64_t active_process_end = rte_get_timer_cycles();
+                active_process_cycles += active_process_end - active_process_start;
+                last_activity_cycles = active_process_end;
 
                 if ( frame_complete )
                     frame_completion_cycles = last_activity_cycles;
@@ -1287,25 +1291,29 @@ static int worker_loop( __rte_unused void *arg ) {
             hdr -> net.ipv4.hdr_checksum = 0;
             hdr -> net.ipv4.hdr_checksum = rte_ipv4_cksum( &hdr -> net.ipv4 );
 
-            hdr -> geo.centroid_x = float_to_be( centroid_x );
-            hdr -> geo.centroid_y = float_to_be( centroid_y );
-            hdr -> geo.centroid_z = float_to_be( centroid_z );
+            if ( NETWORK_PROCESSING ) {
+                hdr -> geo.centroid_x = float_to_be( centroid_x );
+                hdr -> geo.centroid_y = float_to_be( centroid_y );
+                hdr -> geo.centroid_z = float_to_be( centroid_z );
 
-            hdr -> geo.extent_x = float_to_be( extent_x );
-            hdr -> geo.extent_y = float_to_be( extent_y );
-            hdr -> geo.extent_z = float_to_be( extent_z );
+                hdr -> geo.extent_x = float_to_be( extent_x );
+                hdr -> geo.extent_y = float_to_be( extent_y );
+                hdr -> geo.extent_z = float_to_be( extent_z );
 
-            hdr -> geo.bbox_center_x = float_to_be( bbox_center_x );
-            hdr -> geo.bbox_center_y = float_to_be( bbox_center_y );
-            hdr -> geo.bbox_center_z = float_to_be( bbox_center_z );
+                hdr -> geo.bbox_center_x = float_to_be( bbox_center_x );
+                hdr -> geo.bbox_center_y = float_to_be( bbox_center_y );
+                hdr -> geo.bbox_center_z = float_to_be( bbox_center_z );
 
-            hdr -> geo.max_r = float_to_be( packet_max_r );
-            hdr -> geo.final_scale = float_to_be( packet_final_scale );
-            hdr -> geo.global_scale = float_to_be( packet_global_scale );
-            hdr -> geo.projected_bbox_x = float_to_be( packet_bbox_x );
-            hdr -> geo.projected_bbox_y = float_to_be( packet_bbox_y );
-            hdr -> geo.projected_bbox_z = float_to_be( packet_bbox_z );
-            hdr -> geo.active_point_count = rte_cpu_to_be_32( frame_point_count );
+                hdr -> geo.max_r = float_to_be( packet_max_r );
+                hdr -> geo.final_scale = float_to_be( packet_final_scale );
+                hdr -> geo.global_scale = float_to_be( packet_global_scale );
+                hdr -> geo.projected_bbox_x = float_to_be( packet_bbox_x );
+                hdr -> geo.projected_bbox_y = float_to_be( packet_bbox_y );
+                hdr -> geo.projected_bbox_z = float_to_be( packet_bbox_z );
+                hdr -> geo.active_point_count = rte_cpu_to_be_32( frame_point_count );
+            }
+            else
+                memset( &hdr -> geo, 0, sizeof( struct geo_agg_hdr ) );
 
             tx_bufs[ burst_idx ] = m;
             tx_points_buf[ burst_idx ] = packet_points;
@@ -1314,10 +1322,10 @@ static int worker_loop( __rte_unused void *arg ) {
             if ( burst_idx == BURST_SIZE || frame_complete )
                 flush_tx_burst( tx_bufs, tx_points_buf, &burst_idx, &frame_tx_packets, &frame_tx_points, &frame_zero_accepts, &frame_partial_accepts, &frame_resubmit_calls, &frame_resubmitted_packets, &first_tx_cycles, &last_tx_cycles, &active_tx_cycles );
 
-            uint64_t t_active_process_end = rte_get_timer_cycles();
+            uint64_t active_process_end = rte_get_timer_cycles();
 
-            active_process_cycles += t_active_process_end - t_active_process_start;
-            last_activity_cycles = t_active_process_end;
+            active_process_cycles += active_process_end - active_process_start;
+            last_activity_cycles = active_process_end;
 
             if ( frame_complete ) {
                 if ( last_tx_cycles > 0 )
@@ -1368,14 +1376,17 @@ int main( int argc, char *argv[] ) {
     temporal_header_init( &temporal_template_hdr );
 
     struct worker_context worker_ctx = { 0 };
-    worker_ctx.frame_geometry_capacity = MAX_FRAME_POINTS;
 
-    size_t geometry_workspace_bytes = worker_ctx.frame_geometry_capacity * sizeof( struct geometry_point );
-    worker_ctx.frame_geometry_points = malloc( geometry_workspace_bytes );
+    if ( NETWORK_PROCESSING ) {
+        worker_ctx.frame_geometry_capacity = MAX_FRAME_POINTS;
 
-    if ( worker_ctx.frame_geometry_points == NULL )
-        rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Failed to allocate workspace...\n" );
-        
+        size_t geometry_workspace_bytes = worker_ctx.frame_geometry_capacity * sizeof( struct geometry_point );
+        worker_ctx.frame_geometry_points = malloc( geometry_workspace_bytes );
+
+        if ( worker_ctx.frame_geometry_points == NULL )
+            rte_exit( EXIT_FAILURE, "[SYSTEM] Error: Failed to allocate workspace...\n" );
+    }
+  
     uint32_t worker_lcore = rte_get_next_lcore( -1, 1, 0 );
 
     if ( worker_lcore == RTE_MAX_LCORE )
@@ -1385,8 +1396,10 @@ int main( int argc, char *argv[] ) {
         rte_eal_mp_wait_lcore();
     }
 
-    free( worker_ctx.frame_geometry_points );
-    worker_ctx.frame_geometry_points = NULL;
+    if ( NETWORK_PROCESSING ) {
+        free( worker_ctx.frame_geometry_points );
+        worker_ctx.frame_geometry_points = NULL;
+    }
 
     rte_eal_cleanup();
 

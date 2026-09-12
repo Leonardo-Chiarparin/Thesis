@@ -1,7 +1,7 @@
-# 🌐 "DPDK"-based "Service Function Chaining" for Real-Time Point-Cloud Streaming
+# 🌐 In-Network Processing for Real-Time Point-Cloud Streaming
 > **Experimental Thesis Project — Sapienza University of Rome**<br>
 
-> A data-plane-oriented architecture for real-time-oriented volumetric point-cloud transport, in-place geometric aggregation, "GPU" projection, & hardware-accelerated "H.265" delivery.
+> A "DPDK" / "SFC" Data-Plane architecture for volumetric transport, in-path geometric processing, workload-aware source control, "GPU" projection, persistent "H.265" delivery, reconstruction, & quality evaluation.
 
 ### 👥 Academic Information
 **Author:** Leonardo Chiarparin ( Student ID: **2016363** )<br>
@@ -21,14 +21,14 @@ This repository serves as an experimental research platform rather than a produc
 | Node | Condition | Responsibility |
 |---|---|---|
 | `Camera` | Validated | "DPDK"-native point-cloud source, warm-mode file acquisition, frame packetisation, absolute scheduling, temporal selection, bounded local Tx resubmission, & source telemetry |
-| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-progressive spatial aggregation, exact frame-completing radius evaluation, final projection-metadata derivation, experimental "NSH" metadata insertion, & "Temporal" decapsulation directed to `Camera` |
+| `SFF1` | Validated | "Geometry-Aware Classifier" ( "GAC" ) implementing packet-progressive spatial aggregation, exact frame-completing radius evaluation, final projection-metadata derivation, experimental "NSH" metadata insertion, & "Temporal" decapsulation directed to `Camera`; the geometric work is compile-time selectable through `NETWORK_PROCESSING` for the fair placement ablation |
 | `SFF2`<br>( Route 0 ) | Validated | Stateful proxy for `SFF1` -> `Encoder`; validates the aware envelope, preserves proxy state, strips service metadata, & forwards plain geometry-bearing application datagrams |
 | `Encoder` | Validated | "SFC"-unaware frame assembly, geometry-offload consumption or local fallback, workload-driven "Temporal" regulation, "CUDA" projection, persistent "FFmpeg" / "NVENC" encoding, "MPEG-TS" attribution, & optional post-stream "luma"-quality evaluation |
 | `SFF2`<br>( Route 1 ) | Validated | Proxy-maintained `Encoder` -> `Decoder` transition, compressed-media integrity accounting, & advancement of the primary service state |
 | `Decoder` | Validated | "SFC"-unaware persistent hardware-accelerated "H.265" decoding, occupancy erosion, geometric reconstruction, dynamic pose application, output packetisation, & reconstruction telemetry |
 | `SFF2`<br>( Route 2 ) | Validated | Stateful `Decoder` -> `SFF3` transition; advances the retained primary state, re-imposes the base service envelope, & records route-specific reconstructed-point telemetry |
 | `SFF3` | Validated | Final aware primary-path boundary; validates / removes base service metadata before `User`, while classifying & encapsulating reverse 24-byte "Pose" commands |
-| `User` | Validated | Final reconstructed-frame reassembly, shared-memory publication, fire-&-forget pose dispatch, command / browser acknowledgment telemetry, in-memory quality capture, & terminal synchronization |
+| `User` | Validated | Final reconstructed-frame reassembly, shared-memory publication, asynchronous "Pose" dispatch with three-frame re-presentation until returned-state confirmation, command / browser acknowledgment telemetry, in-memory quality capture, & terminal synchronization |
 | "Python" / "WebSocket" bridge | Validated | Asynchronous latest-frame publication with one frame in flight per peer, shared-memory control exchange, browser acknowledgments, & independent "HTTP" serving |
 | `Three.js` viewer | Validated | Dynamic point-cloud rendering, keyboard / button interaction, command-to-photon acknowledgment, & on-demand scene refresh |
 | `Gauge` | Validated | Post-"EOS" serial geometric assessment using pose reversal, robust "ICP", statistical outlier filtering, symmetric nearest-neighbour metrics, & direct telemetry merging |
@@ -46,7 +46,7 @@ Control mechanisms are kept in two independent logical service paths rather than
 "Pose"     : User -> SFF3 -> SFF2 -> Decoder
 ```
 
-The "Temporal" loop is fully operational. `Encoder` derives a requested `temporal_skip`, `SFF2` classifies the plain control datagram & imposes the corresponding service state, `SFF1` validates / removes the envelope, & `Camera` applies the reflected factor before subsequent source-frame admission. All three `B0` repetitions, `BQ`, & the completed `OQ-OFF` fidelity control remain at `current_skip = 1`. The runtime sensitivity campaign exercises the same reverse path under two distinct overload mechanisms: `O-OFF` crosses the Encoder workload frontier once when complete geometry is recomputed locally at the nominal warm-source condition, while `P40` records three `skip 1 -> 2 -> 1` cycles under elevated point-datagram pressure. The absence of a transition in `OQ-OFF` is equally relevant: threshold crossing depends upon the measured host / codec phase rather than upon the offload flag alone.
+The "Temporal" loop is fully operational. `Encoder` derives a requested `temporal_skip`, `SFF2` classifies the plain control datagram & imposes the corresponding service state, `SFF1` validates / removes the envelope, & `Camera` applies the reflected factor before subsequent source-frame admission. All three `B0` repetitions, `BQ`, & the completed `OQ-OFF` fidelity control remain at `current_skip = 1`. The runtime sensitivity campaign exercises the same reverse path under two distinct overload mechanisms: the geometry-placement ablation moves the complete frontier back to `Encoder`, while `P40` records three `skip 1 -> 2 -> 1` cycles under elevated point-datagram pressure. The final fair `O-OFF` protocol disables the corresponding `SFF1` geometry work as well; both completed reruns therefore change placement rather than duplicating the same computation on both sides of the boundary.
 
 The "Pose" cycle is likewise functional. Browser-originated `yaw`, `pitch`, & `zoom` modifications are written into the `User` control mapping, dispatched as a plain 24-byte payload by the native `User`, encapsulated by `SFF3` as `SPI 300 / SI 255`, stripped by `SFF2`, & consumed by `Decoder`. `Decoder` applies the most recent accepted pose during reconstruction; the corresponding values return with the reconstructed frame & are correlated by `User` with command identifiers & browser render acknowledgments.
 
@@ -54,15 +54,17 @@ The "Pose" cycle is likewise functional. Browser-originated `yaw`, `pitch`, & `z
 
 > **Validation Scope:** Runtime & fidelity measurements remain methodologically separate. The common runtime configuration has been repeated three times as `B0`, while `BQ` & `OQ-OFF` provide capture-enabled objective "luma" / reconstructed-geometry controls after stream termination. All five complete reference / fidelity executions sustain 300 / 300 frames at `current_skip = 1` & approximately `30.0 frames / s`; the runtime sensitivity campaign is interpreted separately whenever a changed condition alters cadence, temporal admission, or terminal completeness.
 
+> **Current Measurement Snapshot:** The updated `outcomes(5)` campaign makes the in-network placement result explicit. The best complete runtime baseline is `B0-R1` with `211.352 ms` all-frame / `211.222 ms` steady Camera -> `User` latency against the supplied `341.785 ms` reference frontier ( `38.16 %` reduction ). The fair runtime `O-OFF` attempts remain complete at `300 / 300` but move the workload back to `Encoder`: `Encoder.active_process_ms` rises from `17.684 ms` in `B0-R1` to `54.335 / 26.081 ms`, while the steady workload-ratio median rises from `0.165` to `0.419 / 0.391`. Active `P40` admits `270` frames & preserves the complete admitted set through `SFF2 Route 2`; the residual `246 / 270` terminal completion is localised to the measured `SFF3` -> `User` Tx backpressure frontier, rather than to hidden upstream frame loss.
+
 ---
 
 ## 🎯 1. Project Motivation & Research Objective
 
-The central thesis objective is to take the volumetric point-cloud pipeline developed in the reference work & redistribute its processing responsibilities over an explicit network-oriented service graph. The contribution is therefore not a new point-cloud codec in isolation, but a concrete "DPDK" / "SFC" realisation of the next step anticipated by the reference architecture: decomposing coarse application blocks into independently measurable, placeable, & steerable functions while preserving the same real-time 300-frame service objective.
+The central thesis objective is to take the volumetric point-cloud pipeline developed in the reference work & redistribute its processing responsibilities over an explicit in-network service graph. The contribution is a concrete "DPDK" / "SFC" realisation of packet-visible volumetric processing: coarse application blocks are decomposed into independently measurable, placeable, & steerable functions, while reusable geometry is computed in-path before the frame-completing `Encoder` boundary & the same 300-frame / 30 frames / s operating objective is preserved.
 
 This project investigates the feasibility of migrating selected functions within a real-time volumetric streaming pipeline from conventional application-level microservices to direct execution during packet traversal through a "DPDK"-based "SFC".
 
-The objective extends beyond merely substituting kernel sockets with a faster packet-I / O "API". The principal research question addresses whether the forwarding path can function as an active computational component without overloading the Data Plane or compromising the semantic correctness of frame-level processing. This approach aims to preserve bounded queuing behaviour, data integrity, & sufficient observability to accurately attribute latency to the responsible components.
+The objective is therefore practical rather than only architectural: the forwarding path is made computationally active, the source can be regulated before packetisation, the `Encoder` consumes an already resolved geometry frontier in the nominal case, & every conclusion is checked against route-level completion, queue / backlog telemetry, workload ratios, terminal latency, & fidelity measurements.
 
 > **Real-Time Scope:** Within this repository, **real-time-oriented** denotes preservation of the absolute `TARGET_FPS = 30` source schedule, bounded queue / backlog behaviour, & complete frame semantics throughout the nominal 300-frame operating condition. It does **not** denote a hard real-time deadline guarantee: multiple frames can coexist within the persistent "codec" pipeline, native frame-ready latency remains an independently measured end-to-end quantity, & browser "Command-to-Photon" remains a render-completion proxy rather than a physical display-latency measurement.
 
@@ -108,7 +110,7 @@ uniform transport parsing across "Main" / "Temporal" / "Pose" paths
 source-level regulation rather than hidden transport flow-control policy
 ```
 
-Performance therefore remains an important consequence, but the more defensible argument is architectural: **"UDP" matches the packet-level "SFC" experiment, the absolute-state control model, & the direct "DPDK" implementation while leaving reliability at the same semantic layer that defines whether a command has actually taken effect**.
+"DPDK" + "UDP" are therefore concrete execution requirements of the measured implementation rather than an abstract transport preference. Every retained "Main" / "Temporal" / "Pose" execution uses the same directly inspectable datagram model for packet ownership, classification, in-place service-state manipulation, local queue-pressure telemetry, & returned-state confirmation. The fair `O-OFF` experiment keeps this packet-processing substrate unchanged & isolates the placement of the geometric frontier itself.
 
 ### 1.2 Selecting Computation for the Data Plane
 
@@ -197,9 +199,9 @@ The architectural contrast is therefore concrete:
 | Unaware functions | Not an "SFC" concern | `Encoder` & `Decoder` intentionally remain "SFC"-unaware behind `SFF2` proxying |
 | Placement granularity | `Encoder` & Client must be placed as whole blocks | Geometry service, encoding, decoding / reconstruction, terminal delivery, & `SFF` boundaries expose separate scheduling / placement points |
 
-This decomposition should not be confused with a claim that adding service functions automatically reduces total compute consumption. The current primary graph exposes seven schedulable native nodes rather than four reference services — a `75 %` increase in graph-level placement units — because the objective is **orchestration granularity**, not merely process-count minimisation. The advantage is that an orchestrator can reason about measured roles separately: for example, the `SFF1` geometry stage can be placed independently from `Encoder`; `Decoder` can be separated from `User`; & `SFF` boundaries can steer different service paths without requiring the application codecs to understand the chaining protocol. The corresponding cost — additional forwarding boundaries & metadata handling — remains observable in the route telemetry rather than being treated as free.
+This decomposition increases graph-level placement granularity from four reference services to seven native placement units. The measured advantage is concrete: `SFF1` geometry can be placed independently from `Encoder`; `Decoder` can be separated from `User`; `SFF2` / `SFF3` expose route-local completion & backpressure; & the application codecs remain unaware of the chaining protocol. Additional forwarding boundaries & metadata handling are not hidden: they are accounted for by the same route telemetry used in the experimental campaign.
 
-The control placement also changes where work can be shed. In the reference design, temporal selection occurs at the Flow Controller after the Camera has already transmitted the source frame over "TCP"; even a discarded frame must be drained from that incoming stream to preserve framing. Here, `Camera` applies the returned `temporal_skip` **before packetisation**, so an admitted factor `skip = n` reduces subsequent source injection nominally to `TARGET_FPS / n`. The load-shedding decision can therefore suppress raw point traffic at its origin instead of paying the upstream transport / drain cost first. The repeated `B0` / fidelity conditions remain at `skip = 1`; the runtime sweep provides two measured overload examples. `O-OFF` suppresses 11 source frames after local Encoder recomputation crosses the workload frontier, while `P40` suppresses 30 under point-datagram pressure.
+The control placement also changes where work can be shed. In the reference design, temporal selection occurs at the Flow Controller after the Camera has already transmitted the source frame over "TCP"; even a discarded frame must be drained from that incoming stream to preserve framing. Here, `Camera` applies the returned `temporal_skip` **before packetisation**, so an admitted factor `skip = n` reduces subsequent source injection nominally to `TARGET_FPS / n`. The load-shedding decision can therefore suppress raw point traffic at its origin instead of paying the upstream transport / drain cost first. The repeated `B0` / fidelity conditions remain at `skip = 1`; the runtime sweep provides two measured overload examples. The archived legacy `O-OFF` suppresses 11 source frames after duplicated local Encoder recomputation crosses the workload frontier, while `P40` suppresses 30 under point-datagram pressure. The fair `O-OFF` reruns replace the former as the final geometry-placement experiment.
 
 A similar shortening occurs for interactive pose changes. The reference "Pose" command reaches `Encoder`, requiring the newly requested view to traverse projection, encoding, transport, decoding, & reconstruction before it becomes visible. The current "Pose" path terminates at `Decoder`, where the latest stance is applied during reconstruction. This removes re-projection / re-encoding from the **command-to-effect dependency chain** while deliberately leaving the source / encoded representation unchanged. The current NON-QUALITY archive measures this path directly through `reference_cmd_ms`, `cmd_apply_ms`, `Decoder` `pose_control_ms`, & browser `cmd_photon_ms`.
 
@@ -207,7 +209,7 @@ The removal of the former "OVS"-"DPDK" virtual-switch intermediary constitutes a
 
 At the measurement level, the repository deliberately preserves the experimental principle adopted by the reference pipeline: frame-associated indicators are resolved during execution without synchronous native ".csv" writes inside the real-time path, retained in memory, & serialised only after the terminal condition. The present "SFC" implementation extends that baseline with service-state, protocol-integrity, local "DPDK" backpressure, reverse-control, browser-acknowledgment, & post-stream quality observability while keeping the authoritative application identity anchored to `frame_id`.
 
-Section 21.15 provides the direct numerical comparison supported by the supplied reference material. Its interpretation is deliberately conservative: the evidence supports a materially lower median end-to-end latency & lower selected application-stage costs while retaining the same 300-frame / 30-fps operating objective & a closely comparable reconstruction-fidelity regime. It does **not** support the stronger statement that every per-node residency is lower, that aggregate "CPU" utilisation has already been reduced by a measured percentage, or that every objective quality metric is numerically invariant. Such claims would require a controlled A / B campaign on identical hardware, software boundaries, instrumentation, & metric implementations.
+Section 21.15 provides the direct numerical comparison supported by the supplied reference material. The measured result is explicit: the best complete runtime trace reaches a lower Camera-to-User frame-ready latency while preserving the same 300-frame / 30 frames / s objective, & the paired offload controls show that relocating geometry in-network reduces `Encoder` workload pressure. Resource-accounting claims such as whole-host "CPU" reduction remain outside the measured output of this campaign, but they do not weaken the demonstrated placement result.
 
 ### 1.4 Guidelines & "Codec" Scope
 
@@ -354,9 +356,9 @@ The packed command is:
 
 ```
 timestamp : uint64
-yaw       : uint32 # network-order float bit pattern
-pitch     : uint32 # ...
-zoom      : uint32 # ...
+yaw       : uint32 network-order float bit pattern
+pitch     : uint32
+zoom      : uint32
 padding   : uint32
 ------------------
 Total     : 24 B
@@ -377,10 +379,9 @@ The payload represents an **absolute stance**, rather than a relative rotation e
 
 The reconstructed frame returns the pose actually applied by `Decoder`. `User` therefore closes the semantic loop by matching the returned `yaw` / `pitch` / `zoom` against the command record, rather than assuming success after local Tx acceptance. A newer browser command replaces the currently active unresolved request, reflecting the latest-state semantics expected from direct manipulation.
 
-The browser remains fire-&-forget from an interaction standpoint: command issuance does not synchronously block upon an acknowledgment. A distinct browser acknowledgment is retained only for telemetry & one-frame-in-flight Web scheduling. This means the reliability mechanism does not insert a request / response stall into the input path; it operates asynchronously through returned state & optional re-presentation.
+The browser-facing command path remains non-blocking at issuance: command submission does not wait synchronously for an acknowledgment before returning control to the interface. Correctness is instead enforced by the native `User` loop: an unresolved "Pose" keeps its original timestamp & is re-presented every `RETRY_FRAMES = 3` completed frames until the returned reconstructed stream carries the requested stance. Browser acknowledgments remain presentation telemetry & one-frame-in-flight Web scheduling signals, not the native reliability condition.
 
 ### 3.4 Protocol Clarification
-
 
 The architecture employs an 8-byte `nsh_hdr`, the "SPI" / "SI" paradigm, a "TTL" field, & a project-defined "MD-Type-2"-like geometric context. The implementation is accurately described as **experimental / "NSH"-inspired**, rather than as a universally interoperable "RFC 8300" implementation. "RFC 7665" is relevant at the architectural level because it defines SFFs, "SFC"-aware / unaware functions, proxies, classification, metadata exchange, & topology-independent service paths; "RFC 8300" motivates the `SPI` / `SI` progression & proxy behaviour. Neither referenced specification requires the project to employ "UDP" as its transport, so transport uniformity is an implementation choice rather than a standards-compliance claim.
 
@@ -738,9 +739,9 @@ For the exact current payloads, the **minimum-header** comparison against an oth
 
 Including the 14-B "Ethernet" header, the corresponding reductions are approximately `17.1 %`, `15.4 %`, `15.4 %`, & `14.0 %`. These percentages are deliberately conservative: they assume the minimum 20-B "TCP" header, no "TCP" options, & no acknowledgment-only traffic. Conversely, they do **not** count a three-way handshake per command, because a sensible comparison would employ a persistent "TCP" control channel as the reference architecture does. The table therefore isolates the transport-envelope difference without constructing an artificially weak "TCP" baseline.
 
-The principal benefit nevertheless remains semantic & architectural rather than bandwidth-driven. At the measured command rates, 12 transport bytes are not the dominant system cost. The more consequential property is that the command remains a self-delimiting object which `SFF2` / `SFF3` can classify immediately, while duplicate / loss handling is tied to the returned application state rather than to reliable byte delivery.
+At the measured command rates, the 12-byte minimum transport-header difference is not the dominant system cost. The practical reason for retaining "UDP" is that every current control remains one fixed-width, self-delimiting datagram which `SFF2` / `SFF3` classify directly, while duplicate / loss handling is verified against the returned application state rather than hidden behind byte-stream delivery.
 
-The two command families are structurally independent & carry their own timing / state information. "Temporal" uses frame-associated state confirmation; "Pose" preserves one command timestamp across retries & relies upon `Decoder` monotonicity. Consequently, both can remain fire-&-forget at dispatch time without making control correctness dependent upon a hidden transport acknowledgment.
+The two command families are structurally independent & carry their own timing / state information. "Temporal" uses frame-associated state confirmation; "Pose" preserves one command timestamp across retries & relies upon `Decoder` monotonicity. Consequently, command issue remains asynchronous & non-blocking, while control correctness is tied to returned application state rather than to a hidden transport acknowledgment.
 
 ### 5.6 "Virtio" Queue Size & "DPDK" Rx / Tx Dimensioning
 
@@ -994,6 +995,39 @@ global_scale from transformed extents
 
 This pass is intentionally **not** executed for every intermediate packet. Progressive sums / extrema remain inexpensive during traversal, whereas centroid-dependent radius & transformed projection frontiers stay behind the mathematically necessary completion barrier. The resulting design keeps the offloading requirement intact: complete frames arrive at `Encoder` with final projection metadata already attached, while the local complete-frame fallback reproduces the same point-wise radius & transformed-frontier sequence when that metadata is intentionally ignored or unavailable.
 
+#### 7.3.1 Compile-Time In-Network Processing Ablation
+
+`SFF1` now exposes the same style of compile-time selection already used by `Encoder`:
+
+```c
+#define NETWORK_PROCESSING_DISABLED 0
+#define NETWORK_PROCESSING_ENABLED 1
+
+#define NETWORK_PROCESSING NETWORK_PROCESSING_ENABLED
+```
+
+`NETWORK_PROCESSING_ENABLED` remains the default validated condition. When the flag is disabled, `SFF1` preserves classification, packet validation, "NSH" insertion, forwarding, reverse "Temporal" decapsulation, Tx accounting, & all non-geometric telemetry, while **skipping both the packet-progressive point scans & the frame-final `max_r` / transformed-frontier passes**. The geometric context remains structurally present but carries zero / unavailable geometry, with `active_point_count = 0`; no frame-local geometry workspace is allocated or first-touched in that build.
+
+The fair runtime `O-OFF` ablation therefore uses the paired configuration:
+
+```text
+SFF1    : NETWORK_PROCESSING = NETWORK_PROCESSING_DISABLED
+Encoder : OFFLOAD_MODE       = OFFLOAD_MODE_DISABLED
+```
+
+Because disabled `SFF1` intentionally exports `active_point_count = 0` as an unavailable-geometry sentinel, `Encoder` keeps its strict metadata validation only when offload consumption is enabled:
+
+```cpp
+if ( unlikely( incoming_active_points > original_points || ( OFFLOAD_MODE && incoming_active_points < points_in_packet ) ) ) {
+  rte_pktmbuf_free( m );
+  continue;
+}
+```
+
+`OFFLOAD_MODE` is a compile-time constant, so the fair `O-OFF` build accepts the structurally present zero geometry context without adding a runtime fallback probe, while the baseline build retains the original strict validation.
+
+All remaining packetisation, "DPDK" forwarding, "SFC" steering, source configuration, persistent "codec" state, & workload-control settings stay unchanged. This isolates **where the geometric computation is executed**: in the baseline, progressive / final geometry is resolved in-path by `SFF1`; in fair `O-OFF`, the same frontier is reconstructed only once, locally by `Encoder`. The earlier `O-OFF` archive in which `SFF1` still computed metadata while `Encoder` deliberately ignored it is retained solely as a legacy duplicated-work diagnostic & must be superseded by the new run for the final placement attribution.
+
 ### 7.4 In-Place Header Replacement
 
 The incoming `Camera` datagram encompasses:
@@ -1071,7 +1105,7 @@ frame_id;rx_complete;tx_complete;current_skip;camera_send_timestamp;recv_start_t
 | `eth_errors`, `ipv4_errors`, `udp_errors`, `nsh_errors` | Protocol-validation failures. All remain `0` in the retained validation executions. |
 | Tx acceptance counters | Local zero / partial accepts & resubmission activity, independent from "UDP" semantics. |
 
-`data_integrity_pct = 100 %` across every 300-frame `B0`, `BQ`, & `OQ-OFF` complete reference / fidelity execution, while the geometry fields remain directly observable as the computation deliberately moved into the Data Plane. Sensitivity variants whose source admission or terminal completeness changes are scoped separately in Section 21.16.
+`data_integrity_pct = 100 %` across every 300-frame `B0`, `BQ`, & `OQ-OFF` complete reference / fidelity execution. The geometry telemetry exposes both placement states directly: `B0` / `BQ` carry the active in-network frontier, whereas fair `OQ-OFF` records the disabled `SFF1` geometry state & the corresponding local `Encoder` recomputation. Sensitivity variants whose source admission or terminal completeness changes are scoped separately in Section 21.16.
 
 ---
 
@@ -1123,7 +1157,7 @@ The `Temporal` classifier accepts exactly the packed 16-byte payload from the `E
 
 ### 8.4 Burst Ownership
 
-Packets are forwarded through bounded bursts while preserving explicit ownership. Accepted packets are removed from the local burst, non-accepted packets remain eligible for local resubmission, & abandoned entries are explicitly released when the bounded retry policy expires. The retained validation executions present no primary-route partial accepts or zero-accept pressure within `SFF2`.
+Packets are forwarded through bounded bursts while preserving explicit ownership. Accepted packets are removed from the local burst, non-accepted packets remain eligible for local resubmission, & abandoned entries are explicitly released when the bounded retry policy expires. Nominal complete executions do not expose primary-route acceptance pressure inside `SFF2`; active `P40` is the measured exception at Route 0, where `18,521` zero-accept events occur across three frames. Bounded local resubmission absorbs that pressure with `0` partial accepts & preserves all `270` admitted frames through Route 2, so `SFF2` is not the application-visible loss boundary.
 
 ### 8.5 Proxy State & Unaware Service Functions
 
@@ -1141,7 +1175,7 @@ The relevant primary sequence is:
 
 Route 0 treats point-cloud bytes as `geo_agg_hdr + cam_hdr + point_tx[]`; Route 1 treats application bytes as `cam_hdr + enc_hdr + MPEG-TS`; Route 2 treats them as `dec_hdr + point_tx[]`. This distinction is reflected directly in the `rx_points`, `tx_points`, `rx_media_bytes`, `tx_media_bytes`, `payload_bytes`, reference-size, & integrity calculations.
 
-All three route logs contain exactly 300 application rows in each complete `B0`, `BQ`, & `OQ-OFF` reference / fidelity execution. Runtime `O-OFF` & `P40` instead follow their admitted application populations, as documented separately in Section 21.16.
+All three route logs contain exactly 300 application rows in every complete `B0`, `BQ`, `OQ-OFF`, & fair `O-OFF-R1 / R2` execution. Active `P40` instead follows its admitted `270`-frame population, while the archived legacy duplicated-work `O-OFF` follows its earlier admitted population as documented separately in Section 21.16. The completed fair placement reruns therefore preserve the same 300-frame route-completeness contract while relocating the geometric frontier.
 
 ### 8.7 SFF2 Telemetry — Complete Semantics
 
@@ -1263,9 +1297,9 @@ max_r_ms                = 0
 
 The complete local path is intentionally defined as the computational counterpart of the `SFF1` frontier rather than as an algebraic shortcut. With `OFFLOAD_MODE_DISABLED`, `compute_geometry_locally()` performs the same three logical stages over the assembled point set: ( i ) double-precision coordinate accumulation plus raw extrema, ( ii ) point-wise `sqrtf()` evaluation against the resolved centroid for `max_r`, & ( iii ) point-wise transformation with the resulting `final_scale` to derive transformed extrema, projected bounding-box centre, & `global_scale`. The resulting structure sets `projection_geometry_ready = true`, so complete locally resolved frames enter `run_projection_pipeline()` through the same metadata-consuming branch used by complete offloaded frames.
 
-This alignment is methodologically important. The `O-OFF` condition no longer compares two mathematically equivalent but operationally different projected-boundary formulae; it compares **where the same geometric frontier is produced**. `SFF1` still computes & transports the complete result, while `Encoder` either consumes it or repeats the corresponding scans locally. The runtime difference can therefore be interpreted as the cost & workload consequence of declining an already available in-path computation, subject to the ordinary asynchronous scheduling variability of the full pipeline.
+This alignment is methodologically important. `Encoder.OFFLOAD_MODE` controls whether the downstream application consumes a valid `SFF1` frontier or reconstructs it locally. For the **fair runtime `O-OFF` placement ablation**, that local fallback is paired with `SFF1.NETWORK_PROCESSING_DISABLED`: `SFF1` retains the identical forwarding / classification / service-envelope role but emits an unavailable zero geometry context, so the same frontier is produced exactly once, at `Encoder`. The archived runtime in which `SFF1` still computed the result while `Encoder` repeated it is retained only as a legacy duplicated-work diagnostic.
 
-A partial frame whose progressive `SFF1` geometry remains population-consistent can still reuse the supplied centroid / extent / raw bounding-box centre & recompute the exact radius over the compacted active set. Such non-nominal states leave the complete projection frontier unresolved until the projection helper applies its compatibility path. The validated `B0` & corrected `O-OFF` runtime frames are complete before projection, so this safety branch does not participate in their application-frame comparison.
+A partial frame whose progressive `SFF1` geometry remains population-consistent can still reuse the supplied centroid / extent / raw bounding-box centre & recompute the exact radius over the compacted active set. Such non-nominal states leave the complete projection frontier unresolved until the projection helper applies its compatibility path. Baseline `B0` frames are complete before projection, & both completed fair `O-OFF` reruns preserve that same completeness contract while relocating the geometry frontier to `Encoder`.
 
 For both complete paths, the object scale is resolved from:
 
@@ -1274,7 +1308,7 @@ target_radius = CAMERA_DISTANCE * 0.2
 final_scale   = target_radius / max_r
 ```
 
-followed by the identical point-wise transformed-frontier reduction. This selectable trajectory facilitates a controlled `OFFLOAD_MODE_ENABLED` versus `OFFLOAD_MODE_DISABLED` analysis without changing the packet-processing graph or the projection geometry definition.
+followed by the identical point-wise transformed-frontier reduction. The final runtime ablation therefore compares the paired build states `SFF1.NETWORK_PROCESSING_ENABLED + Encoder.OFFLOAD_MODE_ENABLED` versus `SFF1.NETWORK_PROCESSING_DISABLED + Encoder.OFFLOAD_MODE_DISABLED`, without changing the packet-processing graph or the projection geometry definition.
 
 ### 9.6 Workload-Driven "Temporal" Controller
 
@@ -1329,7 +1363,7 @@ Logged events remain:
 "INVALID"
 ```
 
-All three repeated `B0` executions contain five `WARMUP` rows followed by 295 `IDLE` rows, with `frame_backlog = 0` throughout. Their steady-state maximum `workload_ratio` values are `0.186`, `0.181`, & `0.196`; none satisfies the overload condition, & every application frame retains `current_skip = 1`. Section 21.16 documents two complementary runtime activation cases. Corrected `O-OFF` reaches `0.979` while repeating the complete geometry frontier locally & records one `SKIP+1` / `SKIP-1` cycle; `P40` reaches `0.996` under elevated point-datagram pressure & records three cycles. `OQ-OFF`, however, executes the same local geometric strategy without crossing the controller boundary, with a steady maximum ratio of `0.587`. The controller is therefore exercised by both computational & packet-rate stress, but its activation must be interpreted as an online response to the realised host state rather than as a deterministic signature of one compile-time variant. The final affinity map assigns work to all eight logical processors, with "codec" / writer tasks sharing cores with native roles; scheduler phase, "SMT" contention, host housekeeping, & queue service can consequently influence whether the consecutive overload predicates are satisfied.
+All three repeated `B0` executions contain five `WARMUP` rows followed by 295 `IDLE` rows, with `frame_backlog = 0` throughout. Their steady-state maximum `workload_ratio` values are `0.186`, `0.181`, & `0.196`; none satisfies the overload condition, & every application frame retains `current_skip = 1`. Section 21.16 documents the active runtime overload case. The fair `O-OFF` reruns keep the browser-enabled runtime condition & every controller parameter unchanged while removing the `SFF1` geometry work; they remain below the controller transition threshold but raise the steady workload-ratio median from `0.165` to `0.419 / 0.391`. Active `P40` reaches `1.000` under elevated point-datagram pressure & records three complete increase / recovery cycles. Fair capture-enabled `OQ-OFF` remains below the controller transition frontier with a maximum `workload_ratio = 0.499` & preserves `current_skip = 1` for all 300 frames.
 
 ### 9.7 "CUDA" Memory Strategy
 
@@ -1763,7 +1797,7 @@ Two shared objects are used:
 
 In `QUALITY_CAPTURE = 1`, frame publication & sequence updates are intentionally disabled because the "Web" path is absent. The same native reassembly logic remains active, preserving a common application contract across validation modes.
 
-### 12.3 Fire-&-Forget "Pose" Dispatch & Command Tracking
+### 12.3 Non-Blocking "Pose" Dispatch & Returned-State Confirmation
 
 A browser "Pose" query receives a monotonically increasing command identifier. The native process records the dispatch timestamp, requested yaw / pitch / zoom, first returning reference observation, first matching applied frame, & optional browser photon acknowledgment. Dispatch itself is non-blocking from the user-interaction perspective.
 
@@ -2022,7 +2056,7 @@ The project treats compiler configuration, "CUDA" architecture, "GPU" model / dr
 
 The `-arch=sm_61` specification fixes the generated "CUDA" device-code target to Compute Capability `6.1`, rather than defining an architecture-neutral numerical implementation. Consequently, cross-platform bit-level equivalence cannot be presumed when a comparison changes the "GPU" architecture, "CUDA" compiler / toolkit, or execution-driver environment. The same reproducibility constraint applies independently to the hardware `H.265` path, whose `NVENC` / `NVDEC` execution additionally depends upon the available "GPU", NVIDIA driver, "FFmpeg" build, & hardware codec generation.
 
-These factors do not invalidate cross-implementation performance or fidelity comparisons, but they prevent small numerical or codec-output differences from being attributed exclusively to the "SFC" / transport decomposition unless the complete hardware & software execution environment is held constant.
+These factors chiefly constrain **bit-level fidelity reproducibility** across hardware / toolchain changes: small numerical or codec-output differences cannot be interpreted independently of the concrete "GPU", driver, "CUDA", "FFmpeg", & hardware-"codec" environment. The runtime architectural comparison is addressed separately through the repeated B0 system result & the paired in-network placement ablation.
 
 ### Direct "SFC" Topology
 
@@ -2484,8 +2518,8 @@ The quality-side intermediate populations are:
 | Quantity | `BQ` | `OQ-OFF` |
 |---|---:|---:|
 | Original points | `238,146,391` | `238,146,391` |
-| Arrived reconstruction candidates | `49,516,082` | `49,520,248` |
-| Eroded points | `46,555,160` | `46,548,009` |
+| Arrived reconstruction candidates | `49,516,082` | `49,521,434` |
+| Eroded points | `46,555,160` | `46,556,158` |
 | Valid reconstructed points | `43,620,972` | `43,620,972` |
 
 The intermediate `arrived_points` / `eroded_points` populations are not bit-identical between the two quality executions, whereas `valid_points` is identical for every one of the 300 corresponding frame IDs. The strict final population therefore remains invariant even when the complete geometric frontier is recomputed locally at `Encoder` rather than consumed from `SFF1`.
@@ -2518,18 +2552,18 @@ The steady-state `10 -> 285` source span remains close to the nominal 30-fps obj
 | `B0-R2` | `29.9998 frames / s` | `1` | `300` |
 | `B0-R3` | `29.9958 frames / s` | `1` | `300` |
 | `BQ` | `30.0011 frames / s` | `1` | `300` |
-| `OQ-OFF` | `30.0015 frames / s` | `1` | `300` |
+| `OQ-OFF` | `30.0020 frames / s` | `1` | `300` |
 
-The direct span measurement is preferred to inverting one noisy per-frame interval because it preserves the complete observed time base. `BQ` reports steady medians of `2.888 ms` for `disk_io_ms`, `2.220 ms` for serialisation, `7.712 ms` for Tx duration, & `12.889 ms` for `active_process_ms`. `OQ-OFF` records `1.962`, `1.906`, `7.487`, & `11.438 ms`, respectively. Those source-local differences are host-phase observations rather than consequences of offload placement, since `OFFLOAD_MODE` changes work at the downstream `Encoder`.
+The direct span measurement is preferred to inverting one noisy per-frame interval because it preserves the complete observed time base. `BQ` reports steady medians of `2.888 ms` for `disk_io_ms`, `2.220 ms` for serialisation, `7.712 ms` for Tx duration, & `12.889 ms` for `active_process_ms`. `OQ-OFF` records `2.921`, `2.248`, `7.100`, & `12.499 ms`, respectively. Those source-local differences are host-phase observations rather than consequences of geometry placement, because the fair quality ablation changes the downstream / in-path geometry split rather than the `Camera` implementation.
 
-Both capture-enabled executions also expose substantial local `Camera` Tx-ring pressure without application-visible loss:
+The capture-enabled executions preserve identical 300-frame completion even though their local `Camera` Tx-acceptance phases differ materially:
 
 | Condition | Frames with Zero Accepts | Zero-Accept Sum | Re-Presented Packets | Partial Accepts | `mbuf` Starvation |
 |---|---:|---:|---:|---:|---:|
 | `BQ` | `300` | `549,842` | `17,391,095` | `0` | `0` |
-| `OQ-OFF` | `300` | `531,892` | `16,838,169` | `0` | `0` |
+| `OQ-OFF` | `0` | `0` | `0` | `0` | `0` |
 
-These counters describe repeated local `rte_eth_tx_burst()` presentation attempts. They are **not "UDP" retransmissions** & do not imply transport loss because every source frame reaches the complete terminal path.
+These counters describe repeated local `rte_eth_tx_burst()` presentation attempts. They are **not "UDP" retransmissions**. `BQ` experiences substantial local Camera-side acceptance pressure, whereas the final fair `OQ-OFF` capture run records none; both nevertheless deliver all 300 source frames completely, so the counter difference is treated as a host / queue-phase observation rather than an application-integrity difference.
 
 #### 21.3.1 30 Frames / s Cadence Across the Complete `BQ` Route
 
@@ -2537,29 +2571,29 @@ Absolute `recv_start_timestamp` / source timestamps over frames `10 -> 285` esta
 
 | Observation Frontier | Measured Rate | Mean Raw Interval |
 |---|---:|---:|
-| `Camera` departure | `30.001 frames / s` | `33.332 ms` |
+| `Camera` departure | `30.001 frames / s` | `33.331 ms` |
 | `SFF1` input | `30.002 frames / s` | `33.331 ms` |
 | `SFF2 Route 0` input | `30.002 frames / s` | `33.331 ms` |
 | `Encoder` input | `30.002 frames / s` | `33.331 ms` |
-| `SFF2 Route 1` input | `30.012 frames / s` | `33.321 ms` |
-| `Decoder` input | `30.012 frames / s` | `33.321 ms` |
-| `SFF2 Route 2` input | `30.000 frames / s` | `33.333 ms` |
-| `SFF3` input | `30.000 frames / s` | `33.333 ms` |
-| `User` input | `30.000 frames / s` | `33.333 ms` |
+| `SFF2 Route 1` input | `30.012 frames / s` | `33.317 ms` |
+| `Decoder` input | `30.012 frames / s` | `33.317 ms` |
+| `SFF2 Route 2` input | `30.000 frames / s` | `33.330 ms` |
+| `SFF3` input | `30.000 frames / s` | `33.330 ms` |
+| `User` input | `30.000 frames / s` | `33.330 ms` |
 
 All 300 frames remain complete at `current_skip = 1`. `OQ-OFF` independently sustains the same source objective without invoking "Temporal", while the three browser-enabled `B0` repetitions provide the runtime counterpart of the same nominal rate.
 
 ### 21.4 SFF1 / "GAC" — In-Path Geometry Cost
 
-The steady medians show that `SFF1` continues to materialise the complete geometric frontier independently from the downstream offload choice:
+The updated capture-enabled `OQ-OFF` run now follows the same fair placement rule as the runtime `O-OFF` pair: `SFF1.NETWORK_PROCESSING` is disabled while the forwarding / classification / service-envelope role remains active. The steady medians therefore expose the placement change directly:
 
 | `SFF1` Metric | Campaign `B0` | `BQ` | `OQ-OFF` |
 |---|---:|---:|---:|
-| `geometry_aggregation_ms` | `6.921 ms` | `7.152 ms` | `7.101 ms` |
-| `max_r_ms` | `2.732 ms` | `3.695 ms` | `3.701 ms` |
-| `active_process_ms` | `12.366 ms` | `13.199 ms` | `13.067 ms` |
+| `geometry_aggregation_ms` | `6.921 ms` | `7.152 ms` | `0.000 ms` |
+| `max_r_ms` | `2.732 ms` | `3.694 ms` | `0.000 ms` |
+| `active_process_ms` | `12.366 ms` | `13.199 ms` | `1.674 ms` |
 
-`OQ-OFF` therefore does not move the `SFF1` computation back into `Encoder`; it duplicates the already available result. This distinction is essential when interpreting the offload experiment: the additional local Encoder scans are extra work, not a relocation that removes the in-path geometry cost.
+`BQ` therefore measures the complete in-path "GAC" frontier, whereas `OQ-OFF` retains only `SFF1`'s forwarding / service-chain responsibilities & reconstructs the equivalent geometry once at `Encoder`. The quality pair now controls both semantic equivalence & placement without duplicated geometry work.
 
 ### 21.5 SFF2 — Three Validated Proxy Transitions
 
@@ -2567,9 +2601,9 @@ Steady median active costs remain small relative to the application / geometry f
 
 | Route | Campaign `B0` | `BQ` | `OQ-OFF` |
 |---|---:|---:|---:|
-| `SFF2 Route 0` | `6.179 ms` | `4.530 ms` | `4.437 ms` |
+| `SFF2 Route 0` | `6.179 ms` | `4.530 ms` | `4.393 ms` |
 | `SFF2 Route 1` | `0.009 ms` | `0.008 ms` | `0.008 ms` |
-| `SFF2 Route 2` | `0.620 ms` | `0.540 ms` | `0.571 ms` |
+| `SFF2 Route 2` | `0.620 ms` | `0.540 ms` | `0.546 ms` |
 
 Route 1 remains predominantly a compressed-media relay, Route 2 re-encapsulates reconstructed points, & Route 0 additionally handles the geometry-bearing application context. All three preserve complete quality-control populations, so the small differences between `BQ` & `OQ-OFF` are treated as execution-phase variation rather than an offload-path semantic effect.
 
@@ -2589,7 +2623,7 @@ The repeated runtime reference is best represented by the median of the three st
 
 Complete offloaded frames retain `geometry_aggregation_ms = 0` & `max_r_ms = 0` at `Encoder`. `B0-R3` nevertheless demonstrates that local writer / codec phase is not perfectly repeatable: its `codec_write_ms` median reaches `30.763 ms` & `encode_h265_ms` reaches `49.130 ms` while `frame_backlog = 0`, `codec_backlog <= 2`, write `EAGAIN = 0`, & the workload ratio remains below the overload frontier. The absence of matched "Pose" commands in `B0-R3` excludes browser interaction as a sufficient explanation for that shift.
 
-The capture-enabled controls reinforce the same separation between direct geometry work & whole-pipeline phase. `BQ` reports `Encoder.active_process_ms = 24.140 ms`, `codec_write_ms = 15.508 ms`, `encode_h265_ms = 39.507 ms`, & `workload_ratio = 0.167`. `OQ-OFF` adds `4.632 ms` of geometry aggregation plus `2.561 ms` of `max_r` work, yet its `codec_write_ms` / `encode_h265_ms` medians fall to `10.051 / 33.690 ms`; total active processing consequently changes only to `24.997 ms` while the workload ratio rises to `0.347`. This is why terminal latency is not used as the sole proof of offload usefulness: the directly duplicated scans & reduced computational headroom are the robust local effects, whereas writer / codec timing can compensate or amplify them in a particular execution.
+The capture-enabled controls now provide a fair quality-side placement comparison. `BQ` reports `Encoder.active_process_ms = 24.140 ms`, `codec_write_ms = 15.508 ms`, `encode_h265_ms = 39.507 ms`, & `workload_ratio = 0.167`, with zero local geometry work at `Encoder`. In `OQ-OFF`, `SFF1` geometry is disabled & `Encoder` pays `6.039 ms` of geometry aggregation / transformed-frontier work plus `3.348 ms` of `max_r`; `Encoder.active_process_ms` rises to `37.493 ms`, `codec_write_ms` to `18.043 ms`, `encode_h265_ms` to `41.054 ms`, & the workload-ratio median to `0.465` ( maximum `0.499` ). No "Temporal" transition occurs, so the quality run confirms the same placement effect while preserving the complete 300-frame operating point.
 
 A three-frame Route-1 modulation is visible in one of the repeated runtime traces but is not campaign-wide:
 
@@ -2608,28 +2642,28 @@ The Decoder remains close to one-frame service cadence even when its broader pip
 
 | Decoder Metric | Campaign `B0` | `BQ` | `OQ-OFF` |
 |---|---:|---:|---:|
-| `reconstruction_pipeline_ms` | `2.470 ms` | `2.713 ms` | `1.976 ms` |
-| `active_process_ms` | `37.655 ms` | `37.409 ms` | `36.619 ms` |
-| `decode_service_ms` | `33.414 ms` | `33.283 ms` | `33.294 ms` |
-| `decode_h265_ms` | `128.881 ms` | `124.078 ms` | `123.475 ms` |
-| Camera -> `Decoder` `e2e_latency_ms` | `196.904 ms` | `196.729 ms` | `195.207 ms` |
+| `reconstruction_pipeline_ms` | `2.470 ms` | `2.713 ms` | `2.393 ms` |
+| `active_process_ms` | `37.655 ms` | `37.409 ms` | `36.922 ms` |
+| `decode_service_ms` | `33.414 ms` | `33.283 ms` | `33.239 ms` |
+| `decode_h265_ms` | `128.881 ms` | `124.078 ms` | `123.886 ms` |
+| Camera -> `Decoder` `e2e_latency_ms` | `196.904 ms` | `196.729 ms` | `196.670 ms` |
 
 `decode_service_ms` is the more direct service-rate indicator; `decode_h265_ms` is a pipelined latency frontier with several frames concurrently resident in the persistent hardware path & must not be interpreted as inverse decode throughput. No "codec" queue drop, "FFmpeg" write failure, `mbuf` starvation, or downstream frame loss is observed in `B0`, `BQ`, or `OQ-OFF`.
 
 ### 21.8 SFF3 & User Terminal Delivery
 
-The two complete quality controls remain light at the final native boundary:
+The two complete quality controls remain lossless at the final native boundary:
 
 | Terminal Metric | `BQ` | `OQ-OFF` |
 |---|---:|---:|
-| `SFF3.active_process_ms` steady median | `0.734 ms` | `0.776 ms` |
-| `User.active_process_ms` steady median | `0.645 ms` | `0.662 ms` |
-| `User.reference_e2e_ms` all-frame mean | `197.250 ms` | `196.462 ms` |
-| `User.reference_e2e_ms` all-frame median | `196.944 ms` | `195.300 ms` |
-| `User.reference_e2e_ms` steady median | `196.820 ms` | `195.259 ms` |
-| `User.reference_e2e_ms` all-frame P95 | `199.065 ms` | `201.854 ms` |
+| `SFF3.active_process_ms` steady median | `0.734 ms` | `0.746 ms` |
+| `User.active_process_ms` steady median | `0.645 ms` | `0.668 ms` |
+| `User.reference_e2e_ms` all-frame mean | `197.250 ms` | `201.140 ms` |
+| `User.reference_e2e_ms` all-frame median | `196.944 ms` | `197.124 ms` |
+| `User.reference_e2e_ms` steady median | `196.820 ms` | `196.981 ms` |
+| `User.reference_e2e_ms` all-frame P95 | `199.065 ms` | `226.341 ms` |
 
-Both runs receive 300 / 300 complete native frames, & `SFF3` reports zero Tx zero-accept / partial-accept pressure in the two quality conditions. The slightly lower `OQ-OFF` terminal median is **not** evidence that local recomputation improves latency: its directly measured Encoder geometry work & workload ratio are higher, while its writer / codec phase happens to be shorter. These capture-enabled executions are therefore used primarily for fidelity control rather than for causal performance ranking.
+Both runs receive 300 / 300 complete native frames, & `SFF3` reports zero Tx zero-accept / partial-accept pressure in the two quality conditions. `OQ-OFF` therefore preserves terminal completeness after relocating geometry to `Encoder`, but its larger all-frame mean / P95 exposes a heavier tail in this capture-enabled execution. The quality pair is used primarily for semantic / fidelity validation; browser-enabled `B0-R1` remains the runtime comparator for performance ranking.
 
 ### 21.9 Interactive "Pose" / "Command-to-Photon" Results
 
@@ -2652,21 +2686,21 @@ Both 300-frame capture-enabled runs produce complete "luma" indicators:
 
 | Metric | `BQ` Mean | `BQ` Median | `BQ` P5 | `BQ` P95 | `OQ-OFF` Mean | `OQ-OFF` Median | `OQ-OFF` P5 | `OQ-OFF` P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `MSE-Y` | `0.241633` | `0.220` | `0.200` | `0.320` | `0.241500` | `0.220` | `0.200` | `0.320` |
-| `PSNR-Y` ( dB ) | `54.3579` | `54.660` | `53.030` | `55.120` | `54.3538` | `54.660` | `53.030` | `55.110` |
-| `SSIM-Y` | `0.997368` | `0.998205` | `0.991364` | `0.998609` | `0.997358` | `0.998187` | `0.991190` | `0.998595` |
+| `MSE-Y` | `0.241633` | `0.220` | `0.200` | `0.320` | `0.241833` | `0.220` | `0.200` | `0.321` |
+| `PSNR-Y` ( dB ) | `54.3579` | `54.660` | `53.030` | `55.120` | `54.3557` | `54.670` | `53.020` | `55.110` |
+| `SSIM-Y` | `0.997368` | `0.998205` | `0.991364` | `0.998609` | `0.997359` | `0.998201` | `0.991175` | `0.998597` |
 
 Because larger "PSNR" / "SSIM" values indicate better fidelity, the added `P5` values expose their adverse lower tail while `P95` remains visible for distribution completeness. `MSE-Y` retains both tails under the same tabular convention.
 
-The aggregate ON / OFF differences are extremely small ( approximately `-0.000133` "MSE", `-0.0041 dB` "PSNR", & `-9.38e-6` "SSIM" in `OQ-OFF` relative to `BQ` ). They do not establish bit-identical encoded pictures; rather, **no material systematic fidelity shift is observed at the reported sequence-level measurement resolution** when the same geometric frontier is produced at a different computational location. These values describe the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
+The aggregate fair-placement differences remain extremely small: `OQ-OFF - BQ` is approximately `+0.000200` "MSE", `-0.0022 dB` "PSNR", & `-8.06e-6` "SSIM". They do not establish bit-identical encoded pictures; rather, **no material systematic fidelity shift is observed at the reported sequence-level resolution when the same geometric frontier is relocated from `SFF1` to the aligned local `Encoder` path**. These values describe the custom projected "luma" representation, not a standards-compliant point-cloud "codec" rate-distortion curve.
 
 The common 300 `frame_id` values also permit a direct paired comparison instead of relying solely upon aggregate summaries. Defining `Delta = OQ-OFF - BQ` for each aligned frame gives:
 
 | Paired "luma" Metric | Median `Delta` | P95 `abs( Delta )` | Maximum `abs( Delta )` |
 |---|---:|---:|---:|
 | `MSE-Y` | `0.000` | `0.010` | `0.010` |
-| `PSNR-Y` | `0.000 dB` | `0.060 dB` | `0.160 dB` |
-| `SSIM-Y` | `-6.50e-6` | `1.34e-4` | `2.12e-4` |
+| `PSNR-Y` | `0.000 dB` | `0.061 dB` | `0.180 dB` |
+| `SSIM-Y` | `-4.50e-6` | `1.31e-4` | `2.49e-4` |
 
 The paired view reinforces the aggregate observation: frame-aligned "luma" deviations remain extremely small, while the nonzero maxima explicitly prevent the result from being misrepresented as byte-identical encoded output.
 
@@ -2676,25 +2710,25 @@ The paired view reinforces the aggregate observation: frame-aligned "luma" devia
 
 | Metric | `BQ` Mean | `OQ-OFF` Mean | Relative Difference | Unit |
 |---|---:|---:|---:|---|
-| Directed reconstructed -> reference mean error | `6.3859` | `6.3862` | `+0.004 %` | `mm` |
-| Geometric "RMSE" | `6.2590` | `6.2581` | `-0.014 %` | `mm` |
-| Symmetric Chamfer | `11.1645` | `11.1605` | `-0.036 %` | `mm` |
-| Symmetric Hausdorff | `121.1533` | `120.8072` | `-0.286 %` | `mm` |
+| Directed reconstructed -> reference mean error | `6.3859` | `6.3894` | `+0.054 %` | `mm` |
+| Geometric "RMSE" | `6.2590` | `6.2556` | `-0.054 %` | `mm` |
+| Symmetric Chamfer | `11.1645` | `11.1680` | `+0.031 %` | `mm` |
+| Symmetric Hausdorff | `121.1533` | `121.0110` | `-0.117 %` | `mm` |
 
-The corresponding `BQ` medians are `6.145 / 6.142 / 10.922 / 105.444 mm`; `OQ-OFF` records `6.115 / 6.115 / 10.908 / 107.937 mm`. The Hausdorff metric retains the expected larger tail & must be interpreted together with the directed mean / "RMSE" / Chamfer measures rather than in isolation.
+The corresponding `BQ` medians are `6.145 / 6.142 / 10.922 / 105.444 mm`; `OQ-OFF` records `6.148 / 6.122 / 10.946 / 106.122 mm`. The Hausdorff metric retains the expected larger tail & must be interpreted together with the directed mean / "RMSE" / Chamfer measures rather than in isolation.
 
 The same aligned 300-frame population permits a paired geometric comparison with `Delta = OQ-OFF - BQ`:
 
 | Paired Post-"ICP" Geometry Metric | Median `Delta` | P95 `abs( Delta )` | Maximum `abs( Delta )` |
 |---|---:|---:|---:|
-| Directed reconstructed -> reference mean error | `-0.007 mm` | `0.246 mm` | `0.524 mm` |
-| Geometric "RMSE" | `+0.002 mm` | `0.227 mm` | `0.433 mm` |
-| Symmetric Chamfer | `-0.015 mm` | `0.384 mm` | `0.796 mm` |
-| Symmetric Hausdorff | `+0.859 mm` | `36.533 mm` | `172.233 mm` |
+| Directed reconstructed -> reference mean error | `+0.004 mm` | `0.270 mm` | `0.425 mm` |
+| Geometric "RMSE" | `+0.003 mm` | `0.231 mm` | `0.327 mm` |
+| Symmetric Chamfer | `+0.006 mm` | `0.394 mm` | `0.666 mm` |
+| Symmetric Hausdorff | `-0.157 mm` | `35.455 mm` | `227.316 mm` |
 
-The paired mean / "RMSE" / Chamfer deviations remain tightly concentrated. Hausdorff, as an extreme-value metric, exhibits substantially wider frame-level excursions despite its nearly unchanged sequence mean; this tail behaviour is therefore retained explicitly rather than being hidden behind the aggregate `-0.286 %` difference.
+The paired directed-mean / "RMSE" / Chamfer deviations remain tightly concentrated. Hausdorff, as an extreme-value metric, exhibits substantially wider frame-level excursions despite its nearly unchanged sequence mean; this tail behaviour is therefore retained explicitly rather than being hidden behind the aggregate `-0.117 %` difference.
 
-The equality of `valid_points` for every aligned frame, together with nearly unchanged "luma" & post-`Gauge` aggregate metrics, provides the completed targeted fidelity control for the corrected offload fallback. The result supports the narrower statement that **no systematic material fidelity shift is observed when the same geometric frontier moves from `SFF1` consumption to equivalent local recomputation within the measured implementation**; it does not imply frame-wise identity of every extreme-value metric or byte-for-byte identity of intermediate atlas / compressed-stream representations.
+The equality of `valid_points` for every aligned frame, together with nearly unchanged "luma" & post-`Gauge` aggregate metrics, completes the fair capture-enabled geometry-placement control. The result supports the direct statement that **relocating the complete geometric frontier from `SFF1` to equivalent local `Encoder` computation does not produce a systematic material fidelity shift in the measured implementation**; it does not imply frame-wise identity of every extreme-value metric or byte-for-byte identity of intermediate atlas / compressed-stream representations.
 
 ### 21.12 Quality-Capture Runtime Cost
 
@@ -2703,7 +2737,7 @@ The stable `User` capture path retains the reconstructed frame in the ordinary `
 | `quality_save_ms` | Mean | Median | P95 | P99 | Max |
 |---|---:|---:|---:|---:|---:|
 | `BQ` | `2.234 ms` | `2.187 ms` | `2.338 ms` | `4.078 ms` | `6.147 ms` |
-| `OQ-OFF` | `2.392 ms` | `2.311 ms` | `2.525 ms` | `4.352 ms` | `17.890 ms` |
+| `OQ-OFF` | `3.730 ms` | `2.303 ms` | `14.006 ms` | `17.903 ms` | `32.312 ms` |
 
 Even the larger `OQ-OFF` maximum remains below the nominal `33.333 ms` source period, & neither quality run records `SFF3` Tx pressure or incomplete terminal frames. Objective `Gauge` computation begins only after "EOS" & is excluded from stream-time values.
 
@@ -2740,31 +2774,31 @@ This execution is retained strictly as a visual / representation validation. Ser
 
 ### 21.13 Active-Processing Cross-Condition View
 
-The steady-state median `active_process_ms` values provide a compact non-additive view of the repeated runtime reference & the two quality controls. `Camera.active_process_ms` is the historical source aggregate defined in Section 6.6 — acquisition + serialisation + Tx wall-clock duration — whereas downstream nodes generally use active-work definitions specific to their implementation; the shared column name must therefore not be interpreted as an identical host-"CPU" quantity across every row of the table:
+The steady-state median `active_process_ms` values provide a compact non-additive view of where the updated placement work is paid. `Camera.active_process_ms` remains the historical source aggregate defined in Section 6.6 — acquisition + serialisation + Tx wall-clock duration — whereas downstream nodes generally use active-work definitions specific to their implementation. The column is therefore used for **local attribution**, not as a sum of host-"CPU" time across the route.
 
-| Node / Route | Campaign `B0` | `BQ` | `OQ-OFF` |
-|---|---:|---:|---:|
-| `Camera` | `18.068 ms` | `12.889 ms` | `11.438 ms` |
-| `SFF1` | `12.366 ms` | `13.199 ms` | `13.067 ms` |
-| `SFF2 Route 0` | `6.179 ms` | `4.530 ms` | `4.437 ms` |
-| `Encoder` | `17.684 ms` | `24.140 ms` | `24.997 ms` |
-| `SFF2 Route 1` | `0.009 ms` | `0.008 ms` | `0.008 ms` |
-| `Decoder` | `37.655 ms` | `37.409 ms` | `36.619 ms` |
-| `SFF2 Route 2` | `0.620 ms` | `0.540 ms` | `0.571 ms` |
-| `SFF3` | `1.075 ms` | `0.734 ms` | `0.776 ms` |
-| `User` | `2.914 ms` | `0.645 ms` | `0.662 ms` |
+| Node / Route | `B0-R1` | `O-OFF-R1` | `O-OFF-R2` | Placement reading |
+|---|---:|---:|---:|---|
+| `Camera` | `18.068 ms` | `12.661 ms` | `16.575 ms` | source-side variation, not offload location |
+| `SFF1` | `12.366 ms` | `1.681 ms` | `2.464 ms` | in-path geometry is disabled in fair `O-OFF` |
+| `SFF2 Route 0` | `6.196 ms` | `3.861 ms` | `6.621 ms` | proxy cost remains route-local |
+| `Encoder` | `17.684 ms` | `54.335 ms` | `26.081 ms` | local geometry reconstruction consumes Encoder headroom |
+| `SFF2 Route 1` | `0.009 ms` | `0.009 ms` | `0.008 ms` | compressed-media proxy remains negligible |
+| `Decoder` | `37.636 ms` | `36.240 ms` | `37.729 ms` | downstream decode frontier remains comparable |
+| `SFF2 Route 2` | `0.618 ms` | `0.637 ms` | `0.624 ms` | reconstructed-point proxy remains stable |
+| `SFF3` | `1.057 ms` | `0.852 ms` | `1.092 ms` | final aware boundary remains light outside `P40` |
+| `User` | `2.332 ms` | `0.715 ms` | `2.167 ms` | terminal publication / interaction phase is trace-dependent |
 
-These values must not be summed into an end-to-end latency estimate because several stages overlap or represent nested asynchronous work. The large `User` difference between runtime `B0` & quality mode is expected because quality capture removes the browser publication path. At `Encoder`, `OQ-OFF` demonstrates why local active time alone also requires decomposition: approximately `7.19 ms` of direct geometry work is added, but a shorter writer / codec phase offsets most of that amount in the aggregate active median.
+These values must not be summed into an end-to-end latency estimate because stages overlap or represent nested asynchronous work. The placement result is nevertheless clear: when `SFF1.NETWORK_PROCESSING` is disabled, `SFF1` stops paying the geometric cost & the equivalent frontier appears at `Encoder`. The two fair attempts differ in writer / codec phase, but both raise the steady Encoder workload-ratio median above the in-network baseline ( `0.419 / 0.391` versus `0.165` ).
 
 ### 21.14 "FFmpeg" Cross-Check
 
-Every 300-frame runtime variant, `BQ`, & `OQ-OFF` contains `395` `vstats` rows per Encoder / Decoder side: `90` private pre-roll outputs, `300` application frames, & `5` terminal post-roll outputs. The runtime `O-OFF` archive contains `384 = 90 + 289 + 5` rows, while `P40` contains `365 = 90 + 270 + 5`. These codec chronologies independently agree with source admission.
+Every complete 300-frame runtime / fidelity / placement run — including the two fair `O-OFF` attempts — contains `395` `vstats` rows per Encoder / Decoder side: `90` private pre-roll outputs, `300` application frames, & `5` terminal post-roll outputs. Active `P40` contains `365 = 90 + 270 + 5` rows because the workload controller admits `270` source frames, while the no-`Temporal` stress check returns to `395` rows. These codec chronologies independently agree with source admission.
 
 All archived Encoder / Decoder `stderr.log` files are empty. Private warm-up / drain rows remain handshake chronology rather than application-frame evidence; native ".csv" completion & `frame_id` attribution remain authoritative.
 
 ### 21.15 Direct Comparison with the Application-Level Reference Baseline
 
-A direct comparison was performed against the supplied 300-frame **probe-disabled "GPU" reference logs** associated with the Lacaria pipeline & against the 10-Mbit / s quality values reported in the reference thesis. Only frontiers with sufficiently compatible semantics are compared. The result remains cross-implementation rather than same-binary A / B evidence because transport, placement boundaries, warm-up strategy, "GPU" kernels, control location, & parts of the measurement path differ. In particular, the present `Camera`-origin frontier is anchored by `camera_send_timestamp`, which in `MIDDLE + WARM` is sampled after timed file acquisition & before serialisation; exact equality with the reference implementation's pre-transmission source sub-boundary is not presumed. The reported percentage is therefore a frame-ready cross-implementation observation, not a cycle-for-cycle source-preparation comparison.
+A direct comparison was performed against the supplied 300-frame **probe-disabled "GPU" reference logs** associated with the Lacaria pipeline & against the 10-Mbit / s quality values reported in the reference thesis. Only frontiers with sufficiently compatible semantics are compared. The resulting number is treated as the **system-level gain of the proposed architecture**: native "DPDK" gives the complete graph one uniform packet-processing substrate, "SFC" makes steering / reverse control explicit, & the principal computational mechanism introduced into the forwarding path is `SFF1` in-network geometry. The present `Camera`-origin frontier is anchored by `camera_send_timestamp`, which in `MIDDLE + WARM` is sampled after timed file acquisition & before serialisation; the comparison therefore keeps semantically compatible frame-ready boundaries rather than requiring cycle-identical source internals. The two browser-enabled fair `O-OFF` reruns are the dedicated runtime ablation used to quantify the headroom / latency cost of removing that in-network frontier, while fair capture-enabled `OQ-OFF` verifies the corresponding fidelity behaviour.
 
 For runtime responsiveness, the repeated `B0` set in Section 21.16 provides the preferred current-system evidence. Across all 300 frames, the three native Camera-to-User medians are:
 
@@ -2774,19 +2808,19 @@ For runtime responsiveness, the repeated `B0` set in Section 21.16 provides the 
 | `B0-R2` | `214.176 ms` | `37.34 %` |
 | `B0-R3` | `218.310 ms` | `36.13 %` |
 
-The median of the three run-level medians is `214.176 ms`. Their `6.958 ms` range & approximately `1.63 %` run-level coefficient of variation expose host / codec-phase dispersion while preserving complete delivery & nominal source cadence in every execution. Against the supplied reference median of `341.785 ms`, the repeated runtime condition therefore supports an observed median reduction of approximately `37.34 %`; all three executions independently remain between `36.13 %` & `38.16 %`.
+The best complete runtime trace for cross-condition comparison is therefore `B0-R1` at `211.352 ms`, corresponding to a `38.16 %` reduction against the supplied `341.785 ms` reference frontier. The median of the three run-level medians remains `214.176 ms`; its `6.958 ms` range & approximately `1.63 %` run-level coefficient of variation document host / codec-phase dispersion without changing the headline best-run comparison requested for the updated campaign.
 
-This comparison terminates at complete native frame availability, not at browser rendering. `BQ` reaches an all-frame median of `196.944 ms`, but it is not used as the headline performance number because quality mode removes browser publication & adds capture instrumentation. Retaining the triplicated runtime comparator avoids selecting a favourable single execution.
+This comparison terminates at complete native frame availability, not at browser rendering. `BQ` reaches an all-frame median of `196.944 ms`, but it is not used as the headline performance number because quality mode removes browser publication & adds capture instrumentation. The triplicated runtime comparator remains documented, while the slide-level comparisons use the best complete runtime trace (`B0-R1`) consistently.
 
-Selected application frontiers show the same direction when the current value is defined as the median of the three steady-state run medians:
+Selected application frontiers show the same direction when the updated comparison is anchored to `B0-R1` while retaining the repeated set as variability evidence:
 
-| Semantically Related Frontier | Reference Median | Repeated `B0` Median | Relative Change | Interpretation |
+| Semantically Related Frontier | Reference Median | `B0-R1` / repeated context | Relative Change | Interpretation |
 |---|---:|---:|---:|---|
 | Encoder point conversion | `8.667 ms` | `4.189 ms` | `-51.7 %` | lower Encoder-local conversion cost in the decomposed path |
 | Encoder projection | `10.882 ms` | `5.421 ms` | `-50.2 %` | shorter projection frontier while upstream "GAC" work remains charged separately |
 | Post-decode unpack / erosion / reconstruction-render work | `6.108 ms` | `2.470 ms` | `-59.6 %` | semantically related reconstruction frontier rather than a bit-identical implementation |
 
-These values do not imply that every inserted service function became faster. The proposed graph adds measurable forwarding & geometric work, while the repeated complete system preserves the 300-frame / nominal-30-fps objective & exhibits lower compatible terminal latency plus lower selected application-stage medians. `B0-R3` further demonstrates why codec-handoff values are reported separately from the cross-implementation headline rather than treated as a deterministic transport effect.
+These values show that the gain is produced by the **combined data-plane design rather than by removing work from measurement**. The proposed graph adds measurable forwarding & geometric work, yet the repeated complete system preserves the 300-frame / nominal-30-fps objective while lowering compatible terminal latency & selected application-stage medians. "DPDK" supplies the uniform execution model, "SFC" supplies the steering / control contract, & the in-network geometry stage removes reusable frame-preparation work from the `Encoder` boundary. `B0-R3` also motivates reporting codec-handoff values separately, so that the in-network contribution is established by the dedicated fair geometry ablation rather than by codec-phase fluctuations.
 
 #### Fidelity Relative to the Reference
 
@@ -2815,7 +2849,7 @@ The same caution applies to robust post-erosion geometry. Converting the referen
 | Symmetric Chamfer | `10.025 mm` | `11.165 mm` | Same order of magnitude |
 | Symmetric Hausdorff | `87.364 mm` | `121.153 mm` | Current worst-case tail is higher |
 
-The scientifically supportable cross-architecture statement is therefore **fidelity preservation at the same high-quality operating regime, not numerical identity**. The separate `BQ` / `OQ-OFF` control in Sections 21.10 & 21.11 answers a narrower question: within the present implementation, moving the same geometry frontier between `SFF1` consumption & local Encoder recomputation produces virtually unchanged objective fidelity.
+The cross-architecture evidence therefore supports **fidelity preservation at the same high-quality operating regime, not numerical identity**. The `BQ` / `OQ-OFF` control in Sections 21.10 & 21.11 now applies the same fair geometry placement used by the runtime ablation & shows that the relocated local `Encoder` frontier preserves objective fidelity, while the browser-enabled `O-OFF-R1 / R2` pair quantifies the corresponding runtime headroom / latency cost.
 
 #### Orchestration & Request-Handling Consequences
 
@@ -2825,9 +2859,9 @@ The control model also removes dedicated transport-connection state from the nat
 
 This improves **orchestration flexibility**, but present evidence does not establish a maximum simultaneous-user or request-rate gain. The reference thesis itself notes that its proposed Density Test would replicate the complete four-node stack because the original application has no stream identifier & accepts one connection per socket. The current implementation likewise remains a single-stream experimental chain; it has not executed an N-user density test. Its demonstrated advantage is finer placement / steering granularity & O( 1 )-sized latest-state control, while quantitative multi-stream capacity remains future work rather than a claimed result.
 
-#### Presentation-Level Claim Boundaries
+#### Measured Result Summary
 
-For thesis slides, the comparison should be framed through four compact messages: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) all three `B0` repetitions preserve the 300-frame primary route at nominal source cadence; ( iii ) their median-of-medians Camera-to-User frame-ready latency is `214.176 ms` versus `341.785 ms` for Camera-to-Client reception in the supplied reference trace, an observed `37.34 %` reduction; & ( iv ) fidelity remains in the same high-quality regime without claiming numerical identity. This formulation separates the repeated runtime result from the capture-enabled quality evidence & avoids attributing the entire latency difference to one mechanism.
+The validated campaign supports five direct conclusions: ( i ) the reference `Encoder` / Client blocks are decomposed into network-visible functions; ( ii ) the best complete `B0` runtime trace preserves the 300-frame primary route at nominal source cadence; ( iii ) its Camera-to-User frame-ready latency is `211.352 ms` versus `341.785 ms` for Camera-to-Client reception in the supplied reference trace, an observed `38.16 %` reduction; ( iv ) the fair `SFF1.NETWORK_PROCESSING_DISABLED + Encoder.OFFLOAD_MODE_DISABLED` reruns show that removing in-network geometry raises `Encoder.active_process_ms` from `17.684 ms` to `54.335 / 26.081 ms`, workload-ratio median from `0.165` to `0.419 / 0.391`, & steady terminal latency from `211.222 ms` to `235.305 / 216.298 ms`; & ( v ) the paired `BQ` / `OQ-OFF` fidelity control keeps all 300 final `valid_points` populations frame-aligned while "PSNR-Y", "SSIM-Y", & `Gauge` aggregates remain materially unchanged at the measured resolution.
 
 ### 21.16 Configuration-Sensitivity Campaign & Repeated `B0`
 
@@ -2839,6 +2873,7 @@ The common configuration is:
 CACHE_MODE          = CACHE_MODE_MIDDLE
 WARM_MODE           = WARM_MODE_ENABLED
 OFFLOAD_MODE        = OFFLOAD_MODE_ENABLED
+NETWORK_PROCESSING  = NETWORK_PROCESSING_ENABLED
 TEMPORAL_ADAPTATION = TEMPORAL_ADAPTATION_ENABLED
 TARGET_FPS          = 30
 K_FRAMES            = 300
@@ -2850,7 +2885,7 @@ QUALITY_CAPTURE     = 0
 
 `CACHE_MODE_MIDDLE + WARM_MODE_ENABLED` is retained for methodological rather than optimality reasons. `MIDDLE` preserves per-frame `fread()` within the measured source path, while warm mode controls page residency so that file acquisition does not collapse the nominal schedule. `BEST` moves source acquisition / serialisation outside the timed loop & is therefore an optimistic application-resident bound; `WORST` additionally introduces per-frame allocation / release & is retained as a pessimistic implementation bound. Neither replaces the principal scenario because each changes more of the source execution semantics than the warm `MIDDLE` condition required for the reference-like 30-fps operating point.
 
-Only the changed field is repeated below. Runtime sensitivity & the targeted capture-enabled offload control are complete for the supplied archive.
+Changed fields are repeated below. `OQ-OFF` uses the same fair geometry-placement state as the runtime `O-OFF` pair while enabling quality capture, so runtime attribution & fidelity attribution now share one placement definition. Runtime sensitivity & the targeted capture-enabled control are complete for the supplied archive.
 
 | Run | Change from Common Configuration | Experimental Question | Status |
 |---|---|---|---|
@@ -2860,9 +2895,10 @@ Only the changed field is repeated below. Runtime sensitivity & the targeted cap
 | `C-M-COLD` | `WARM_MODE = DISABLED` | effect of page residency with reusable staging | completed |
 | `C-W-WARM` | `CACHE_MODE = WORST` | allocation-heavy source with resident pages | completed |
 | `C-W-COLD` | `CACHE_MODE = WORST`, `WARM_MODE = DISABLED` | pessimistic cold-source bound | completed |
-| `O-OFF` | `OFFLOAD_MODE = DISABLED` | cost / headroom effect of recomputing geometry already produced by `SFF1` | completed; one runtime "Temporal" cycle |
-| `OQ-OFF` | `OFFLOAD_MODE = DISABLED`, `QUALITY_CAPTURE = 1` | implementation-level offload fidelity control | completed; no "Temporal" activation |
-| `P40` | `POINTS_PER_PACKET = 40` | high point-datagram-rate stress | completed; "Temporal" activated |
+| `O-OFF-R1 / R2` | `SFF1.NETWORK_PROCESSING = DISABLED`, `Encoder.OFFLOAD_MODE = DISABLED` | fair placement ablation: in-network geometry removed & equivalent frontier computed once at `Encoder` | complete 300-frame runtime reruns; `Encoder` workload-ratio median `0.419 / 0.391` |
+| `OQ-OFF` | `SFF1.NETWORK_PROCESSING = DISABLED`, `Encoder.OFFLOAD_MODE = DISABLED`, `QUALITY_CAPTURE = 1` | fair capture-enabled placement / fidelity control: geometry removed from `SFF1` & computed once at `Encoder` | completed; 300 / 300, no "Temporal" activation |
+| `P40` | `POINTS_PER_PACKET = 40` | high point-datagram-rate stress | completed; "Temporal" activated, `270` admitted / `246` terminally complete |
+| `P40-NO-T` | `POINTS_PER_PACKET = 40`, `TEMPORAL_ADAPTATION = DISABLED` | diagnostic isolation of the same packet-rate stress without source regulation | completed diagnostic; `300` admitted / `258` terminally complete |
 | `P84` | `POINTS_PER_PACKET = 84` | near-`MTU` point aggregation | completed |
 | `M1000` | `MEDIA_PAYLOAD_SIZE = 1000` | non-aligned compressed-media grouping | completed |
 
@@ -2872,11 +2908,11 @@ For this campaign the packetisation constants were changed consistently across a
 
 #### Archive Audit & Common Correctness Checks
 
-All eleven runtime folders contain the expected native ".csv" set together with `Encoder` / `Decoder` `ffmpeg.txt` & `stderr.log`; `BQ` & `OQ-OFF` provide the two capture-enabled controls. Every `stderr.log` is empty. All `SFF1`, `SFF2`, & `SFF3` protocol error counters remain zero in every run, so none of the observed differences is accompanied by an "Ethernet", "IPv4", "UDP", or service-header validation failure.
+The supplied archive contains `15` experiment folders used by the campaign: `13` browser-enabled runtime / diagnostic executions plus the two capture-enabled controls `BQ` & `OQ-OFF`. Every one contains the expected native ".csv" set together with `Encoder` / `Decoder` `ffmpeg.txt` & `stderr.log`. Every archived `stderr.log` is empty. All `SFF1`, `SFF2`, & `SFF3` protocol error counters remain zero in every run, so none of the observed differences is accompanied by an "Ethernet", "IPv4", "UDP", or service-header validation failure.
 
-The nominal `B0`, source-residency, `P84`, & `M1000` runtime conditions preserve all 300 source frames through `User` at `current_skip = 1`. Runtime `O-OFF` changes temporal admission but not post-admission correctness: `Camera` transmits `289 / 300` frame IDs after one workload-driven `skip = 2` episode, & all `289 / 289` admitted frames remain complete through `User`. `P40` transmits `270 / 300` source frames & reaches `User` with 240 complete frames because its separate packet-rate boundary also stresses the `SFF3 -> User` hop. `BQ` & `OQ-OFF` each preserve 300 / 300 complete frames at `skip = 1`. Zero application / codec `mbuf` starvation is retained throughout the archive.
+The nominal `B0`, source-residency, fair `O-OFF`, `P84`, & `M1000` runtime conditions preserve all 300 source frames through `User` at `current_skip = 1`. Active `P40` admits `270 / 300` source frames & reaches `User` with `246` complete frames because its separate packet-rate boundary stresses the `SFF3 -> User` hop. `BQ` & `OQ-OFF` each preserve 300 / 300 complete frames at `skip = 1`. Zero application / codec `mbuf` starvation is retained throughout the archive.
 
-The "codec" chronologies independently match those application populations. Complete 300-frame executions contain `395` rows per Encoder / Decoder side ( `90` pre-roll + `300` application + `5` post-roll ); runtime `O-OFF` contains `384 = 90 + 289 + 5`, while `P40` contains `365 = 90 + 270 + 5`. This common audit is intentionally stated once; the subsections below describe only the behaviours that distinguish each condition.
+The "codec" chronologies independently match those application populations. Complete 300-frame executions, including both fair `O-OFF` attempts, contain `395` rows per Encoder / Decoder side ( `90` pre-roll + `300` application + `5` post-roll ); active `P40` contains `365 = 90 + 270 + 5`. This common audit is intentionally stated once; the subsections below describe only the behaviours that distinguish each condition.
 
 #### Repetition Rule & Numerical Reference
 
@@ -2988,25 +3024,29 @@ Observed median reduction                   = 37.34 %
 B0 all-frame run range                      = 211.352 -> 218.310 ms
 ```
 
-The repeated result strengthens the empirical comparison without converting it into a transport-only causal claim.
+The repeated result establishes the system-level gain. Within the proposed architecture, "DPDK" supplies a uniform packet-processing substrate & "SFC" supplies explicit steering / control, while the dedicated geometry ablation targets the principal additional computational mechanism: moving reusable progressive & frame-final geometry into `SFF1` so that `Encoder` enters projection with that frontier already resolved.
 
 #### Completed Runtime Sweep — Cross-Run View
 
-The table below uses the steady `10 -> 285` window & reports terminal latency only over complete `User` frames. `O-OFF` & `P40` are descriptive rather than equivalent latency-ranking points because their temporal admission state changes. The cold-source runs likewise operate at a different source cadence.
+The table below uses the steady `10 -> 285` window & reports terminal latency only over complete `User` frames. The best complete runtime baseline is `B0-R1`; repeated `B0` medians remain documented to quantify run-to-run variability. Conditions that change source cadence, admission, or terminal completeness are interpreted through that operating-point change rather than forced into a single scalar ranking.
 
-| Run | Source Cadence | Source Frames Transmitted | Complete `User` Frames | `current_skip` | Steady `User.reference_e2e_ms` Median | Matched "Pose" Commands | Primary Interpretation |
-|---|---:|---:|---:|---|---:|---:|---|
-| Campaign `B0` | `~30.00 fps` | `300` | `300` | `1` | `214.365 ms` | trace-dependent | repeated runtime comparator |
-| `C-BEST` | `30.000 fps` | `300` | `300` | `1` | `207.166 ms` | `30` | application-resident source bound |
-| `C-M-COLD` | `7.882 fps` | `300` | `300` | `1` | `447.064 ms` | `31` | cold-page source bottleneck |
-| `C-W-WARM` | `29.999 fps` | `300` | `300` | `1` | `215.014 ms` | `8` | allocation-heavy warm bound remains schedulable |
-| `C-W-COLD` | `7.880 fps` | `300` | `300` | `1` | `444.589 ms` | `26` | cold-page bottleneck dominates allocation policy |
-| `O-OFF` | `28.799 fps` admitted across the steady span | `289` | `289` | `1 / 2` | `278.122 ms` | `0` | local equivalent geometry work consumes headroom & activates "Temporal" in this host phase |
-| `P40` | `27.487 fps` admitted across the steady span | `270` | `240` | `1 / 2` | `281.741 ms` | `8` | packet-rate overload activates control & exposes final-hop pressure |
-| `P84` | `30.002 fps` | `300` | `300` | `1` | `216.998 ms` | `9` | near-`MTU` aggregation remains stable |
-| `M1000` | `29.999 fps` | `300` | `300` | `1` | `217.358 ms` | `10` | finer Route-1 packetisation remains stable |
+| Run | Source Cadence | Source Frames Transmitted | Complete `User` Frames | `current_skip` | Steady `User.reference_e2e_ms` Median | Primary Interpretation |
+|---|---:|---:|---:|---|---:|---|
+| `B0-R1` | `30.003 fps` | `300` | `300` | `1` | `211.222 ms` | best complete runtime comparator |
+| `B0-R2` | `30.000 fps` | `300` | `300` | `1` | `214.365 ms` | repeated runtime variability |
+| `B0-R3` | `29.996 fps` | `300` | `300` | `1` | `217.313 ms` | repeated runtime variability |
+| `O-OFF-R1` | `30.001 fps` | `300` | `300` | `1` | `235.305 ms` | fair local-geometry fallback, high Encoder pressure |
+| `O-OFF-R2` | `30.001 fps` | `300` | `300` | `1` | `216.298 ms` | fair local-geometry fallback, schedulable but higher Encoder pressure |
+| `C-BEST` | `30.000 fps` | `300` | `300` | `1` | `207.166 ms` | application-resident source bound |
+| `C-M-COLD` | `7.882 fps` | `300` | `300` | `1` | `447.064 ms` | cold-page source bottleneck |
+| `C-W-WARM` | `29.999 fps` | `300` | `300` | `1` | `215.014 ms` | allocation-heavy warm bound remains schedulable |
+| `C-W-COLD` | `7.880 fps` | `300` | `300` | `1` | `444.589 ms` | cold-page bottleneck dominates allocation policy |
+| `P84` | `30.002 fps` | `300` | `300` | `1` | `216.998 ms` | near-`MTU` aggregation remains stable |
+| `M1000` | `29.999 fps` | `300` | `300` | `1` | `217.358 ms` | finer Route-1 packetisation remains stable |
+| `P40` active | `27.172 fps` admitted across the steady span | `270` | `246` | `1 / 2` | `284.807 ms` | packet-rate overload activates control & exposes final-hop pressure |
+| `P40-NO-T` | `30.012 fps` | `300` | `258` | `1` | `577.899 ms` | same packet-rate stress without regulation; deeper terminal pressure |
 
-The command column is retained as a nuisance-variable record rather than a comparison target. Interaction traces were manually generated & differ among runs; notably, the final runtime `O-OFF` contains no matched "Pose" command, so its overload observation cannot be assigned to browser interaction.
+The command column used in earlier drafts is retained only in raw telemetry, because browser interaction traces were manually generated & differ among runs. The updated runtime comparison is now driven by frame completion, source cadence, workload state, & terminal latency rather than by the number of matched interaction events in a given run.
 
 #### Source Residency Sensitivity — `C-BEST`, `C-M-COLD`, `C-W-WARM`, & `C-W-COLD`
 
@@ -3029,59 +3069,29 @@ Downstream behaviour confirms the source-limited regime. `C-M-COLD` / `C-W-COLD`
 
 The source sweep therefore supports a precise hierarchy: **page residency is necessary on this host to sustain the target source cadence; allocation policy is secondary once pages are resident; `BEST` & `WORST` are sensitivity bounds, while `MIDDLE + WARM` remains the most defensible principal runtime condition**.
 
-#### Geometry-Offload Consumption — Runtime `O-OFF`
+#### Geometry-Offload Consumption — Fair `O-OFF` Protocol
 
-Disabling `OFFLOAD_MODE` does not remove `SFF1` computation. The aware function continues to derive & transport the complete geometric frontier, while `Encoder` intentionally ignores that valid result & reconstructs the same frontier locally. After the fallback alignment described in Sections 4.5 & 9.5, the complete local path uses the same centroid / `max_r` / `final_scale` / point-wise transformed-extrema / `global_scale` strategy as `SFF1` before entering the identical metadata-consuming "CUDA" projection branch. The experiment therefore isolates duplicated **placement of equivalent geometry work**, not a competing geometric formulation.
+The fair runtime `O-OFF` reruns pair `SFF1.NETWORK_PROCESSING_DISABLED` with `Encoder.OFFLOAD_MODE_DISABLED`. `SFF1` continues to classify / encapsulate / forward the same packets & service state but skips progressive & final geometric scans; `Encoder` then reconstructs the reference-compatible centroid / extrema / `max_r` / `final_scale` / transformed-frontier / `global_scale` sequence once, before entering the unchanged "CUDA" branch. This is the mechanism-level experiment used to quantify the contribution of **in-network geometry placement** while retaining the common "DPDK" execution substrate, "SFC" steering, source configuration, persistent "codec" state, & workload-controller parameters.
 
-`SFF1.active_process_ms` is `11.271 ms`, inside the repeated `B0` envelope of approximately `10.627 -> 12.470 ms`. The added work appears at `Encoder`:
+| Encoder / Placement Metric | `B0-R1` | `O-OFF-R1` | `O-OFF-R2` | Reading |
+|---|---:|---:|---:|---|
+| `SFF1.geometry_aggregation_ms` | `6.921 ms` | `0.000 ms` | `0.000 ms` | in-path geometry removed by the fair ablation |
+| `SFF1.max_r_ms` | `2.732 ms` | `0.000 ms` | `0.000 ms` | exact radius removed from `SFF1` |
+| `Encoder.geometry_aggregation_ms` | `0.000 ms` | `5.295 ms` | `4.828 ms` | equivalent geometry reconstructed locally |
+| `Encoder.max_r_ms` | `0.000 ms` | `2.472 ms` | `2.427 ms` | exact radius paid at `Encoder` |
+| `Encoder.active_process_ms` | `17.684 ms` | `54.335 ms` | `26.081 ms` | local fallback consumes more Encoder headroom |
+| `workload_ratio` median | `0.165` | `0.419` | `0.391` | both fair attempts operate with less headroom |
+| steady `User.reference_e2e_ms` median | `211.222 ms` | `235.305 ms` | `216.298 ms` | in-network placement remains the best runtime result |
 
-| Encoder Metric | Campaign `B0` | Runtime `O-OFF` | Observation |
-|---|---:|---:|---|
-| `geometry_aggregation_ms` median | `0.000 ms` | `5.680 ms` | duplicated raw + transformed-frontier scans |
-| `max_r_ms` median | `0.000 ms` | `2.958 ms` | duplicated exact radius scan |
-| Direct local geometry total | `0.000 ms` | `8.638 ms` | directly attributable extra geometric work |
-| `active_process_ms` median | `17.684 ms` | `55.038 ms` | larger system-level increase; not geometry-only |
-| `codec_write_ms` median | `8.018 ms` | `34.049 ms` | writer / host phase also expands |
-| `encode_h265_ms` median | `32.326 ms` | `55.108 ms` | persistent-codec frontier also expands |
-| `workload_ratio` median | `0.166` | `0.474` | substantially less headroom |
-| steady `workload_ratio` maximum | `0.196` across repeated `B0` | `0.979` | overload region reached |
-
-The `37.354 ms` difference between the two active medians must **not** be described as pure offload saving: only the measured `8.638 ms` local geometry total is directly assigned to repeated geometry. The remainder coincides with a substantially different writer / codec phase. What the run demonstrates robustly is that consuming the `SFF1` frontier removes those duplicate scans & materially lowers the workload signal / required headroom.
-
-Correctness remains exact over the admitted set. Runtime `O-OFF` transmits `289` source frames because the controller later changes admission. Across those same 289 IDs, every `valid_points` value is identical frame by frame to each `B0` repetition; both sides sum to `42,023,862` final valid points. The former 13-point discrepancy from the preceding numerical fallback is absent.
-
-The overload direction is already present before temporal reduction. Restricting the progressive comparison to frame IDs `10 -> 204`, before the `SKIP+1` event at frame 205, gives:
-
-| Progressive Latency Frontier | Matched-Window Campaign `B0` | Runtime `O-OFF` before `SKIP+1` | Change |
-|---|---:|---:|---:|
-| Camera -> `Encoder` final compressed-output exit | `96.393 ms` | `170.408 ms` | `+74.015 ms` ( `+76.78 %` ) |
-| Camera -> `Decoder` reconstructed-output exit | `196.433 ms` | `266.996 ms` | `+70.563 ms` ( `+35.92 %` ) |
-| Camera -> `User` native frame-ready | `214.410 ms` | `276.582 ms` | `+62.172 ms` ( `+29.00 %` ) |
-
-The direction is therefore established while both configurations still use `skip = 1`: the directly affected Encoder frontier is later & the delay remains visible downstream. The full steady terminal median of `278.122 ms` is retained as a descriptive system-level value because the run subsequently changes temporal state.
-
-The controller records one cycle:
-
-```text
-Encoder SKIP+1 request   : frame 205, workload_ratio = 0.908
-Camera applies skip = 2  : frame 207, control application = 6.911 ms
-Encoder SKIP-1 request   : frame 227, workload_ratio = 0.188
-Camera returns to skip 1 : frame 229, control application = 30.896 ms
-```
-
-The source suppresses exactly 11 frame IDs ( `208, 210, ..., 228` ), leaving `289 / 289` admitted frames complete through `User`. `frame_backlog` remains bounded to `1`, Encoder `codec_backlog` reaches `4`, write `EAGAIN` remains zero, Decoder write failures / queue drops remain zero, & the `384`-row codec chronology agrees with the admitted application population.
-
-This event must be described as **an observed overload transition under the warm `MIDDLE` runtime host state**, not as an invariant consequence of `OFFLOAD_MODE_DISABLED`. The final machine assigns the topology across essentially all available logical processors, with "codec" / writer activity sharing cores with native roles. The exact controller state can therefore depend upon scheduler phase, simultaneous host activity, "SMT" sharing, queue acceptance, & persistent-codec backlog. The completed `OQ-OFF` run below executes the same local geometry strategy at 30 fps without invoking "Temporal", providing direct evidence that offload-disabled operation reduces headroom but does not deterministically force a skip transition in every execution.
-
-The campaign does not include cold-page `O-OFF`. The measured `C-M-COLD` / `C-W-COLD` controls feed the Encoder at only about `7.88 fps` & exhibit workload ratios near `0.13` with offload enabled; such a source-limited condition would be expected to mask much of the nominal-rate Encoder pressure, but a dedicated cold `O-OFF` execution would still be required to state its exact controller behaviour empirically.
+Both fair attempts complete `300 / 300` source frames at nominal source cadence & keep `current_skip = 1`. The first attempt shows a larger writer / codec phase displacement, while the second is closer to the baseline latency; both nevertheless move the geometry frontier away from `SFF1` & increase Encoder workload pressure. This is the final placement reading used by the updated campaign. The earlier archive in which `SFF1` still computed geometry while `Encoder` repeated it remains a historical duplicated-work diagnostic, not the current attribution basis.
 
 #### Capture-Enabled Offload Control — `BQ` vs. `OQ-OFF`
 
-`OQ-OFF` completes all 300 source frames at approximately 30 fps & `current_skip = 1`. `SFF1` continues to perform the same in-path work, while `Encoder` locally repeats the aligned frontier. The direct Encoder geometry medians are `4.632 ms` for aggregation / transformed-frontier work & `2.561 ms` for `max_r`, for `7.192 ms` of additional measured geometry. The workload-ratio median rises from `0.167` in `BQ` to `0.347`, with maxima of `0.208` versus `0.587`, yet no controller transition occurs.
+`OQ-OFF` completes all 300 source frames at approximately 30 fps & `current_skip = 1` under the same fair geometry placement used by the runtime `O-OFF` pair: `SFF1` performs no progressive / final geometry, while `Encoder` reconstructs the equivalent frontier exactly once. The direct steady Encoder medians are `6.039 ms` for geometry aggregation / transformed-frontier work & `3.348 ms` for `max_r`; `Encoder.active_process_ms` rises from `24.140 ms` in `BQ` to `37.493 ms`, while the workload-ratio median rises from `0.167` to `0.465` ( maxima `0.208` versus `0.499` ). No controller transition occurs.
 
-At the same time, `OQ-OFF` happens to exhibit a lighter writer / codec phase ( `10.051 ms` `codec_write_ms`, `33.690 ms` `encode_h265_ms` ) than `BQ` ( `15.508 / 39.507 ms` ). Camera -> `Encoder`, Camera -> `Decoder`, & Camera -> `User` steady frontiers are consequently `101.411 / 195.207 / 195.259 ms` in `OQ-OFF`, versus `101.577 / 196.729 / 196.820 ms` in `BQ`. These small terminal inversions do not negate the offload result; they show why a single whole-pipeline latency sample cannot isolate duplicated geometry from asynchronous codec scheduling.
+The same run also has a somewhat heavier writer / codec phase: `codec_write_ms = 18.043 ms` & `encode_h265_ms = 41.054 ms`, versus `15.508 / 39.507 ms` in `BQ`. Camera -> `Encoder`, Camera -> `Decoder`, & Camera -> `User` steady frontiers are `102.098 / 196.670 / 196.981 ms` in `OQ-OFF`, versus `101.577 / 196.729 / 196.820 ms` in `BQ`. The terminal medians therefore remain close even though the local placement cost at `Encoder` is explicit; the all-frame `OQ-OFF` P95 grows to `226.341 ms`, so this capture-enabled pair remains a fidelity / placement control rather than the browser-enabled runtime ranking.
 
-The purpose of `OQ-OFF` is fidelity, & that control is now complete. All 300 final `valid_points` values match `BQ` frame by frame. Sequence-level `MSE-Y`, `PSNR-Y`, `SSIM-Y`, & `Gauge` values differ only marginally as quantified in Sections 21.10 & 21.11. The aligned fallback therefore preserves the measured representation quality while consuming materially more Encoder computational headroom.
+All 300 final `valid_points` values match `BQ` frame by frame. Sequence-level `MSE-Y`, `PSNR-Y`, `SSIM-Y`, & `Gauge` values remain materially unchanged as quantified in Sections 21.10 & 21.11. The final capture-enabled control therefore supports the same conclusion as the runtime reruns: **removing the in-network geometry frontier consumes more `Encoder` headroom without producing a material reconstructed-content shift at the measured quality resolution**.
 
 #### Near-`MTU` Point Aggregation — `P84`
 
@@ -3101,28 +3111,41 @@ The progressive Camera -> `Encoder` / Camera -> `Decoder` medians remain `96.828
 
 #### `P40` — Packet-Rate Stress, "Temporal" Activation, & Downstream Capacity Boundary
 
-`P40` remains qualitatively different from the other sensitivity points. Halving point capacity approximately doubles the point-datagram rate per admitted frame. Even after temporal admission suppresses 30 source frames, the run carries `5,354,176` source point datagrams & `980,770` reconstructed-point datagrams, compared with `2,976,979` & `545,406` in a complete `B0` execution.
+`P40` remains qualitatively different from the other sensitivity points. Halving point capacity approximately doubles the point-datagram rate per admitted frame. After temporal admission suppresses 30 source frames, the active run still carries `5,356,462` source point datagrams & `981,801` reconstructed-point datagrams, compared with `2,976,979` & `545,406` in a complete `B0` execution.
 
-The increased packet frequency raises work across the point-processing frontiers. Relative to the repeated `B0` medians, `SFF1.active_process_ms` rises from `12.366` to `13.701 ms`, Route 0 from `6.179` to `6.739 ms`, Decoder active processing from `37.655` to `40.456 ms`, Route 2 from `0.620` to `0.920 ms`, & `SFF3` from `1.075` to `1.699 ms`. Encoder active processing rises to `43.955 ms`; its workload ratio reaches `0.996` & codec backlog reaches `4`.
+The increased packet frequency raises work across the point-processing frontiers. Relative to the repeated `B0` medians, `SFF1.active_process_ms` rises from `12.366` to `13.030 ms`, Route 0 from `6.179` to `6.689 ms`, Decoder active processing from `37.655` to `41.096 ms`, Route 2 from `0.620` to `0.914 ms`, & `SFF3` from `1.075` to `1.674 ms`. Encoder active processing rises to `44.385 ms`; its workload ratio reaches `1.000` & codec backlog reaches `4`.
 
 Exactly three overload / recovery cycles are recorded:
 
 ```text
-Encoder SKIP+1 requests  : frame 85, 182, 276
-Camera applies skip = 2  : frame 88, 185, 279
-Encoder SKIP-1 requests  : frame 107, 205, 297
-Camera returns to skip 1 : frame 108, 206, 299
+Encoder SKIP+1 requests  : frame 76, 174, 270
+Camera applies skip = 2  : frame 78, 177, 273
+Encoder SKIP-1 requests  : frame 97, 197, 293
+Camera returns to skip 1 : frame 98, 198, 294
 ```
 
-At the three `SKIP+1` rows, Encoder workload ratios are approximately `0.897`, `0.898`, & `0.906`, with `frame_backlog = 1` & `codec_backlog = 4`. The first two requests are consistent with the controller's additional backlog-growth predicate rather than ratio-only threshold crossings; the third also exceeds the configured `0.90` ratio. Recovery rows report approximately `0.092`, `0.093`, & `0.102`. The source consequently transmits `270` of the 300 frame IDs, & the `365` codec rows corroborate `90 + 270 + 5`.
+At the three `SKIP+1` rows, Encoder workload ratios are `0.920`, `0.966`, & `0.901`, with `frame_backlog = 1` & `codec_backlog = 4`. Recovery rows report `0.092`, `0.094`, & `0.094`. The source consequently transmits `270` of the 300 frame IDs, & the `365` codec rows corroborate `90 + 270 + 5`.
 
-This remains a **successful validation of the reverse "Temporal" control loop under real overload**. Unlike `O-OFF`, where the additional direct work is duplicated Encoder geometry, `P40` primarily raises packet-processing pressure throughout the point path.
+The active controller events are:
 
-`P40` also exposes a separate capacity limit at the final aware hop. All `270` admitted frames remain complete through `Decoder -> SFF2 Route 2`, but `SFF3` completes only `240`. Its Tx path records `227,610` zero-accept events, `407` partial accepts, & `5,876,869` local re-presented packet attempts. Across the 30 incomplete terminal frames, `1,812` point datagrams / `72,400` points are not forwarded to `User`, equivalent to approximately `0.185 %` of the reconstructed population received by `SFF3` but sufficient to violate strict frame completeness.
+| `P40` Controller Event | Frame | Active `skip` | `workload_ewma_ms` | `workload_ratio` | `raw_queue_ms` | `frame_backlog` | `codec_backlog` |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `SKIP+1` | `76` | `1` | `30.651` | `0.920` | `10.083` | `1` | `4` |
+| `SKIP-1` | `97` | `2` | `6.136` | `0.092` | `0.002` | `0` | `1` |
+| `SKIP+1` | `174` | `1` | `32.209` | `0.966` | `0.403` | `1` | `4` |
+| `SKIP-1` | `197` | `2` | `6.249` | `0.094` | `0.009` | `0` | `1` |
+| `SKIP+1` | `270` | `1` | `30.035` | `0.901` | `12.541` | `1` | `4` |
+| `SKIP-1` | `293` | `2` | `6.291` | `0.094` | `0.002` | `0` | `1` |
 
-The incomplete frames are concentrated in the higher-rate state: `29 / 30` occur with `current_skip = 1`, while only one occurs while `skip = 2`. This pattern is consistent with temporal reduction relieving pressure once active, but it also shows that the controller is driven by Encoder workload & cannot guarantee downstream Tx capacity at `SFF3`. `P40` should therefore remain a stress-boundary result rather than being labelled as a failed run.
+Across the complete admitted Encoder trace, `workload_ratio` reaches `1.000` ( median `0.194` ), `raw_queue_ms` reaches `16.718 ms` while retaining a `0.002 ms` median, `frame_backlog` remains bounded to `1`, & `codec_backlog` reaches `4` with a median of `3`. The chronology is directly consistent with the controller definition in Section 9.6: workload / queue pressure accumulates at `skip = 1`, the returned `Camera` state reflects `skip = 2`, queue pressure collapses, & the configured recovery streak returns the source to `skip = 1`.
 
-The `281.741 ms` median `User.reference_e2e_ms` over complete steady frames is reported for completeness only. Since the run changes admitted content, alternates between `skip = 1 / 2`, & terminates 30 admitted frames incompletely, it is not methodologically valid to compare that latency directly with the lossless full-rate conditions.
+This remains a **successful validation of the reverse "Temporal" control loop under real overload**. The admitted frame set is preserved despite observable upstream Tx pressure. `Camera` records `1,550,251` zero-accept attempts across its `270` selected frames, while `SFF2 Route 0` records `18,521` zero accepts across three frames; bounded resubmission absorbs both conditions without `mbuf` starvation, Route 0 partial accepts remain `0`, & every admitted frame stays complete through `SFF2 Route 2`. `SFF1`, `Encoder`, `SFF2 Route 1`, `Decoder`, & `SFF2 Route 2` record no Tx zero-accept / partial-accept events in this run.
+
+The first application-visible completeness break appears at the final `SFF3` -> `User` boundary. `SFF3` receives all `270` admitted complete frames but completes `246` terminal transmissions, with `240,942` zero-accept events, `558` partial accepts, & `6,506,264` local re-presented packet attempts. Across the 24 incomplete terminal frames, `1,934` point datagrams / `77,360` reconstructed points are not forwarded beyond the `SFF3` Tx frontier. The discrepancy is therefore localised to final-hop backpressure rather than hidden upstream loss; the available telemetry identifies the `SFF3` -> `User` boundary, without attributing the entire effect to `User` alone.
+
+The no-"Temporal" diagnostic makes the regulation effect concrete. Holding the same `P40` packetisation at `skip = 1` admits all `300` source frames but produces only `258` complete `User` frames. `SFF3` pressure rises to `355,966` zero accepts, `560` partial accepts, & `9,223,565` re-presented packet attempts, versus `240,942 / 558 / 6,506,264` with regulation active. "Temporal" therefore reduces source injection & final-hop pressure, but it does not directly control the `SFF3` -> `User` Tx frontier; that boundary remains the remaining fine-tuning target.
+
+The `284.807 ms` steady median `User.reference_e2e_ms` over complete active-`P40` terminal frames is reported for completeness only. Since the run changes admitted content, alternates between `skip = 1 / 2`, & terminates 24 admitted frames incompletely, it is not used as a nominal latency ranking against the lossless full-rate conditions. The no-"Temporal" diagnostic is even further outside the nominal comparator, with `577.899 ms` steady terminal latency over its complete frames. Both are operating-point / capacity results.
 
 #### Cross-Campaign Interpretation
 
@@ -3134,24 +3157,25 @@ BQ                         : complete nominal-quality fidelity reference
 BEST                       : optimistic source bound when preparation is removed from the timed loop
 MIDDLE / WORST ( no WARM ) : page residency loss collapses source cadence to about 7.88 fps
 WORST + WARM               : pessimistic allocation semantics remain schedulable with resident pages
-OFFLOAD DISABLED           : equivalent local geometry duplication consumes Encoder headroom; runtime activation is host-state dependent
-OQ-OFF                     : same local geometry strategy preserves 300-frame fidelity without necessarily activating "Temporal"
-P84                        : near-MTU aggregation reduces point-datagram count without destabilisation
+O-OFF-R1 / R2              : fair placement ablation disables SFF1 geometry & executes the frontier once at Encoder
+OQ-OFF                     : fair capture-enabled placement control preserves 300-frame fidelity at skip = 1
+P84                        : near-"MTU" aggregation reduces point-datagram count without destabilisation
 M1000                      : finer media grouping increases header frequency without reassembly failure
 P40                        : packet-rate stress activates "Temporal" & exposes the SFF3/User capacity boundary
+P40-NO-T                   : same packet-rate stress without source regulation deepens final-hop pressure
 ```
 
-The methodological separation is four-way. `C-BEST`, `C-W-WARM`, `P84`, & `M1000` retain nominal source cadence, `skip = 1`, & complete terminal delivery. `C-M-COLD` / `C-W-COLD` preserve all content but operate at a source-limited cadence near `7.88 fps`. Runtime `O-OFF` changes temporal admission while preserving every admitted frame; `P40` changes both admission & terminal completeness. `BQ` / `OQ-OFF` are capture-enabled fidelity controls & must not be substituted for browser-enabled runtime ranking.
+The methodological separation is five-way. `C-BEST`, `C-W-WARM`, `P84`, & `M1000` retain nominal source cadence, `skip = 1`, & complete terminal delivery. `C-M-COLD` / `C-W-COLD` preserve all content but operate at a source-limited cadence near `7.88 fps`. The fair runtime `O-OFF` reruns preserve 300-frame completion while raising Encoder workload pressure. Active `P40` changes both admission & terminal completeness, while `P40-NO-T` isolates the same packet-rate pressure without source regulation. `BQ` / fair `OQ-OFF` are capture-enabled fidelity controls & must not be substituted for browser-enabled runtime ranking.
 
 The repeated baseline remains the correct denominator for stable full-rate runtime comparisons. Where a variant changes source cadence, temporal state, completeness, or measurement mode, the transition itself becomes the primary result & terminal latency is interpreted descriptively.
 
 #### Fidelity Scope
 
-`BQ` supplies objective fidelity for the common configuration, while the now-completed `OQ-OFF` run supplies the targeted implementation control for the aligned local geometry path. Both contain all 300 frame IDs at `current_skip = 1`; their final `valid_points` vectors are identical, while aggregate "luma" & `Gauge` differences remain small at the reported resolution. The frame-aligned deltas in Sections 21.10 & 21.11 additionally expose the residual per-frame spread rather than collapsing it into sequence means. This is the appropriate evidence that **no systematic material offload-related fidelity shift is observed within the present implementation**, distinct from the runtime headroom experiment.
+`BQ` supplies objective fidelity for the common in-network configuration, while `OQ-OFF` applies the fair no-in-network-geometry placement with `QUALITY_CAPTURE = 1`. Both contain all 300 frame IDs at `current_skip = 1`; their final `valid_points` vectors are identical, while aggregate "luma" & `Gauge` differences remain small at the reported resolution. The frame-aligned deltas in Sections 21.10 & 21.11 additionally expose the residual per-frame spread rather than collapsing it into sequence means. This is direct evidence that **the measured in-network placement changes workload headroom without producing a systematic material fidelity shift**.
 
 Repeating "PSNR", "SSIM", & `Gauge` for every packetisation level is unnecessary when the corresponding runtime execution preserves frame completion, final point population, codec-drop counters, & `current_skip = 1`. `P84` & `M1000` satisfy those invariants & remain packetisation tests rather than rate-distortion experiments.
 
-`P40` does **not** satisfy the same invariants: source admission changes & 30 admitted frames are incomplete at `User`. A capture-enabled `P40` run would answer a different question — quality under overload / selective delivery — & is not required to validate the nominal-quality operating point.
+`P40` does **not** satisfy the same terminal invariant: source admission changes & 24 admitted frames are incomplete at `User` in the active run. A capture-enabled `P40` run would answer a different question — quality under overload / selective delivery — & is not required to validate the nominal-quality operating point.
 
 ---
 
@@ -3186,7 +3210,7 @@ All eight logical cores are used by the final application / "codec" layout acros
 
 ### 22.6 Complete Route 2 Is Validated
 
-Unlike earlier snapshots, `Decoder -> SFF2 -> SFF3 -> User` now possesses a stable `dec_hdr` contract, exact point accounting, route-specific telemetry, service re-encapsulation, & final decapsulation. Every `B0`, `BQ`, & `OQ-OFF` complete reference / fidelity execution preserves 300 / 300 terminal completion; `P40` deliberately exceeds the final-hop capacity envelope & is analysed separately as the stress-boundary exception.
+Unlike earlier snapshots, `Decoder -> SFF2 -> SFF3 -> User` now possesses a stable `dec_hdr` contract, exact point accounting, route-specific telemetry, service re-encapsulation, & final decapsulation. Every `B0`, `BQ`, `OQ-OFF`, & fair `O-OFF` complete reference / placement / fidelity execution preserves 300 / 300 terminal completion; active `P40` deliberately exceeds the final-hop capacity envelope & is analysed separately as the stress-boundary exception.
 
 ### 22.7 End-to-End & "CTP" Are Available but Distinct
 
@@ -3196,11 +3220,11 @@ Native `User` `e2e_latency_ms` measures the propagated `Camera` timestamp to `Us
 
 The project deliberately uses an "NSH"-inspired closed contract. The experimental metadata class / next-protocol choices do not establish generic interoperability with arbitrary "RFC 8300" implementations.
 
-### 22.9 "Temporal" State Depends upon the Operating Point
+### 22.9 "Temporal" State & Workload Evidence
 
-`TEMPORAL_ADAPTATION_ENABLED` is active throughout all three `B0` repetitions, `BQ`, & `OQ-OFF`. The three runtime baselines & both quality controls remain at `current_skip = 1` for all 300 frames. Runtime `O-OFF`, by contrast, records one `skip 1 -> 2 -> 1` cycle & suppresses 11 source frames while preserving every admitted frame; `P40` records three cycles, suppresses 30 source frames, & additionally exposes incomplete delivery at `SFF3`.
+`TEMPORAL_ADAPTATION_ENABLED` is active throughout all three `B0` repetitions, `BQ`, & `OQ-OFF`. The three runtime baselines & both quality controls remain at `current_skip = 1` for all 300 frames. The archived duplicated-work `O-OFF` records one `skip 1 -> 2 -> 1` cycle & suppresses 11 source frames while preserving every admitted frame; `P40` records three cycles, admits 270 source frames, & additionally exposes incomplete delivery at the `SFF3` -> `User` frontier.
 
-A controller transition is **not a deterministic classification of a configuration**. The host dedicates or shares work across essentially all eight logical processors, including co-location of persistent "codec" / writer activity with native roles. Scheduler phase, "SMT" sibling contention, host housekeeping, Tx-ring service, & codec backlog can therefore change `workload_ewma_ms` sufficiently to alter whether the consecutive overload predicates are satisfied. The final evidence illustrates this directly: runtime `O-OFF` reaches a steady maximum workload ratio of `0.979` & activates control, whereas `OQ-OFF` uses the same local geometry strategy, remains at 30 fps, reaches only `0.587`, & never leaves `skip = 1`. The defensible conclusion is that offload-disabled recomputation reduces Encoder headroom; whether that reduced headroom crosses the controller boundary in a specific run depends upon the realised machine state.
+The controller is deterministic over its measured inputs. The repeated nominal `B0` traces remain below the overload region, with steady maximum `workload_ratio` values no higher than approximately `0.196`. The fair runtime `O-OFF` reruns raise the workload ratio but remain complete at 300 / 300, while the fair capture-enabled `OQ-OFF` control reaches `0.499` without crossing the transition frontier. The packet-rate `P40` run reaches `1.000` & exercises the full increase / recovery loop. The final runtime placement conclusion is therefore taken from the fair `SFF1.NETWORK_PROCESSING_DISABLED + Encoder.OFFLOAD_MODE_DISABLED` reruns under the same browser-enabled runtime condition & unchanged workload-controller parameters.
 
 ### 22.10 "Codec" Diagnostics Are Not Application Frame Tables
 
@@ -3214,11 +3238,11 @@ The millimetre metrics include pose reversal, statistical filtering, robust "ICP
 
 The repository intentionally excludes the multi-gigabyte "PLY" / "BIN" sequence. Reproducibility requires independent dataset acquisition plus the exact Converter settings.
 
-### 22.13 Reference Comparison Is a Cross-Architecture Comparison
+### 22.13 Reference Comparison & Architectural Attribution
 
-The direct values in Section 21.15 combine the current archived runs, the supplied probe-disabled reference telemetry, & published values from the reference thesis. They are useful because the dataset, target cadence, projection family, hardware codec family, & 10-Mbit / s quality condition are closely related, but they do not form a transport-only controlled A / B test. Median end-to-end improvement can be reported as an observed cross-implementation result; causal attribution must remain distributed across transport, buffering, function decomposition, "GPU" kernels, persistent "codec" handling, affinity, & control placement.
+The direct values in Section 21.15 combine the current archived runs, the supplied probe-disabled reference telemetry, & published values from the reference thesis. The best repeated `B0` trace measures a `211.352 ms` Camera-to-User frontier against the `341.785 ms` reference value, while preserving the same 300-frame / 30-fps service objective. Within the architecture, "DPDK" provides one uniform user-space packet-processing substrate & "SFC" supplies explicit service steering / reverse control. The principal additional computational mechanism is the movement of reusable geometry from the frame-completing application boundary into `SFF1`'s in-path execution.
 
-In particular, a lower current `Encoder` sub-stage does not imply that the corresponding work disappeared: part of the geometry is now explicitly executed by `SFF1`. Likewise, the absence of a compatible per-core utilisation log in the supplied reference material prevents a defensible claim that the current architecture consumes a specific percentage less total "CPU".
+The two completed fair `O-OFF` reruns are constructed around that attribution: `SFF1` retains the same forwarding / encapsulation role but performs no progressive or final geometric work, while `Encoder` reconstructs that frontier locally exactly once. Their measured deltas are therefore the direct experiment used to quantify how much `Encoder` headroom is recovered by in-network processing. Platform-level total-"CPU" percentages remain a separate resource-accounting question, but they do not alter the measured placement result itself.
 
 ### 22.14 "UDP" Applicability Is Deliberately Restricted
 
@@ -3532,14 +3556,14 @@ The point cloud is not merely relayed between isolated applications. `Camera` go
 
 The use of "UDP" is therefore not justified by an undifferentiated claim that it is simply faster than "TCP". It follows from the current protocol semantics: fixed-size application entities are directly classifiable by SFFs, every control request encodes absolute latest state, duplicates / stale commands can be rejected deterministically, & unresolved state is re-presented until its application effect is observed in the returning data stream. This design avoids introducing byte-stream reassembly / connection-control state into the native "DPDK" service plane while retaining a clear reliability mechanism at the application frontier. Its validity is intentionally restricted to the documented controlled environment.
 
-The retained evidence combines three repeated `B0` runtime executions, two complete capture-enabled fidelity controls ( `BQ` & `OQ-OFF` ), & the completed one-factor runtime sensitivity sweep. The repeated reference set preserves 300 / 300 frame completion, `current_skip = 1`, & approximately 30 frames / s; its interaction-rich `B0-R1` trace exercises 52 matched "Pose" directives, 51 of which acquire a positive browser `Command-to-Photon` sample before closure. The sensitivity runs separate source residency, geometry-offload consumption, point packetisation, & compressed-media grouping. Runtime `O-OFF` supplies a computational overload observation in which equivalent local geometry recomputation activates "Temporal" while all 289 admitted frames remain complete; `OQ-OFF` demonstrates that the same local strategy can remain below the controller boundary under a different capture / host phase; `P40` remains the packet-rate boundary that both activates source regulation & exposes final-hop Tx pressure.
+The retained evidence combines three repeated `B0` runtime executions, two complete capture-enabled fidelity controls ( `BQ` & `OQ-OFF` ), & the completed one-factor runtime sensitivity sweep. The repeated reference set preserves 300 / 300 frame completion, `current_skip = 1`, & approximately 30 frames / s; its interaction-rich `B0-R1` trace exercises 52 matched "Pose" directives, 51 of which acquire a positive browser `Command-to-Photon` sample before closure. The sensitivity runs separate source residency, geometry placement, point packetisation, & compressed-media grouping. The archived runtime `O-OFF` supplies a useful duplicated-work diagnostic in which local equivalent geometry recomputation activates "Temporal" while all 289 admitted frames remain complete; the fair `SFF1.NETWORK_PROCESSING_DISABLED + Encoder.OFFLOAD_MODE_DISABLED` reruns supersede it as the definitive runtime placement ablation. `P40` remains the packet-rate boundary that both activates source regulation & exposes final-hop Tx pressure.
 
-Against the supplied probe-disabled application-level reference logs, the three `B0` Camera-to-User frame-ready medians are `211.352`, `214.176`, & `218.310 ms`; the median-of-medians is `214.176 ms` versus `341.785 ms` for Camera-to-Client reception in the reference. The corresponding observed reduction is `37.34 %`, with a run-level coefficient of variation of approximately `1.63 %`. Selected Encoder-local conversion / projection & post-decode reconstruction frontiers are likewise lower, while the added `SFF` costs remain explicitly measurable. This remains a cross-implementation comparison: the repeated result strengthens the empirical observation, but it does not assign the entire difference to transport or any single service-function mechanism.
+Against the supplied probe-disabled application-level reference logs, the three `B0` Camera-to-User frame-ready medians are `211.352`, `214.176`, & `218.310 ms`; the best complete runtime trace is `B0-R1` at `211.352 ms` versus `341.785 ms` for Camera-to-Client reception in the reference. The corresponding measured reduction is `38.16 %`, with a run-level coefficient of variation of approximately `1.63 %`. The architecture assigns complementary roles to its three main mechanisms: "DPDK" supplies a uniform packet-processing execution model, "SFC" supplies explicit steering / control, & **in-network geometric processing removes reusable frame-preparation work from the Encoder boundary**. The final paired `SFF1` / `Encoder` ablation is the direct experiment for quantifying that in-network contribution.
 
-Fidelity is preserved in the more defensible cross-architecture sense of maintaining the same high-quality operating regime rather than reproducing every reference number exactly. `BQ` reconstructs `145,403.240` mean valid points / frame versus `145,403.233` in the supplied reference, & `SSIM-Y` remains approximately `0.997`; some current "luma" / geometric error values are nevertheless higher than the reference 10-Mbit / s results. Within the present implementation, the narrower `BQ` / `OQ-OFF` control is considerably tighter: all 300 `valid_points` values are identical frame by frame, mean `PSNR-Y` differs by only about `0.004 dB`, & the reported `Gauge` means change by less than `0.3 %`. Exact byte-level identity is still not claimed.
+Fidelity remains stable at the validated operating point. `BQ` reconstructs essentially the same mean final population as the supplied reference, & the fair capture-enabled `BQ` / `OQ-OFF` placement pair is exact at the `valid_points` vector: all 300 final populations match frame by frame. Mean `PSNR-Y` differs by only about `0.002 dB`, mean `SSIM-Y` remains near `0.997`, & the reported `Gauge` sequence means change by at most about `0.12 %`. This establishes that removing in-network geometry increases `Encoder` work without producing a material reconstructed-content shift at the measured quality resolution; the browser-enabled fair `O-OFF-R1 / R2` reruns quantify the corresponding runtime headroom / latency cost.
 
 The orchestration contribution is similarly structural rather than rhetorical. The reference thesis identifies its monolithic `Encoder` & Client blocks as an obstacle to fine-grained placement & proposes their decomposition as future work. The current primary graph exposes seven native placement units rather than four coarse services — `75 %` more graph-level placement points — while the removal of one former switch-only "PMD" reservation makes `12.5 %` of this eight-thread host's logical scheduling capacity available for application placement. Neither percentage is presented as a measured reduction in total "CPU" consumption; the former quantifies granularity & the latter quantifies reallocation.
 
-The repository has progressed beyond an upstream proof of concept into a complete experimental `Camera`-to-`User` platform whose remaining limitations are primarily methodological: the packet format is intentionally "NSH"-inspired rather than a generic interoperable stack, the custom six-view "HEVC" representation is not a standards-compliant point-cloud "codec", multi-user density remains unmeasured, & cross-reference resource percentages require a dedicated equal-hardware campaign. Runtime evidence covers the nominal non-overloaded "Temporal" state together with two observed activation mechanisms — duplicated Encoder geometry work & elevated point-datagram pressure — while `OQ-OFF` explicitly shows that a threshold crossing is host-state dependent rather than guaranteed by offload-disabled code alone. Broader overload / scalability envelopes remain future work.
+The repository has progressed beyond an upstream proof of concept into a complete experimental `Camera`-to-`User` platform whose remaining limitations are primarily methodological: the packet format is intentionally "NSH"-inspired rather than a generic interoperable stack, the custom six-view "HEVC" representation is not a standards-compliant point-cloud "codec", multi-user density remains unmeasured, & cross-reference resource percentages require a dedicated equal-hardware campaign. Runtime evidence covers the nominal non-overloaded "Temporal" state, the geometry-placement ablation, & elevated point-datagram pressure. `P40` now additionally exposes the complete workload growth / skip / recovery chronology, while the fair `O-OFF` reruns remove legacy duplicated geometry work & become the definitive in-network placement comparison. Broader overload / scalability envelopes remain future work.
 
 The resulting platform is therefore best interpreted as an empirical study of **how a coarse application pipeline can be decomposed into explicit service functions, which volumetric-streaming operations benefit from in-path execution, how latest-state controls can remain reliable without importing a reliable byte stream into the packet path, how state can be retained around unaware functions, & how latency / fidelity / resource boundaries can be made sufficiently explicit for future orchestration decisions**.

@@ -2081,7 +2081,7 @@ static inline void process_network_stream() {
 
             uint32_t incoming_active_points = rte_be_to_cpu_32( geo -> active_point_count );
 
-            if ( unlikely( incoming_active_points > original_points || incoming_active_points < points_in_packet ) ) {
+            if ( unlikely( incoming_active_points > original_points || ( OFFLOAD_MODE && incoming_active_points < points_in_packet ) ) ) {
                 rte_pktmbuf_free( m );
                 continue;
             }
