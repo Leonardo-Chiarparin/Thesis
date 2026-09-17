@@ -357,9 +357,3 @@ out=  0 st=  0 frame=   356 q= -0.0 f_size= 17694720 s_size=  6151680kB time= 11
 out=  0 st=  0 frame=   357 q= -0.0 f_size= 17694720 s_size=  6168960kB time= 11.900 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
 out=  0 st=  0 frame=   358 q= -0.0 f_size= 17694720 s_size=  6186240kB time= 11.933 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
 out=  0 st=  0 frame=   359 q= -0.0 f_size= 17694720 s_size=  6203520kB time= 11.967 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   360 q= -0.0 f_size= 17694720 s_size=  6220800kB time= 12.000 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   361 q= -0.0 f_size= 17694720 s_size=  6238080kB time= 12.033 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   362 q= -0.0 f_size= 17694720 s_size=  6255360kB time= 12.067 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   363 q= -0.0 f_size= 17694720 s_size=  6272640kB time= 12.100 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   364 q= -0.0 f_size= 17694720 s_size=  6289920kB time= 12.133 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
-out=  0 st=  0 frame=   365 q= -0.0 f_size= 17694720 s_size=  6307200kB time= 12.167 br= 4246732.8kbits/s avg_br= 4246732.8kbits/s type= ?
