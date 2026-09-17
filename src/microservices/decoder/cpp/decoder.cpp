@@ -29,6 +29,11 @@
 
 #define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
 
+struct quality_hdr {
+    uint32_t frame_id;
+    uint32_t point_count;
+};
+
 struct decoder_frame_context {
     bool initialized = false;
     bool input_closed = false;
@@ -101,7 +106,8 @@ static uint32_t decoded_frame_head = 0;
 static uint32_t decoded_frame_tail = 0;
 static uint32_t decoded_frame_count = 0;
 
-static std::vector< struct host_point > reconstructed_points;
+static std::vector< struct host_point > reconstructed_points_post;
+static std::vector< struct host_point > reconstructed_points_pre;
 
 static std::queue< uint32_t > decode_frame_order;
 
@@ -113,6 +119,12 @@ static uint32_t target_frame_id = 0;
 static bool eos_received = false;
 static bool decoder_eos_sent = false;
 static bool csv_written = false;
+
+static uint8_t *quality_pre_buffer = NULL;
+static size_t quality_pre_size = 0;
+static uint32_t quality_pre_drops = 0;
+static bool quality_pre_failed = false;
+static bool quality_capture_enabled = false;
 
 static std::atomic< bool > ffmpeg_output_eof( false );
 
@@ -994,6 +1006,95 @@ static inline void process_network_stream() {
     }
 }
 
+static void quality_capture_init() {
+    if ( mkdir( QUALITY_FOLDER, 0777 ) != 0 && errno != EEXIST ) {
+        printf( "[SYSTEM] Error: Failed to create directory \"%s\"...\n", QUALITY_FOLDER );
+        quality_pre_failed = true;
+        return;
+    }
+
+    unlink( QUALITY_PRE_PATH );
+    unlink( QUALITY_PRE_TEMP );
+
+    quality_pre_buffer = ( uint8_t * )malloc( QUALITY_BUFFER_SIZE );
+
+    if ( quality_pre_buffer == NULL ) {
+        printf( "[SYSTEM] Error: Unable to allocate quality capture memory...\n" );
+        quality_pre_failed = true;
+        return;
+    }
+
+    quality_pre_size = 0;
+    quality_pre_drops = 0;
+    quality_pre_failed = false;
+}
+
+static inline void save_pre_frame( uint32_t frame_id, const struct host_point *points, uint32_t point_count ) {
+
+    // Purpose: It buffers the pre-erosion reconstructed geometry snapshot in memory for eventual offline quality serialization
+
+    if ( quality_pre_buffer == NULL || quality_pre_failed || points == NULL || frame_id == 0 || frame_id > K_FRAMES || point_count > MAX_RECONSTRUCTED_POINTS )
+        return;
+
+    size_t points_size = ( size_t )point_count * sizeof( struct host_point );
+    size_t record_size = sizeof( struct quality_hdr ) + points_size;
+
+    if ( quality_pre_size + record_size > QUALITY_BUFFER_SIZE ) {
+        quality_pre_drops++;
+        return;
+    }
+
+    struct quality_hdr hdr;
+    hdr.frame_id = frame_id;
+    hdr.point_count = point_count;
+
+    memcpy( quality_pre_buffer + quality_pre_size, &hdr, sizeof( hdr ) );
+    quality_pre_size += sizeof( hdr );
+
+    if ( points_size > 0 ) {
+        memcpy( quality_pre_buffer + quality_pre_size, points, points_size );
+        quality_pre_size += points_size;
+    }
+}
+
+static void quality_capture_close() {
+    if ( quality_pre_buffer == NULL )
+        return;
+
+    FILE *quality_file = fopen( QUALITY_PRE_TEMP, "wb" );
+
+    if ( quality_file == NULL ) {
+        printf( "[SYSTEM] Error: Unable to open quality capture for serialization...\n" );
+        quality_pre_failed = true;
+    }
+    else {
+        setvbuf( quality_file, NULL, _IOFBF, 4 * 1024 * 1024 );
+
+        if ( quality_pre_size > 0 && fwrite( quality_pre_buffer, 1, quality_pre_size, quality_file ) != quality_pre_size ) {
+            printf( "[SYSTEM] Error: Unable to marshal quality results entirely...\n" );
+            quality_pre_failed = true;
+        }
+
+        fflush( quality_file );
+        fclose( quality_file );
+
+        if ( !quality_pre_failed ) {
+            if ( rename( QUALITY_PRE_TEMP, QUALITY_PRE_PATH ) != 0 ) {
+                printf( "[SYSTEM] Error: Unable to publish quality capture...\n" );
+                quality_pre_failed = true;
+            }
+        }
+        else
+            unlink( QUALITY_PRE_TEMP );
+    }
+
+    free( quality_pre_buffer );
+    quality_pre_buffer = NULL;
+
+    if ( quality_pre_drops > 0 )
+        printf( "[SYSTEM] Error: Quality capture skipped %u frames...\n", quality_pre_drops );
+}
+
 static inline void process_node_reception() {
     
     // Purpose: It uniformly coordinates data-path polling & asynchronous pipe drainage, ensuring no execution deadlock occurs
@@ -1350,14 +1451,21 @@ static inline void evaluate_decoded_frame( uint32_t frame_id, uint64_t timer_hz,
 
     uint32_t arrived_points = 0;
     uint32_t eroded_points = 0;
-    uint32_t valid_points = 0;
+    uint32_t post_valid_points = 0;
+    uint32_t pre_valid_points = 0;
     double gpu_metrics[ 5 ] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
     uint64_t pose_apply_end_cycles = 0;
     uint64_t pipeline_end_cycles = 0;
 
     uint64_t pipeline_start_cycles = rte_get_timer_cycles();
 
-    run_reconstruction_pipeline( decoded_i420, &ctx.enc, pose.yaw, pose.pitch, pose.zoom, reconstructed_points.data(), &arrived_points, &eroded_points, &valid_points, gpu_metrics, &pose_apply_end_cycles, &pipeline_end_cycles, process_node_reception );
+    struct host_point *pre_points = quality_capture_enabled ? reconstructed_points_pre.data() : nullptr;
+    uint32_t *pre_count = quality_capture_enabled ? &pre_valid_points : nullptr;
+
+    run_reconstruction_pipeline( decoded_i420, &ctx.enc, pose.yaw, pose.pitch, pose.zoom, reconstructed_points_post.data(), pre_points, pre_count, &arrived_points, &eroded_points, &post_valid_points, gpu_metrics, &pose_apply_end_cycles, &pipeline_end_cycles, process_node_reception );
+
+    if ( quality_capture_enabled )
+        save_pre_frame( frame_id, reconstructed_points_pre.data(), pre_valid_points );
 
     if ( pipeline_end_cycles < pipeline_start_cycles )
         pipeline_end_cycles = rte_get_timer_cycles();
@@ -1374,27 +1482,27 @@ static inline void evaluate_decoded_frame( uint32_t frame_id, uint64_t timer_hz,
 
     t -> arrived_points = arrived_points;
     t -> eroded_points = eroded_points;
-    t -> valid_points = valid_points;
+    t -> valid_points = post_valid_points;
 
-    if ( pose.measure_latency && valid_points > 0 && pose_apply_end_cycles >= pose.timestamp )
+    if ( pose.measure_latency && post_valid_points > 0 && pose_apply_end_cycles >= pose.timestamp )
         t -> pose_control_ms = ( ( double )( pose_apply_end_cycles - pose.timestamp ) / timer_hz ) * 1000.0;
 
-    if ( pose.measure_latency && valid_points > 0 && current_pose.generation == pose.generation )
+    if ( pose.measure_latency && post_valid_points > 0 && current_pose.generation == pose.generation )
         current_pose.pending = false;
 
     uint64_t first_tx_cycles = 0;
     uint64_t last_tx_cycles = 0;
     uint64_t active_tx_cycles = 0;
 
-    bool tx_success = dispatch_reconstructed_frame( frame_id, ctx, pose, reconstructed_points.data(), valid_points, t, &first_tx_cycles, &last_tx_cycles, &active_tx_cycles );
+    bool tx_success = dispatch_reconstructed_frame( frame_id, ctx, pose, reconstructed_points_post.data(), post_valid_points, t, &first_tx_cycles, &last_tx_cycles, &active_tx_cycles );
 
     double tx_duration_sec = ( first_tx_cycles > 0 && last_tx_cycles >= first_tx_cycles ) ? ( double )( last_tx_cycles - first_tx_cycles ) / timer_hz : 0.0;
 
     t -> tx_duration_ms = tx_duration_sec * 1000.0;
     t -> active_tx_ms = ( ( double )active_tx_cycles / timer_hz ) * 1000.0;
 
-    uint32_t expected_tx_packets = ( valid_points > 0 ) ? ( valid_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET : 1;
-    t -> tx_complete = ( tx_success && t -> tx_points == valid_points && t -> tx_packets == expected_tx_packets && t -> mbuf_starvation == 0 ) ? 1 : 0;
+    uint32_t expected_tx_packets = ( post_valid_points > 0 ) ? ( post_valid_points + POINTS_PER_PACKET - 1 ) / POINTS_PER_PACKET : 1;
+    t -> tx_complete = ( tx_success && t -> tx_points == post_valid_points && t -> tx_packets == expected_tx_packets && t -> mbuf_starvation == 0 ) ? 1 : 0;
 
     double reference_pipeline_ms = ( t -> reconstruction_pipeline_ms > t -> pose_ms ) ? t -> reconstruction_pipeline_ms - t -> pose_ms : 0.0;
     t -> reference_process_ms = t -> decode_service_ms + reference_pipeline_ms;
@@ -1536,6 +1644,9 @@ static int worker_loop( __rte_unused void *arg ) {
                 finalize_undecoded_frame( undecoded_frame_id, timer_hz );
 
             if ( !decoder_eos_sent ) {
+                if ( quality_capture_enabled )
+                    quality_capture_close();
+
                 decoder_eos_sent = dispatch_node_eos();
 
             }
@@ -1571,6 +1682,12 @@ int main( int argc, char *argv[] ) {
 
     unlink( POSTROLL_PATH );
 
+    const char *quality_env = getenv( "QUALITY_CAPTURE" );
+    quality_capture_enabled = ( quality_env != NULL && strcmp( quality_env, "1" ) == 0 );
+
+    if ( quality_capture_enabled )
+        quality_capture_init();
+
     uint32_t point_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct dec_hdr ) + POINTS_PER_PACKET * sizeof( struct point_tx );
     uint32_t media_ipv4_len = sizeof( struct rte_ipv4_hdr ) + sizeof( struct rte_udp_hdr ) + sizeof( struct cam_hdr ) + sizeof( struct enc_hdr ) + MEDIA_PAYLOAD_SIZE;
     uint32_t required_mtu = ( point_ipv4_len > media_ipv4_len ) ? point_ipv4_len : media_ipv4_len;
@@ -1592,15 +1709,21 @@ int main( int argc, char *argv[] ) {
     if ( DEBUG_VISUALS == DEBUG_VISUALS_ENABLED )
         debug_snapshot.resize( TOTAL_YUV_SIZE );
 
-    reconstructed_points.resize( MAX_RECONSTRUCTED_POINTS );
+    reconstructed_points_post.resize( MAX_RECONSTRUCTED_POINTS );
 
-    cuda_memory_init();
+    if ( quality_capture_enabled )
+        reconstructed_points_pre.resize( MAX_RECONSTRUCTED_POINTS );
+
+    cuda_memory_init( quality_capture_enabled );
     cuda_memory_warmup();
 
     for ( uint8_t slot = 0; slot < I420_BUFFER_COUNT; slot++ )
         cuda_memory_register( decoded_i420_buffers[ slot ].data(), TOTAL_YUV_SIZE );
 
-    cuda_memory_register( reconstructed_points.data(), reconstructed_points.size() * sizeof( struct host_point ) );
+    cuda_memory_register( reconstructed_points_post.data(), reconstructed_points_post.size() * sizeof( struct host_point ) );
+
+    if ( quality_capture_enabled )
+        cuda_memory_register( reconstructed_points_pre.data(), reconstructed_points_pre.size() * sizeof( struct host_point ) );
 
     for ( uint32_t i = 0; i < K_FRAMES; i++ ) {
         codec_start_cycles[ i ].store( 0, std::memory_order_relaxed );
@@ -1629,7 +1752,10 @@ int main( int argc, char *argv[] ) {
     if ( ffmpeg_pid > 0 )
         waitpid( ffmpeg_pid, NULL, 0 );
 
-    cuda_memory_unleash( reconstructed_points.data() );
+    if ( quality_capture_enabled )
+        cuda_memory_unleash( reconstructed_points_pre.data() );
+
+    cuda_memory_unleash( reconstructed_points_post.data() );
 
     for ( uint8_t slot = 0; slot < I420_BUFFER_COUNT; slot++ )
         cuda_memory_unleash( decoded_i420_buffers[ slot ].data() );

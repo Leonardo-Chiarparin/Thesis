@@ -13,6 +13,11 @@
 #define READY_PATH "/tmp/sfc-decoder-ready"
 #define POSTROLL_PATH "/tmp/sfc-decoder-done"
 
+#define QUALITY_FOLDER "/shared/data/loot/made"
+#define QUALITY_PRE_PATH "/shared/data/loot/made/results_pre.bin"
+#define QUALITY_PRE_TEMP "/shared/data/loot/made/results_pre.bin.tmp"
+#define QUALITY_BUFFER_SIZE ( 1024 * 1024 * 1024 )
+
 #define K_FRAMES 300
 #define TARGET_FPS 30.0
 
@@ -237,13 +242,13 @@ struct telemetry_csv {
 // "C++" to "CUDA" integration bridge
 typedef void ( *process_callback_t )();
 
-extern "C" void cuda_memory_init();
+extern "C" void cuda_memory_init( bool quality_capture_enabled );
 extern "C" void cuda_memory_free();
 extern "C" void cuda_memory_warmup();
 
 extern "C" void cuda_memory_register( void *ptr, size_t size );
 extern "C" void cuda_memory_unleash( void *ptr );
 
-extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const struct enc_hdr *metadata, float decoder_yaw, float decoder_pitch, float decoder_zoom, struct host_point *out_points, uint32_t *out_arrived_points, uint32_t *out_eroded_points, uint32_t *out_valid_points, double *gpu_metrics, uint64_t *out_pose_apply_end_cycles, uint64_t *out_pipeline_end_cycles, process_callback_t process_callback );
+extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const struct enc_hdr *metadata, float decoder_yaw, float decoder_pitch, float decoder_zoom, struct host_point *out_points, struct host_point *out_pre_points, uint32_t *out_pre_valid_points, uint32_t *out_arrived_points, uint32_t *out_eroded_points, uint32_t *out_valid_points, double *gpu_metrics, uint64_t *out_pose_apply_end_cycles, uint64_t *out_pipeline_end_cycles, process_callback_t process_callback );
 
 #endif

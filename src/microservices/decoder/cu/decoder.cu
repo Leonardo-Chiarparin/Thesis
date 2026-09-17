@@ -24,11 +24,13 @@ struct rotation_matrix {
 // Persistent device-side buffers eliminating component-local allocation & memory-handling overhead from the critical streaming path
 static uint8_t *d_i420 = nullptr;
 static uint8_t *d_occ_eroded = nullptr;
-static struct host_point *d_points = nullptr;
+static struct host_point *d_points_post = nullptr;
+static struct host_point *d_points_pre = nullptr;
 
 static uint32_t *d_arrived_count = nullptr;
 static uint32_t *d_eroded_count = nullptr;
-static uint32_t *d_valid_count = nullptr;
+static uint32_t *d_post_valid_count = nullptr;
+static uint32_t *d_pre_valid_count = nullptr;
 
 static cudaStream_t reconstruction_stream = nullptr;
 
@@ -269,7 +271,7 @@ __global__ void apply_pose_kernel( struct host_point *points, const uint32_t *va
     points[ i ].z = pz * decoder_zoom;
 }
 
-extern "C" void cuda_memory_init() {
+extern "C" void cuda_memory_init( bool quality_capture_enabled ) {
     CHECK_CUDA( cudaFree( 0 ) );
     CHECK_CUDA( cudaStreamCreateWithFlags( &reconstruction_stream, cudaStreamNonBlocking ) );
 
@@ -283,11 +285,16 @@ extern "C" void cuda_memory_init() {
 
     CHECK_CUDA( cudaMalloc( ( void ** )&d_i420, TOTAL_YUV_SIZE ) );
     CHECK_CUDA( cudaMalloc( ( void ** )&d_occ_eroded, ( size_t )CROSS_W * CROSS_H ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_points, ( size_t )MAX_RECONSTRUCTED_POINTS * sizeof( struct host_point ) ) );
-
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_points_post, ( size_t )MAX_RECONSTRUCTED_POINTS * sizeof( struct host_point ) ) );
+    
     CHECK_CUDA( cudaMalloc( ( void ** )&d_arrived_count, sizeof( uint32_t ) ) );
     CHECK_CUDA( cudaMalloc( ( void ** )&d_eroded_count, sizeof( uint32_t ) ) );
-    CHECK_CUDA( cudaMalloc( ( void ** )&d_valid_count, sizeof( uint32_t ) ) );
+    CHECK_CUDA( cudaMalloc( ( void ** )&d_post_valid_count, sizeof( uint32_t ) ) );
+
+    if ( quality_capture_enabled ) {
+        CHECK_CUDA( cudaMalloc( ( void ** )&d_points_pre, ( size_t )MAX_RECONSTRUCTED_POINTS * sizeof( struct host_point ) ) );
+        CHECK_CUDA( cudaMalloc( ( void ** )&d_pre_valid_count, sizeof( uint32_t ) ) );
+    }
 }
 
 extern "C" void cuda_memory_free() {
@@ -324,17 +331,26 @@ extern "C" void cuda_memory_free() {
     d2h_done_event = nullptr;
     reconstruction_stream = nullptr;
 
-    cudaFree( d_valid_count );
+    if ( d_pre_valid_count != nullptr )
+        CHECK_CUDA( cudaFree( d_pre_valid_count ) );
+
+    cudaFree( d_post_valid_count );
     cudaFree( d_eroded_count );
     cudaFree( d_arrived_count );
-    cudaFree( d_points );
+
+    if ( d_points_pre != nullptr )
+        CHECK_CUDA( cudaFree( d_points_pre ) );
+
+    cudaFree( d_points_post );
     cudaFree( d_occ_eroded );
     cudaFree( d_i420 );
 
-    d_valid_count = nullptr;
+    d_pre_valid_count = nullptr;
+    d_post_valid_count = nullptr;
     d_eroded_count = nullptr;
     d_arrived_count = nullptr;
-    d_points = nullptr;
+    d_points_pre = nullptr;
+    d_points_post = nullptr;
     d_occ_eroded = nullptr;
     d_i420 = nullptr;
 }
@@ -389,7 +405,7 @@ extern "C" void cuda_memory_warmup() {
     uint64_t dummy_pose_apply_end_cycles = 0;
     uint64_t dummy_pipeline_end_cycles = 0;
 
-    run_reconstruction_pipeline( dummy_i420, &dummy_metadata, 0.05f, -0.05f, 1.05f, dummy_points, &dummy_arrived_points, &dummy_eroded_points, &dummy_valid_points, dummy_metrics, &dummy_pose_apply_end_cycles, &dummy_pipeline_end_cycles, nullptr );
+    run_reconstruction_pipeline( dummy_i420, &dummy_metadata, 0.05f, -0.05f, 1.05f, dummy_points, nullptr, nullptr, &dummy_arrived_points, &dummy_eroded_points, &dummy_valid_points, dummy_metrics, &dummy_pose_apply_end_cycles, &dummy_pipeline_end_cycles, nullptr );
 
     if ( dummy_valid_points == 0 ) {
         fprintf( stderr, "[SYSTEM] Error: CUDA Decoder warm-up did not produce a valid reconstructed sample...\n" );
@@ -410,7 +426,7 @@ extern "C" void cuda_memory_unleash( void *ptr ) {
     CHECK_CUDA( cudaHostUnregister( ptr ) );
 }
 
-extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const struct enc_hdr *metadata, float decoder_yaw, float decoder_pitch, float decoder_zoom, struct host_point *out_points, uint32_t *out_arrived_points, uint32_t *out_eroded_points, uint32_t *out_valid_points, double *gpu_metrics, uint64_t *out_pose_apply_end_cycles, uint64_t *out_pipeline_end_cycles, process_callback_t process_callback ) {
+extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const struct enc_hdr *metadata, float decoder_yaw, float decoder_pitch, float decoder_zoom, struct host_point *out_points, struct host_point *out_pre_points, uint32_t *out_pre_valid_points, uint32_t *out_arrived_points, uint32_t *out_eroded_points, uint32_t *out_valid_points, double *gpu_metrics, uint64_t *out_pose_apply_end_cycles, uint64_t *out_pipeline_end_cycles, process_callback_t process_callback ) {
     
     // Purpose: It administers asynchronous "H2D" transfer, filtering, volumetric reconstruction & "D2H" copies using pose metadata
     
@@ -462,7 +478,7 @@ extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const st
 
     CHECK_CUDA( cudaMemsetAsync( d_arrived_count, 0, sizeof( uint32_t ), stream ) );
     CHECK_CUDA( cudaMemsetAsync( d_eroded_count, 0, sizeof( uint32_t ), stream ) );
-    CHECK_CUDA( cudaMemsetAsync( d_valid_count, 0, sizeof( uint32_t ), stream ) );
+    CHECK_CUDA( cudaMemsetAsync( d_post_valid_count, 0, sizeof( uint32_t ), stream ) );
 
     const uint8_t *raw_occ = d_i420 + ( ( size_t )CROSS_H * 2 * DECODER_W );
 
@@ -483,14 +499,14 @@ extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const st
     dim3 reconstruction_threads( 8, 8, 4 );
     dim3 reconstruction_blocks( ( WIDTH + 7 ) / 8, ( HEIGHT + 7 ) / 8, ( 6 + 3 ) / 4 );
 
-    reconstruct_3d_kernel<<< reconstruction_blocks, reconstruction_threads, 0, stream >>>( y_plane, u_plane, v_plane, d_occ_eroded, d_points, d_valid_count, global_scale, bbox_center_x, bbox_center_y, bbox_center_z );
+    reconstruct_3d_kernel<<< reconstruction_blocks, reconstruction_threads, 0, stream >>>( y_plane, u_plane, v_plane, d_occ_eroded, d_points_post, d_post_valid_count, global_scale, bbox_center_x, bbox_center_y, bbox_center_z );
     CHECK_CUDA( cudaGetLastError() );
     CHECK_CUDA( cudaEventRecord( reconstruction_done_event, stream ) );
 
     if ( process_callback != nullptr )
         process_callback();
 
-    apply_pose_kernel<<< ( MAX_RECONSTRUCTED_POINTS + 255 ) / 256, 256, 0, stream >>>( d_points, d_valid_count, final_scale, encoder_rotation, decoder_rotation, decoder_zoom );
+    apply_pose_kernel<<< ( MAX_RECONSTRUCTED_POINTS + 255 ) / 256, 256, 0, stream >>>( d_points_post, d_post_valid_count, final_scale, encoder_rotation, decoder_rotation, decoder_zoom );
     CHECK_CUDA( cudaGetLastError() );
 
     CHECK_CUDA( cudaEventRecord( pose_done_event, stream ) );
@@ -513,7 +529,7 @@ extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const st
 
     CHECK_CUDA( cudaMemcpy( &arrived_points, d_arrived_count, sizeof( uint32_t ), cudaMemcpyDeviceToHost ) );
     CHECK_CUDA( cudaMemcpy( &eroded_points, d_eroded_count, sizeof( uint32_t ), cudaMemcpyDeviceToHost ) );
-    CHECK_CUDA( cudaMemcpy( &valid_points, d_valid_count, sizeof( uint32_t ), cudaMemcpyDeviceToHost ) );
+    CHECK_CUDA( cudaMemcpy( &valid_points, d_post_valid_count, sizeof( uint32_t ), cudaMemcpyDeviceToHost ) );
 
     if ( valid_points > MAX_RECONSTRUCTED_POINTS )
         valid_points = MAX_RECONSTRUCTED_POINTS;
@@ -521,7 +537,7 @@ extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const st
     CHECK_CUDA( cudaEventRecord( copyback_start_event, stream ) );
 
     if ( valid_points > 0 )
-        CHECK_CUDA( cudaMemcpyAsync( out_points, d_points, ( size_t )valid_points * sizeof( struct host_point ), cudaMemcpyDeviceToHost, stream ) );
+        CHECK_CUDA( cudaMemcpyAsync( out_points, d_points_post, ( size_t )valid_points * sizeof( struct host_point ), cudaMemcpyDeviceToHost, stream ) );
 
     CHECK_CUDA( cudaEventRecord( d2h_done_event, stream ) );
 
@@ -561,5 +577,38 @@ extern "C" void run_reconstruction_pipeline( const uint8_t *i420_frame, const st
 
         CHECK_CUDA( cudaEventElapsedTime( &ms, copyback_start_event, d2h_done_event ) );
         gpu_metrics[ 4 ] = ms;
+    }
+
+    if ( out_pre_points != nullptr && out_pre_valid_points != nullptr ) {
+
+        // Purpose: It reproduces the diagnostic pre-erosion reconstruction over raw occupancy data exclusively during offline quality acquisition
+
+        CHECK_CUDA( cudaMemsetAsync( d_pre_valid_count, 0, sizeof( uint32_t ), stream ) );
+
+        reconstruct_3d_kernel<<< reconstruction_blocks, reconstruction_threads, 0, stream >>>( y_plane, u_plane, v_plane, raw_occ, d_points_pre, d_pre_valid_count, global_scale, bbox_center_x, bbox_center_y, bbox_center_z );
+        CHECK_CUDA( cudaGetLastError() );
+
+        apply_pose_kernel<<< ( MAX_RECONSTRUCTED_POINTS + 255 ) / 256, 256, 0, stream >>>( d_points_pre, d_pre_valid_count, final_scale, encoder_rotation, decoder_rotation, decoder_zoom );
+        CHECK_CUDA( cudaGetLastError() );
+
+        if ( process_callback != nullptr ) {
+            while ( cudaStreamQuery( stream ) == cudaErrorNotReady )
+                process_callback();
+
+            CHECK_CUDA( cudaStreamQuery( stream ) );
+        }
+        else
+            CHECK_CUDA( cudaStreamSynchronize( stream ) );
+
+        uint32_t pre_valid_points = 0;
+        CHECK_CUDA( cudaMemcpy( &pre_valid_points, d_pre_valid_count, sizeof( uint32_t ), cudaMemcpyDeviceToHost ) );
+
+        if ( pre_valid_points > MAX_RECONSTRUCTED_POINTS )
+            pre_valid_points = MAX_RECONSTRUCTED_POINTS;
+
+        if ( pre_valid_points > 0 )
+            CHECK_CUDA( cudaMemcpy( out_pre_points, d_points_pre, ( size_t )pre_valid_points * sizeof( struct host_point ), cudaMemcpyDeviceToHost ) );
+
+        *out_pre_valid_points = pre_valid_points;
     }
 }

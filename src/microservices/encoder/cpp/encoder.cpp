@@ -186,7 +186,7 @@ static bool debug_snapshot_ready = false;
 
 static size_t quality_stream_size = 0;
 static bool quality_failed = false;
-static bool quality_capture_enabled = true;
+static bool quality_capture_enabled = false;
 
 static uint32_t quality_frame_ids[ K_FRAMES ] = { 0 };
 static uint32_t quality_frame_count = 0;
@@ -505,8 +505,8 @@ static void evaluate_quality_capture() {
     char psnr_filter[ 512 ];
     char ssim_filter[ 512 ];
 
-    snprintf( psnr_filter, sizeof( psnr_filter ), "[0:v]setpts=PTS-STARTPTS,extractplanes=y[dist];" "[1:v]setpts=PTS-STARTPTS[ref];" "[dist][ref]psnr=stats_file=%s", PSNR_PATH );
-    snprintf( ssim_filter, sizeof( ssim_filter ), "[0:v]setpts=PTS-STARTPTS,extractplanes=y[dist];" "[1:v]setpts=PTS-STARTPTS[ref];" "[dist][ref]ssim=stats_file=%s", SSIM_PATH );
+    snprintf( psnr_filter, sizeof( psnr_filter ), "[0:v]setpts=PTS-STARTPTS," "extractplanes=y," "crop=%d:%d:0:0[dist];" "[1:v]setpts=PTS-STARTPTS," "crop=%d:%d:0:0[ref];" "[dist][ref]psnr=stats_file=%s", ENCODER_W, CROSS_H, ENCODER_W, CROSS_H, PSNR_PATH );
+    snprintf( ssim_filter, sizeof( ssim_filter ), "[0:v]setpts=PTS-STARTPTS," "extractplanes=y," "crop=%d:%d:0:0[dist];" "[1:v]setpts=PTS-STARTPTS," "crop=%d:%d:0:0[ref];" "[dist][ref]ssim=stats_file=%s", ENCODER_W, CROSS_H, ENCODER_W, CROSS_H, SSIM_PATH );
 
     bool psnr_ok = ffmpeg_quality_run( psnr_filter, quality_frame_count );
     bool ssim_ok = ffmpeg_quality_run( ssim_filter, quality_frame_count );
@@ -2545,7 +2545,7 @@ int main( int argc, char *argv[] ) {
     const char *quality_env = getenv( "QUALITY_CAPTURE" );
 
     if ( quality_env != NULL )
-        quality_capture_enabled = strcmp( quality_env, "0" ) != 0;
+        quality_capture_enabled = strcmp( quality_env, "1" ) == 0;
 
     if ( quality_capture_enabled )
         quality_capture_init();

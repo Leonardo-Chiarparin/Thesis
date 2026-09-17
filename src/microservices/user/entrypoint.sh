@@ -35,7 +35,8 @@ if [ "$QUALITY_CAPTURE" = "1" ]; then
     NUMEXPR_NUM_THREADS=1 \
     taskset -c $DPDK_CORE python3 /shared/py/gauge/gauge.py \
       --telemetry /shared/log/user/telemetry_user.csv \
-      --capture /shared/data/loot/made/results.bin \
+      --capture-pre /shared/data/loot/made/results_pre.bin \
+      --capture-post /shared/data/loot/made/results_post.bin \
       --reference "${REFERENCE_DIR:-/shared/data/loot/bin}" \
       --ready "$QUALITY_READY" \
       --done "$QUALITY_DONE"

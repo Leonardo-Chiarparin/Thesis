@@ -1,6 +1,6 @@
 set -euo pipefail
 
-QUALITY_CAPTURE="0"
+QUALITY_CAPTURE="${QUALITY_CAPTURE:-0}"
 
 if [ "$QUALITY_CAPTURE" != "0" ] && [ "$QUALITY_CAPTURE" != "1" ]; then
   echo "[SYSTEM] Error: \"QUALITY_CAPTURE\" must be either \"0\" or \"1\"..."
@@ -35,7 +35,7 @@ start_node() {
     GPU_FLAG="--gpus all"
   fi
 
-  if [ "$NODE_NAME" == "encoder" ]; then
+  if [ "$NODE_NAME" == "encoder" ] || [ "$NODE_NAME" == "decoder" ]; then
     ENVIRONMENT="--env QUALITY_CAPTURE=$QUALITY_CAPTURE"
   fi
 

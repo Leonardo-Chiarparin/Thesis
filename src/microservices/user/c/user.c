@@ -24,7 +24,7 @@
 #define TELEMETRY_PATH "/shared/log/user/telemetry_user.csv"
 
 #define QUALITY_FOLDER "/shared/data/loot/made"
-#define QUALITY_PATH "/shared/data/loot/made/results.bin"
+#define QUALITY_PATH "/shared/data/loot/made/results_post.bin"
 #define QUALITY_DONE_PATH "/tmp/sfc-user-done"
 #define QUALITY_READY_PATH "/tmp/sfc-user-quality"
 
@@ -257,14 +257,6 @@ struct telemetry_csv {
     double cmd_photon_ms;
 
     double quality_save_ms;
-    double mean_error;
-    double geom_rmse;
-    double chamfer;
-    double hausdorff;
-    double mean_mm;
-    double rmse_mm;
-    double chamfer_mm;
-    double hausdorff_mm;
 };
 
 // Global application state
@@ -695,6 +687,8 @@ static void quality_capture_init() {
         return;
     }
 
+    unlink( QUALITY_PATH );
+
     quality_buffer = ( uint8_t * )malloc( QUALITY_BUFFER_SIZE );
 
     if ( quality_buffer == NULL ) {
@@ -1007,14 +1001,6 @@ static inline void finalize_frame( uint64_t timer_hz ) {
     }
 
     t -> quality_save_ms = quality_save_ms;
-    t -> mean_error = NAN;
-    t -> geom_rmse = NAN;
-    t -> chamfer = NAN;
-    t -> hausdorff = NAN;
-    t -> mean_mm = NAN;
-    t -> rmse_mm = NAN;
-    t -> chamfer_mm = NAN;
-    t -> hausdorff_mm = NAN;
 
     last_frame_id = frame_id;
     
@@ -1037,7 +1023,7 @@ static void telemetry_to_csv() {
         return;
     }
 
-    fprintf( f, "frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms;mean_error;geom_rmse;chamfer;hausdorff;mean_mm;rmse_mm;chamfer_mm;hausdorff_mm\n" );
+    fprintf( f, "frame_id;rx_complete;current_skip;yaw;pitch;zoom;camera_send_timestamp;recv_start_timestamp;node_exit_timestamp;original_points;arrived_points;eroded_points;valid_points;rx_points;rx_packets;payload_bytes;data_integrity_pct;internal_throughput_mbs;logical_bitrate_mbps;network_bitrate_mbps;arrival_pct;erosion_pct;valid_pct;web_publish_ms;web_ack_ms;active_process_ms;total_residency_ms;node_efficiency_pct;camera_node_ms;e2e_latency_ms;reference_e2e_ms;schedule_delay_ms;inter_arrival_ms;instant_jitter_ms;desynced_jitter_ms;cmd_id;reference_cmd_ms;cmd_apply_ms;cmd_photon_ms;quality_save_ms\n" );
 
     for ( uint32_t i = 0; i < K_FRAMES; i++ ) {
         struct telemetry_csv *t = &telemetry_log[ i ];
@@ -1045,7 +1031,7 @@ static void telemetry_to_csv() {
         if ( t -> frame_id == 0 )
             continue;
 
-        fprintf( f, "%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%.3f;%.3f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f\n", t -> frame_id, t -> rx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> rx_points, t -> rx_packets, t -> payload_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> arrival_pct, t -> erosion_pct, t -> valid_pct, t -> web_publish_ms, t -> web_ack_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> camera_node_ms, t -> e2e_latency_ms, t -> reference_e2e_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> cmd_id, t -> reference_cmd_ms, t -> cmd_apply_ms, t -> cmd_photon_ms, t -> quality_save_ms, t -> mean_error, t -> geom_rmse, t -> chamfer, t -> hausdorff, t -> mean_mm, t -> rmse_mm, t -> chamfer_mm, t -> hausdorff_mm );
+        fprintf( f, "%u;%u;%u;%.6f;%.6f;%.6f;%.6f;%.6f;%.6f;%u;%u;%u;%u;%u;%u;%u;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%u;%.3f;%.3f;%.3f;%.3f\n", t -> frame_id, t -> rx_complete, t -> current_skip, t -> yaw, t -> pitch, t -> zoom, t -> camera_send_timestamp, t -> recv_start_timestamp, t -> node_exit_timestamp, t -> original_points, t -> arrived_points, t -> eroded_points, t -> valid_points, t -> rx_points, t -> rx_packets, t -> payload_bytes, t -> data_integrity_pct, t -> internal_throughput_mbs, t -> logical_bitrate_mbps, t -> network_bitrate_mbps, t -> arrival_pct, t -> erosion_pct, t -> valid_pct, t -> web_publish_ms, t -> web_ack_ms, t -> active_process_ms, t -> total_residency_ms, t -> node_efficiency_pct, t -> camera_node_ms, t -> e2e_latency_ms, t -> reference_e2e_ms, t -> schedule_delay_ms, t -> inter_arrival_ms, t -> instant_jitter_ms, t -> desynced_jitter_ms, t -> cmd_id, t -> reference_cmd_ms, t -> cmd_apply_ms, t -> cmd_photon_ms, t -> quality_save_ms );
     }
 
     fclose( f );

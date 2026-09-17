@@ -20,13 +20,19 @@ MAX_POINTS = 6 * 640 * 480
 VOXEL_MM = 1.820
 ICP_RADIUS = 200.0 / VOXEL_MM
 ICP_REPETITIONS = 30
-ICP_POINTS = 60000
 OUT_K = 20
 OUT_STD = 2.0
 
-QUALITY_FIELDS = [
+METRIC_FIELDS = [
     "mean_error", "geom_rmse", "chamfer", "hausdorff",
     "mean_mm", "rmse_mm", "chamfer_mm", "hausdorff_mm"
+]
+
+QUALITY_FIELDS = [
+    f"{stage}_{alignment}_{metric}"
+    for stage in ( "pre", "post" )
+    for alignment in ( "classical", "robust" )
+    for metric in METRIC_FIELDS
 ]
 
 def load_cloud( path: str, count: int = -1, offset: int = 0 ) -> np.ndarray:
@@ -59,17 +65,6 @@ def undo_pose( xyz: np.ndarray, yaw: float, pitch: float, zoom: float ) -> np.nd
     matrix = rot_matrix( yaw, pitch )
 
     return ( xyz / scale ) @ matrix
-
-def sample_cloud( xyz: np.ndarray, limit: int ) -> np.ndarray:
-
-    # Purpose: It decimates the dense point cloud via linear selection, preserving structural geometry whilst reducing the computational domain
-
-    if limit <= 0 or len( xyz ) <= limit:
-        return xyz
-
-    ids = np.linspace( 0, len( xyz ) - 1, limit, dtype = np.int64 )
-    
-    return xyz[ ids ]
 
 def stat_filter( xyz: np.ndarray ) -> np.ndarray:
 
@@ -112,21 +107,20 @@ def best_rigid( source: np.ndarray, target: np.ndarray ) -> tuple:
 
     return rotation, shift
 
-def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
+def icp_fit( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
-    # Purpose: It performs the "Iterative Closest Point" ( "ICP" ) algorithm on mathematically filtered subsets to establish precise frame alignment
+    # Purpose: It performs the "Iterative Closest Point" ( "ICP" ) registration over complete input sets whilst retaining only correspondences inside the prescribed physical search radius
 
-    source_fit = sample_cloud( source, ICP_POINTS )
-    source_fit = stat_filter( source_fit )
-    ref_fit = sample_cloud( reference, ICP_POINTS * 2 )
+    if len( source ) < 3 or len( reference ) < 3:
+        return np.eye( 3, dtype = np.float64 ), np.zeros( 3, dtype = np.float64 ), float( "nan" )
 
-    initial_shift = ref_fit.mean( axis = 0 ) - source_fit.mean( axis = 0 )
-    current = source_fit + initial_shift
+    initial_shift = reference.mean( axis = 0 ) - source.mean( axis = 0 )
+    current = source + initial_shift
 
     rotation = np.eye( 3, dtype = np.float64 )
     shift = initial_shift.copy()
     
-    ref_tree = cKDTree( ref_fit )
+    ref_tree = cKDTree( reference )
     previous = None
 
     for _ in range( ICP_REPETITIONS ):
@@ -136,7 +130,7 @@ def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
         if mask.sum() < 3:
             break
 
-        step_rot, step_shift = best_rigid( current[ mask ], ref_fit[ ids[ mask ] ] )
+        step_rot, step_shift = best_rigid( current[ mask ], reference[ ids[ mask ] ] )
         
         current = current @ step_rot.T + step_shift
         rotation = step_rot @ rotation
@@ -149,7 +143,29 @@ def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
         previous = score
 
-    return rotation, shift
+    final_distance, _ = ref_tree.query( current, k = 1, workers = 1 )
+    final_mask = final_distance <= ICP_RADIUS
+
+    if final_mask.sum() < 3:
+        inlier_rmse = float( "nan" )
+    else:
+        inlier_rmse = float( np.sqrt( np.square( final_distance[ final_mask ] ).mean() ) )
+
+    return rotation, shift, inlier_rmse
+
+def classical_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
+
+    # Purpose: It executes the classical coupled alignment by estimating rigid registration directly upon the complete unfiltered reconstructed & reference clouds
+
+    return icp_fit( source, reference )
+
+def robust_icp( source: np.ndarray, reference: np.ndarray ) -> tuple:
+
+    # Purpose: It executes the robust decoupled alignment by filtering only the reconstructed cloud employed for pose estimation whilst preserving complete geometry for subsequent measurements
+
+    source_fit = stat_filter( source )
+
+    return icp_fit( source_fit, reference )
 
 def distance_metrics( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
@@ -168,11 +184,39 @@ def distance_metrics( source: np.ndarray, reference: np.ndarray ) -> tuple:
 
     return mean_error, geom_rmse, chamfer, hausdorff
 
+def evaluate_alignment( source: np.ndarray, reference: np.ndarray, alignment: str ) -> dict:
+
+    # Purpose: It applies the selected coupled or decoupled alignment methodology & derives the four geometric indicators according to their corresponding evaluation domains
+
+    if alignment == "classical":
+        rotation, shift, icp_rmse = classical_icp( source, reference )
+    elif alignment == "robust":
+        rotation, shift, icp_rmse = robust_icp( source, reference )
+    else:
+        raise ValueError( f"Unknown alignment mode: {alignment}" )
+
+    aligned_xyz = source @ rotation.T + shift
+    mean_error, symmetric_rmse, chamfer, hausdorff = distance_metrics( aligned_xyz, reference )
+
+    geom_rmse = icp_rmse if alignment == "classical" else symmetric_rmse
+
+    return {
+        "mean_error": mean_error,
+        "geom_rmse": geom_rmse,
+        "chamfer": chamfer,
+        "hausdorff": hausdorff,
+        "mean_mm": mean_error * VOXEL_MM,
+        "rmse_mm": geom_rmse * VOXEL_MM,
+        "chamfer_mm": chamfer * VOXEL_MM,
+        "hausdorff_mm": hausdorff * VOXEL_MM
+    }
+
 def capture_index( path: str ) -> dict:
 
     # Purpose: It parses the quality capture file sequentially to build a rapid look-up index for frame payload offsets
 
     index = {}
+    file_size = os.path.getsize( path )
 
     with open( path, "rb" ) as capture:
         while True:
@@ -194,7 +238,7 @@ def capture_index( path: str ) -> dict:
             
             capture.seek( data_size, os.SEEK_CUR )
 
-            if capture.tell() > os.path.getsize( path ):
+            if capture.tell() > file_size:
                 raise RuntimeError( f"Misshapen record detected at frame {frame_id}..." )
 
             index[ frame_id ] = ( point_offset, point_count )
@@ -213,67 +257,82 @@ def format_metric( value: float ) -> str:
         
     return f"{value:.6f}"
 
-def metric_row( frame_id: int, row: dict, capture_path: str, record: tuple, ref_dir: str ) -> dict:
+def metric_row( frame_id: int, row: dict, capture_pre_path: str, pre_record: tuple, capture_post_path: str, post_record: tuple, ref_dir: str ) -> dict:
 
-    # Purpose: It orchestrates the comprehensive metric pipeline for a specific application frame, reversing applied poses & measuring objective distortions
+    # Purpose: It orchestrates the comprehensive metric pipeline for a specific application frame, comparing pre/post-erosion reconstructions under classical coupled & robust decoupled registration
 
-    point_offset, point_count = record
+    pre_offset, pre_count = pre_record
+    post_offset, post_count = post_record
     ref_path = os.path.join( ref_dir, f"loot_vox10_{frame_id + 999}.bin" )
 
-    if not os.path.exists( ref_path ) or point_count == 0:
+    if not os.path.exists( ref_path ) or pre_count == 0 or post_count == 0:
         return None
 
-    rec_xyz = load_cloud( capture_path, count = point_count, offset = point_offset )
+    pre_xyz = load_cloud( capture_pre_path, count = pre_count, offset = pre_offset )
+    post_xyz = load_cloud( capture_post_path, count = post_count, offset = post_offset )
     ref_xyz = load_cloud( ref_path )
 
-    if len( rec_xyz ) == 0 or len( ref_xyz ) == 0:
+    if len( pre_xyz ) == 0 or len( post_xyz ) == 0 or len( ref_xyz ) == 0:
         return None
 
     yaw = float( row.get( "yaw", 0.0 ) )
     pitch = float( row.get( "pitch", 0.0 ) )
     zoom = float( row.get( "zoom", 1.0 ) )
 
-    rec_xyz = undo_pose( rec_xyz, yaw, pitch, zoom )
+    pre_xyz = undo_pose( pre_xyz, yaw, pitch, zoom )
+    post_xyz = undo_pose( post_xyz, yaw, pitch, zoom )
 
-    rotation, shift = robust_icp( rec_xyz, ref_xyz )
-    aligned_xyz = rec_xyz @ rotation.T + shift
-
-    mean_error, geom_rmse, chamfer, hausdorff = distance_metrics( aligned_xyz, ref_xyz )
-
-    return {
-        "mean_error": mean_error,
-        "geom_rmse": geom_rmse,
-        "chamfer": chamfer,
-        "hausdorff": hausdorff,
-        "mean_mm": mean_error * VOXEL_MM,
-        "rmse_mm": geom_rmse * VOXEL_MM,
-        "chamfer_mm": chamfer * VOXEL_MM,
-        "hausdorff_mm": hausdorff * VOXEL_MM
+    stages = {
+        "pre": pre_xyz,
+        "post": post_xyz
     }
+
+    metrics = {}
+
+    for stage, source in stages.items():
+        for alignment in ( "classical", "robust" ):
+            values = evaluate_alignment( source, ref_xyz, alignment )
+
+            for field, value in values.items():
+                metrics[ f"{stage}_{alignment}_{field}" ] = value
+
+    return metrics
 
 def metric_task( task: tuple ) -> tuple:
 
-    # Purpose: It evaluates a single frame while preserving exact "ICP" & metric definitions
+    # Purpose: It evaluates a single frame while preserving exact "ICP" & metric definitions across both reconstruction stages
 
-    row_index, frame_id, row, capture_path, record, ref_dir = task
-    metrics = metric_row( frame_id, row, capture_path, record, ref_dir )
+    row_index, frame_id, row, capture_pre_path, pre_record, capture_post_path, post_record, ref_dir = task
+    metrics = metric_row( frame_id, row, capture_pre_path, pre_record, capture_post_path, post_record, ref_dir )
 
     return row_index, frame_id, metrics
 
-def merge_quality( telemetry_path: str, capture_path: str, ref_dir: str ) -> tuple:
+def merge_quality( telemetry_path: str, capture_pre_path: str, capture_post_path: str, ref_dir: str ) -> tuple:
 
-    # Purpose: It formats retrieved quality variables alongside existing diagnostic logs, sequentially assessing eligible frames
+    # Purpose: It formats retrieved quality variables alongside existing diagnostic logs, sequentially assessing eligible pre/post-erosion frames
 
     with open( telemetry_path, newline = "" ) as csv_file:
         reader = csv.DictReader( csv_file, delimiter = ";" )
         fieldnames = list( reader.fieldnames or [] )
         rows = list( reader )
 
+    legacy_fields = {
+        "mean_error", "geom_rmse", "chamfer", "hausdorff",
+        "mean_mm", "rmse_mm", "chamfer_mm", "hausdorff_mm"
+    }
+
+    fieldnames = [ field for field in fieldnames if field not in legacy_fields ]
+
+    for row in rows:
+        for field in legacy_fields:
+            row.pop( field, None )
+
     for field in QUALITY_FIELDS:
         if field not in fieldnames:
             fieldnames.append( field )
 
-    index = capture_index( capture_path )
+    pre_index = capture_index( capture_pre_path )
+    post_index = capture_index( capture_post_path )
     completed = 0
     expected = sum( 1 for row in rows if row.get( "rx_complete" ) == "1" )
 
@@ -282,10 +341,10 @@ def merge_quality( telemetry_path: str, capture_path: str, ref_dir: str ) -> tup
     for row_index, row in enumerate( rows ):
         frame_id = int( row.get( "frame_id", 0 ) )
 
-        if row.get( "rx_complete" ) != "1" or frame_id not in index:
+        if row.get( "rx_complete" ) != "1" or frame_id not in pre_index or frame_id not in post_index:
             continue
 
-        tasks.append( ( row_index, frame_id, row, capture_path, index[ frame_id ], ref_dir ) )
+        tasks.append( ( row_index, frame_id, row, capture_pre_path, pre_index[ frame_id ], capture_post_path, post_index[ frame_id ], ref_dir ) )
 
     print( f"[SYSTEM] Quality indicators computed for {len( tasks )} elements.\n", flush = True )
 
@@ -320,13 +379,21 @@ def wait_ready( path: str ) -> None:
     while not os.path.exists( path ):
         time.sleep( 0.5 )
 
+def wait_capture( path: str ) -> None:
+
+    # Purpose: It systematically suspends execution until a reconstruction-stage capture becomes available for offline geometric inspection
+
+    while not os.path.exists( path ):
+        time.sleep( 0.5 )
+
 def main() -> None:
 
-    # Purpose: It drives the offline spatial evaluation sequence, computing structural similarity post-"DPDK" operation & merging outcomes into the persistent ".csv" file
+    # Purpose: It drives the offline spatial evaluation sequence, computing pre/post-erosion coupled & decoupled geometric fidelity post-"DPDK" operation & merging outcomes into the persistent ".csv" file
 
     parser = argparse.ArgumentParser( description = "" )
     parser.add_argument( "--telemetry", default = "/shared/log/user/telemetry_user.csv" )
-    parser.add_argument( "--capture", default = "/shared/data/loot/made/results.bin" )
+    parser.add_argument( "--capture-pre", default = "/shared/data/loot/made/results_pre.bin" )
+    parser.add_argument( "--capture-post", default = "/shared/data/loot/made/results_post.bin" )
     parser.add_argument( "--reference", default = "/shared/data/loot/bin" )
     parser.add_argument( "--ready", default = "/tmp/sfc-user-quality" )
     parser.add_argument( "--done", default = "/tmp/sfc-user-done" )
@@ -338,13 +405,14 @@ def main() -> None:
     if not os.path.exists( args.telemetry ):
         raise SystemExit( "Telemetry is unavailable after the quality-ready signal..." )
 
-    if not os.path.exists( args.capture ):
-        raise SystemExit( "Quality capture is unavailable after the ready signal..." )
+    wait_capture( args.capture_pre )
+    wait_capture( args.capture_post )
 
-    completed, expected = merge_quality( args.telemetry, args.capture, args.reference )
+    completed, expected = merge_quality( args.telemetry, args.capture_pre, args.capture_post, args.reference )
 
     if completed == expected:
-        os.remove( args.capture )
+        os.remove( args.capture_pre )
+        os.remove( args.capture_post )
     else:
         print( f"[SYSTEM] Error: Only {completed} / {expected} complete frames were evaluated...", flush = True )
 

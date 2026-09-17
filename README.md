@@ -6,7 +6,7 @@
 ### 👥 Academic Information
 **Author:** Leonardo Chiarparin ( Student ID: **2016363** )<br>
 
-**Thesis Supervisor:** Professor Marco Polverini<br>
+**Thesis Advisor:** Professor Marco Polverini<br>
 
 **Degree Programme:** Engineering in Computer Science<br>
 
