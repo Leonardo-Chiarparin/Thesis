@@ -56,6 +56,8 @@ The "Pose" cycle is likewise functional. Browser-originated `yaw`, `pitch`, & `z
 
 > **Current Measurement Snapshot:** The final `outcomes` campaign preserves three complete browser-enabled `B0` repetitions with all-frame Camera -> `User` medians of `215.257 / 217.000 / 216.104 ms`. The supplied application-level "GPU" reference with the standard / necessary measurement probes active & heavy diagnostics disabled measures `337.599 ms` `Camera -> Client` reception, so `B0-R1` records a `36.24 %` reduction at the compatible frame-ready frontier. The fair runtime `O-OFF` pair remains complete at `300 / 300` but moves the geometric frontier back to `Encoder`: the repeated-`B0` steady comparator `Encoder.active_process_ms = 17.577 ms` / `workload_ratio = 0.163` rises to `46.821 / 25.601 ms` & `0.419 / 0.386`. The paired `BQ` / `OQ-OFF` controls retain the same final `valid_points` vector, assess coding distortion on the `2560 x 1536` "Geometry-Y" atlas only, & export full pre- / post-erosion Classical / Robust `Gauge` metrics. Active `P40` admits `264` frames, preserves all admitted frames through `SFF2 Route 2`, & completes `240 / 264` at `User`; the measured completeness break remains localised to the final `SFF3` -> `User` Tx frontier.
 
+> **Reader Orientation:** Section 1 states the research objective; Sections 2-5 define the topology, protocol contract, & packet formats; Sections 6-12 follow execution from `Camera` through `User`; Sections 18-20 cover reproduction & telemetry; Sections 21-22 contain the validated measurements & their interpretation; Section 24 provides the final reproducibility checklist.
+
 ---
 
 ## 🎯 1. Project Motivation & Research Objective
@@ -2541,6 +2543,8 @@ Quality mode appends the 32 `pre_*` / `post_*` x `classical_*` / `robust_*` fiel
 
 Cadence is now observable without reconstructing it retrospectively from unrelated residence fields. `Camera.inter_departure_ms` measures send-start to send-start across successive transmitted frames, while every receiving native stage exposes `inter_arrival_ms` from first valid packet to first valid packet. The first sample is explicitly `0`. Neither field divides the elapsed interval by a frame-ID gap: a deliberately skipped source frame therefore remains visible in the raw spacing. Jitter is handled separately, comparing the real interval with `( frame_id - previous_frame_id ) / TARGET_FPS`; intentional temporal selection is consequently not misclassified as network jitter.
 
+Only `Camera` exports a native `inter_departure_ms` field. For the comparative cadence audit in Section 21.3.1, downstream departure spacing is derived from consecutive `node_exit_timestamp` values after frame ordering; at `User`, the same calculation is interpreted as completion-to-completion spacing because no further network egress exists. This derived quantity is reported only as an audit view & does not alter the native ".csv" schema.
+
 The reference-throughput correction follows the same boundary discipline. `SFF1`, all three `SFF2` routes, `SFF3`, & `Decoder` compute `reference_throughput_mbs` from logical reference bytes divided by the **real first-to-last receive duration** of the frame, using decimal `1,000,000 B = 1 MB`. The corresponding `internal_throughput_mbs` uses the same receive span with measured logical bytes. `reference_bitrate_mbps` remains a distinct Mbit / s quantity based upon effective frame rate & must not be compared numerically as though it were another spelling of throughput.
 
 ### 20.2 "FFmpeg" `vstats` Field Semantics
@@ -2614,44 +2618,37 @@ All primary protocol-error counters are zero in those executions. `Encoder` repo
 
 ### 21.3 Camera — Nominal 30 Frames / s Source Operation & Local Backpressure
 
-The steady-state `10 -> 285` source span remains close to the nominal 30-fps objective in every complete reference / fidelity execution:
+The three browser-enabled `B0` repetitions form the primary responsive source reference. Over the steady `10 -> 285` span, every run preserves the nominal 30 frames / s objective without invoking temporal reduction:
 
 | Execution | Measured Source Cadence | `current_skip` | Complete Source Frames |
 |---|---:|---:|---:|
 | `B0-R1` | `30.0006 frames / s` | `1` | `300` |
 | `B0-R2` | `29.9998 frames / s` | `1` | `300` |
 | `B0-R3` | `30.0000 frames / s` | `1` | `300` |
-| `BQ` | `30.0005 frames / s` | `1` | `300` |
-| `OQ-OFF` | `30.0003 frames / s` | `1` | `300` |
 
-The direct span measurement is preferred to inverting one noisy per-frame interval because it preserves the complete observed time base. `BQ` reports steady medians of `3.459 ms` for `disk_io_ms`, `2.306 ms` for serialisation, `7.411 ms` for Tx duration, & `13.185 ms` for `active_process_ms`. `OQ-OFF` records `3.485`, `2.319`, `7.338`, & `13.157 ms`, respectively. Those source-local differences are host-phase observations rather than consequences of geometry placement, because the fair quality ablation changes the downstream / in-path geometry split rather than the `Camera` implementation.
+The direct `camera_send_timestamp` span is preferred to inverting one noisy per-frame interval because it preserves the complete observed time base. Across the repeated runtime reference, the median of run-level medians is `3.461 ms` for `disk_io_ms`, `2.556 ms` for serialisation, `11.979 ms` for Tx duration, & `18.378 ms` for `active_process_ms`. These source-local measurements belong to the browser-enabled baseline that anchors the runtime analysis.
 
-The capture-enabled executions preserve identical 300-frame completion even though their local `Camera` Tx-acceptance phases differ materially:
+The capture-enabled `BQ` / `OQ-OFF` controls independently remain at `30.0005 / 30.0003 frames / s` with `300 / 300` source completion & `current_skip = 1`; they are retained as fidelity controls rather than substituted for the responsive `B0` source reference. Their quality-specific runtime overheads are interpreted separately in Section 21.12, while repeated `B0` Tx-pressure counters remain available in Section 21.16.
 
-| Condition | Frames with Zero Accepts | Zero-Accept Sum | Re-Presented Packets | Partial Accepts | `mbuf` Starvation |
-|---|---:|---:|---:|---:|---:|
-| `BQ` | `300` | `495,558` | `15,683,419` | `0` | `0` |
-| `OQ-OFF` | `0` | `0` | `0` | `0` | `0` |
+#### 21.3.1 Primary-Route Cadence — `B0-R1` vs. Fair `O-OFF-R2`
 
-These counters describe repeated local `rte_eth_tx_burst()` presentation attempts. They are **not "UDP" retransmissions**. Both quality controls nevertheless deliver all 300 source frames completely, so the counter difference is treated as a host / queue-phase observation rather than an application-integrity difference.
+For a direct placement-oriented cadence view, `B0-R1` is selected from the repeated baseline because it records the lowest steady complete-frame `User.reference_e2e_ms` median ( `215.257 ms` ), while `O-OFF-R2` is the lower-latency fair `O-OFF` repetition ( `216.523 ms` ). Both remain complete at `300 / 300`, preserve `current_skip = 1`, & retain steady source rates of `30.0006` & `29.9985 frames / s`, respectively.
 
-#### 21.3.1 30 Frames / s Cadence Across the Complete `BQ` Route
+The table below reports steady `10 -> 285` interval medians. `inter_arrival_ms` is the native first-valid-packet spacing. `Camera` departure is the native `inter_departure_ms`; every downstream departure value is derived from successive `node_exit_timestamp` records. At `User`, the latter is a terminal completion interval rather than a network departure.
 
-Absolute source / `recv_start_timestamp` frontiers over frames `10 -> 285` establish the following rate continuity:
+| Observation Frontier | `B0-R1` `inter_arrival_ms` | `B0-R1` Departure / Completion | `O-OFF-R2` `inter_arrival_ms` | `O-OFF-R2` Departure / Completion |
+|---|---:|---:|---:|---:|
+| `Camera` | `—` | `33.491 ms` | `—` | `33.402 ms` |
+| `SFF1` | `33.508 ms` | `33.592 ms` | `33.451 ms` | `33.528 ms` |
+| `SFF2 Route 0` | `33.507 ms` | `33.595 ms` | `33.398 ms` | `33.740 ms` |
+| `Encoder` | `33.508 ms` | `33.011 ms` | `33.393 ms` | `33.313 ms` |
+| `SFF2 Route 1` | `33.005 ms` | `33.013 ms` | `33.280 ms` | `33.312 ms` |
+| `Decoder` | `33.000 ms` | `32.741 ms` | `33.301 ms` | `33.282 ms` |
+| `SFF2 Route 2` | `32.907 ms` | `32.759 ms` | `33.429 ms` | `33.274 ms` |
+| `SFF3` | `32.756 ms` | `32.742 ms` | `33.513 ms` | `33.279 ms` |
+| `User` | `32.503 ms` | `33.241 ms` | `33.180 ms` | `32.798 ms` |
 
-| Observation Frontier | Measured Rate | Mean Raw Interval |
-|---|---:|---:|
-| `Camera` departure | `29.999 frames / s` | `33.335 ms` |
-| `SFF1` input | `29.999 frames / s` | `33.335 ms` |
-| `SFF2 Route 0` input | `29.999 frames / s` | `33.335 ms` |
-| `Encoder` input | `29.999 frames / s` | `33.335 ms` |
-| `SFF2 Route 1` input | `30.012 frames / s` | `33.320 ms` |
-| `Decoder` input | `30.012 frames / s` | `33.320 ms` |
-| `SFF2 Route 2` input | `29.997 frames / s` | `33.337 ms` |
-| `SFF3` input | `29.997 frames / s` | `33.337 ms` |
-| `User` input | `29.997 frames / s` | `33.337 ms` |
-
-All 300 frames remain complete at `current_skip = 1`. `OQ-OFF` independently sustains the same source objective without invoking "Temporal", while the three browser-enabled `B0` repetitions provide the runtime counterpart of the same nominal rate.
+The two traces therefore preserve essentially identical long-window source cadence while redistributing local adjacent-frame spacing downstream. These medians are neither reciprocal estimates of the global source rate nor serial quantities to be added: persistent "codec" buffering, burst servicing, & host / queue phase can reshape local gaps without changing the completed 300-frame chronology.
 
 ### 21.4 SFF1 / "GAC" — In-Path Geometry Cost
 
@@ -3073,7 +3070,7 @@ These are local "DPDK" presentation attempts, not application retransmissions. A
 
 ##### Primary-Path Inter-Frame Cadence
 
-For `TARGET_FPS = 30`, the nominal period is `33.333 ms`. The final steady median intervals are:
+Section 21.3.1 provides the detailed `B0-R1` / `O-OFF-R2` arrival / departure comparison. The table below serves a different purpose: it retains the native `inter_arrival_ms` repeatability envelope across all three unchanged `B0` executions. For `TARGET_FPS = 30`, the nominal period is `33.333 ms`:
 
 | Observation Frontier | `B0-R1` | `B0-R2` | `B0-R3` | Campaign `B0` |
 |---|---:|---:|---:|---:|
