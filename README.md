@@ -1,4 +1,4 @@
-# 🌐 Enhanced Real-Time Point-Cloud Streaming through In-Network Computing
+# 🌐 Enhancing Real-Time Point-Cloud Streaming through In-Network Computing
 > **Experimental Thesis Project — Sapienza University of Rome**<br>
 
 > A "DPDK" / "SFC" Data-Plane architecture for volumetric transport, in-path geometric processing, workload-aware source control, "GPU" projection, persistent "H.265" delivery, reconstruction, & quality evaluation.
