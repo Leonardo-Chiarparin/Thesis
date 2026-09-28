@@ -242,7 +242,7 @@ static void lock_persistent_pages() {
 
 static void unlock_persistent_pages() {
 
-    // Purpose: It releases every locked mapping established during initialisation once transmission has completed
+    // Purpose: It releases every locked mapping established during initialization once transmission has completed
 
     for ( int i = 0; i < loaded_frames; i++ ) {
         if ( frames[ i ].locked_mapping != NULL ) {

@@ -2,7 +2,7 @@ echo "[SYSTEM] Evaluating the \"C++\" application for \"Decoder\"..."
 
 cd /app
 
-# Compiles the "DPDK" program applying maximum optimisation flags ( "-O3" ) & linking modules natively via "g++" / "pkg-config"
+# Compiles the "DPDK" program applying maximum optimization flags ( "-O3" ) & linking modules natively via "g++" / "pkg-config"
 make clean
 make all
 

@@ -12,7 +12,7 @@ rm -f "$QUALITY_READY" "$QUALITY_DONE"
 
 echo -e "[SYSTEM] Evaluating the \"C\" application for \"User\"..."
 
-# Compiles the "DPDK" program applying maximum optimisation flags ( "-O3" ) & linking modules natively via "gcc" / "pkg-config"
+# Compiles the "DPDK" program applying maximum optimization flags ( "-O3" ) & linking modules natively via "gcc" / "pkg-config"
 gcc -O3 /app/c/user.c -o /tmp/user_dpdk $(pkg-config --cflags --libs libdpdk) -lm
 
 if [ "$QUALITY_CAPTURE" = "0" ]; then
