@@ -190,7 +190,7 @@ struct temporal_payload {
     uint16_t padding;
 } __attribute__((__packed__));
 
-// SFF2, about the subsequent organization, validates only its size, treating internal fields ( e.g., "yaw", "pitch", "zoom" ) as semantically opaque control metadata
+// SFF2, about the following structure, validates only its size, treating internal fields ( e.g., "yaw", "pitch", "zoom" ) as semantically opaque control metadata
 struct pose_payload { 
     uint64_t timestamp;
     uint32_t yaw;
@@ -744,7 +744,7 @@ static inline bool rebuild_packet( struct rte_mbuf *m, size_t strip_len, uint16_
 
 static inline bool enforce_proxy_nsh( struct rte_mbuf *m, uint16_t tx_port, const struct proxy_context *ctx ) {
 
-    // Purpose: It reintroduces the base "NSH" using surrogate-maintained variables ( e.g., "SPI" ) when primary traffic departs the nearby clueless-SF attachment domain
+    // Purpose: It reintroduces the base "NSH" using proxy-maintained state when primary traffic leaves an adjacent "SFC"-unaware function
 
     if ( ctx == NULL || !ctx -> valid || ctx -> ttl == 0 )
         return false;
@@ -1786,7 +1786,7 @@ static int worker_loop( __rte_unused void *arg ) {
 
 int main( int argc, char *argv[] ) {
 
-    // Purpose: It defines the topology central element. SFF2 operates as both forwarder & proxy, enforcing pair-specific network validation & the "Main", "Temporal" & "Pose" service-path contracts while maintaining per-course diagnosis
+    // Purpose: It defines the central element of the topology. SFF2 operates as both forwarder & proxy, enforcing pair-specific network validation & the "Main", "Temporal" & "Pose" service-path contracts while maintaining per-route diagnostics
 
     setvbuf( stdout, NULL, _IONBF, 0 );
 

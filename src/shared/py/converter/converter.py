@@ -30,7 +30,7 @@ DPDK_STRUCT_DTYPE = np.dtype( [
 
 def process_data( input_directory: str, output_directory: str, telemetry_file: str ) -> None:
 
-    # Purpose: It scans the input directory for ".ply" files, extracts spatial & photometric data, applies scaling, aligns to the desired organization, & writes back ( contiguous ) binary contents
+    # Purpose: It scans the input directory for ".ply" files, extracts spatial & photometric data, applies scaling, aligns to the desired layout, & writes back ( contiguous ) binary contents
     
     if not os.path.exists( output_directory ):
         os.makedirs( output_directory )

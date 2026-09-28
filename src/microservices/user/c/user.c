@@ -146,7 +146,7 @@ struct web_hdr {
     double cmd_apply_ms;
 };
 
-// Control organization subsequently read by the involved "worker"
+// Control structure subsequently read by the involved "worker"
 struct web_ctrl {
     uint64_t cmd_seq;
     uint32_t cmd_id;
@@ -322,7 +322,7 @@ static inline float be_to_float( uint32_t value ) {
 
 static inline bool pose_matches( float yaw_a, float pitch_a, float zoom_a, float yaw_b, float pitch_b, float zoom_b ) {
 
-    // Purpose: It correlates applied topological variables while tolerating fractional deviations originating from serializations
+    // Purpose: It correlates applied "Pose" variables while tolerating fractional deviations introduced by serialization
 
     const float epsilon = 1e-4f;
 
@@ -481,7 +481,7 @@ static void shared_map_free() {
 
 static inline bool dispatch_pose_control( uint32_t cmd_id, float yaw, float pitch, float zoom, uint64_t command_timestamp, uint64_t *sent_cycles ) {
 
-    // Purpose: It encapsulates & transmits a stace command over the SFF3-facing link, triggering upstream spatial transformations
+    // Purpose: It encapsulates & transmits a "Pose" command over the SFF3-facing link, triggering upstream spatial transformations
 
     if ( cmd_id == 0 || !isfinite( yaw ) || !isfinite( pitch ) || !isfinite( zoom ) || zoom <= 0.0f )
         return false;

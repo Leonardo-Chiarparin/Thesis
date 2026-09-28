@@ -63,7 +63,7 @@
 #define NETWORK_MTU 1500
 #define MBUF_DATA_SIZE ( RTE_PKTMBUF_HEADROOM + NETWORK_MTU + sizeof( struct rte_ether_hdr ) + 64 )
 
-#define POINT_SIZE_BYTES 16 // Such organization ensures the complete datagram remains below the traditional 1500-byte "Eth" broadcast component
+#define POINT_SIZE_BYTES 16 // This layout ensures the complete datagram remains below the traditional 1500-byte "Eth" broadcast component
 
 // Wire-format structures utilized by the "DPDK" data path
 struct cam_hdr { // application header placed immediately after the "UDP" section. It conveys frame details, such as identity, sequence ordering, source timing & relevant downstream control metadata
@@ -242,7 +242,7 @@ static void lock_persistent_pages() {
 
 static void unlock_persistent_pages() {
 
-    // Purpose: It releases every mapping jam established via the initialization phase following transmission completion
+    // Purpose: It releases every locked mapping established during initialisation once transmission has completed
 
     for ( int i = 0; i < loaded_frames; i++ ) {
         if ( frames[ i ].locked_mapping != NULL ) {
@@ -851,7 +851,7 @@ static int worker_loop( __rte_unused void *arg ) {
 int main( int argc, char *argv[] ) {
 
     // Purpose: It instantiates the volumetric acquisition node, configures the "DPDK" endpoint, & streams pre-converted point-cloud frames according to the target schedule.
-    //          "Temporal" requests dictate fount selection exclusively. Geometry & coding remain downstream responsibilities. 
+    //          "Temporal" requests dictate source-frame selection exclusively. Geometry & coding remain downstream responsibilities. 
     //          Diagnostic metrics are shielded in memory until the conveyance terminates
 
     setvbuf( stdout, NULL, _IONBF, 0 );

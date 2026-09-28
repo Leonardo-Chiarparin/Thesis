@@ -1,6 +1,6 @@
 echo "[SYSTEM] Evaluating the \"C\" application for \"SFF1\"..."
 
-# Compiles the "DPDK" program applying maximum optimization flags ( "-03" ) & linking modules natively via "gcc" / "pkg-config"
+# Compiles the "DPDK" program applying maximum optimisation flags ( "-O3" ) & linking modules natively via "gcc" / "pkg-config"
 gcc -O3 /app/c/sff1.c -o /tmp/sff1_dpdk $(pkg-config --cflags --libs libdpdk) -lm
 
 if [ $? -ne 0 ]; then

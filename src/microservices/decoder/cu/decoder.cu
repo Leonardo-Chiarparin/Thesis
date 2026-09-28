@@ -125,7 +125,7 @@ __global__ void erosion_2x2_kernel( const uint8_t *raw_occ, uint8_t *eroded_occ,
 
 __global__ void reconstruct_3d_kernel( const uint8_t *y_plane, const uint8_t *u_plane, const uint8_t *v_plane, const uint8_t *eroded_occ, struct host_point *out_points, uint32_t *valid_count, float global_scale, float bbox_center_x, float bbox_center_y, float bbox_center_z ) {
     
-    // Purpose: It reverses the geometric projection, decoding "YUV" planes back into volumetric space by correlating face mappings & overtuning the "BT.601" color transform
+    // Purpose: It reverses the geometric projection, decoding "YUV" planes back into volumetric space by correlating face mappings & applying the inverse "BT.601" color transform
     
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
