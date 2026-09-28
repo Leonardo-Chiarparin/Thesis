@@ -2820,18 +2820,18 @@ A direct byte-level comparison of the supplied artefacts gives:
 
 | Comparison | "MAE" | "PSNR" | Exact Samples | Maximum Difference |
 |---|---:|---:|---:|---:|
-| Complete `I420` | `0.0397` | `56.08 dB` | `98.29 %` | `25` |
-| `Geometry` | `0.0334` | `58.81 dB` | `97.84 %` | `25` |
-| `Texture-Y` | `0.1089` | `50.85 dB` | `96.52 %` | `22` |
-| `Occupancy` | `0.0098` | `63.32 dB` | `99.50 %` | `13` |
+| Complete `I420` | `0.0395` | `56.13 dB` | `98.30 %` | `27` |
+| `Geometry` | `0.0331` | `58.81 dB` | `97.87 %` | `27` |
+| `Texture-Y` | `0.1083` | `50.93 dB` | `96.51 %` | `24` |
+| `Occupancy` | `0.0098` | `63.28 dB` | `99.51 %` | `13` |
 
 For the complete raw picture, the component-level comparison is:
 
 | `I420` Component | "MAE" | "PSNR" | Exact Samples | Maximum Difference |
 |---|---:|---:|---:|---:|
-| `Y` | `0.0507` | `54.77 dB` | `97.95 %` | `25` |
-| `U` | `0.0180` | `61.40 dB` | `98.94 %` | `21` |
-| `V` | `0.0172` | `61.38 dB` | `98.99 %` | `24` |
+| `Y` | `0.0504` | `54.83 dB` | `97.96 %` | `27` |
+| `U` | `0.0182` | `61.30 dB` | `98.93 %` | `19` |
+| `V` | `0.0171` | `61.35 dB` | `99.01 %` | `24` |
 
 The `Complete I420` figure aggregates all raw `Y`, `U`, & `V` samples & is therefore a frame-specific diagnostic quantity; it must not be substituted for the sequence-level "Geometry-Y" `PSNR-Y` reported in Section 21.10. Likewise, the exact-sample percentage is descriptive rather than a stand-alone quality metric because the atlas contains a large zero-valued background.
 
